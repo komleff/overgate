@@ -162,8 +162,7 @@ git checkout -b "$BRANCH"
 | `$REFERENCE_REPO/.claude/hooks/*` | `.claude/hooks/` | Pre/Post/SessionStart hooks (вкл. `codex-login.sh`) |
 | `$REFERENCE_REPO/.claude/skills/` | `.claude/skills/` | verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit |
 | `$REFERENCE_REPO/.claude/rules/*.md` | `.claude/rules/` | universal.md обязателен; client-*/server.md опционально |
-| `$REFERENCE_REPO/.claude/tools/openai-review.mjs` | `.claude/tools/` | Node.js cross-model review |
-| `$REFERENCE_REPO/.claude/tools/package.json` | `.claude/tools/` | + run `npm ci --ignore-scripts` в `.claude/tools/` при наличии lockfile |
+| `$REFERENCE_REPO/.claude/tools/` (`*.mjs`, `*.ps1`, `package.json`, `README.md`) | `.claude/tools/` | Cross-model review backend (`openai-review.mjs`) + helpers (`codex-account-switch.ps1`, `smoke-test.mjs`) + `package.json` (+ `npm ci --ignore-scripts` при наличии lockfile) |
 
 **Что НЕ копировать:**
 
@@ -210,9 +209,12 @@ for required_skill in finalize-pr external-review verify sprint-pr-cycle pipelin
 done
 
 cp -r "$REFERENCE_REPO/.claude/rules/"*.md .claude/rules/
-cp "$REFERENCE_REPO/.claude/tools/openai-review.mjs" .claude/tools/
-cp "$REFERENCE_REPO/.claude/tools/package.json" .claude/tools/
-# Lockfile (если есть) — копируем для воспроизводимости через npm ci
+# Все tools: review backend (.mjs) + helpers (.ps1) + manifest + README; node_modules исключён (rm ниже)
+for tf in "$REFERENCE_REPO/.claude/tools/"*.mjs "$REFERENCE_REPO/.claude/tools/"*.ps1 \
+          "$REFERENCE_REPO/.claude/tools/package.json" "$REFERENCE_REPO/.claude/tools/README.md"; do
+  [ -f "$tf" ] && cp "$tf" .claude/tools/
+done
+# Lockfile (если есть) — для воспроизводимости через npm ci
 [ -f "$REFERENCE_REPO/.claude/tools/package-lock.json" ] && cp "$REFERENCE_REPO/.claude/tools/package-lock.json" .claude/tools/
 
 # Удалить runtime cache если случайно попал (defensive — на случай если
