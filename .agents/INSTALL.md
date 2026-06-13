@@ -182,15 +182,20 @@ mkdir -p .agents .claude/{agents,hooks,skills,rules,tools}
 # Корневой AGENTS.md — из ШАБЛОНА (.agents/templates/AGENTS.template.md), с fail-closed guard'ом:
 # НЕ перезаписывать существующий target-AGENTS.md (у проекта могут быть свои инструкции).
 # Совпадает с логикой sanity-check .agents/.claude в §B.1 — locаль не уничтожаем без operator-решения.
+AGENTS_TEMPLATE="$REFERENCE_REPO/.agents/templates/AGENTS.template.md"
+if [ ! -f "$AGENTS_TEMPLATE" ]; then
+  echo "СТОП: не найден шаблон $AGENTS_TEMPLATE в reference-репо. Проверь \$REFERENCE_REPO / версию пайплайна."
+  exit 1
+fi
 if [ -e AGENTS.md ]; then
   echo "СТОП: target уже содержит AGENTS.md. Шаблон сохранён рядом как AGENTS.md.overgate-template."
-  cp "$REFERENCE_REPO/.agents/templates/AGENTS.template.md" ./AGENTS.md.overgate-template
+  cp "$AGENTS_TEMPLATE" ./AGENTS.md.overgate-template
   echo "Оператор: смержи generic-секции шаблона в существующий AGENTS.md вручную."
   echo "RE-ENTRY: после merge НЕ перезапускай этот блок (он снова упадёт на существующем AGENTS.md) —"
   echo "          удали AGENTS.md.overgate-template и продолжи установку со следующей команды (cp .agents)."
   exit 1
 fi
-cp "$REFERENCE_REPO/.agents/templates/AGENTS.template.md" ./AGENTS.md   # first-touch файл; плейсхолдеры заполняются в §B.4
+cp "$AGENTS_TEMPLATE" ./AGENTS.md   # first-touch файл; плейсхолдеры заполняются в §B.4
 cp -r "$REFERENCE_REPO/.agents/"*.md .agents/
 cp "$REFERENCE_REPO/.claude/settings.json" .claude/
 cp -r "$REFERENCE_REPO/.claude/agents/"*.md .claude/agents/
@@ -427,9 +432,15 @@ if grep -qE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP
   exit 1
 fi
 # Служебный HTML-комментарий шаблона тоже должен быть удалён (иначе инструкция шаблона уедет в репо).
-if grep -q 'ШАБЛОН OverGate для корневого AGENTS.md' AGENTS.md; then
-  echo "СТОП: в AGENTS.md остался служебный HTML-комментарий шаблона. Удали блок <!-- ШАБЛОН OverGate ... -->."
+# Проверяем стабильный машинный маркер OG-AGENTS-TEMPLATE-v1 (не прозу — она может меняться).
+if grep -q 'OG-AGENTS-TEMPLATE-v1' AGENTS.md; then
+  echo "СТОП: в AGENTS.md остался служебный HTML-комментарий шаблона (маркер OG-AGENTS-TEMPLATE-v1). Удали оба <!-- ... --> блока в шапке."
   exit 1
+fi
+
+# Временный файл, если срабатывал fail-closed guard на существующий AGENTS.md, НЕ коммитим.
+if [ -e AGENTS.md.overgate-template ]; then
+  echo "ВНИМАНИЕ: найден AGENTS.md.overgate-template (артефакт fail-closed guard). Удали его после ручного merge — он не должен попасть в коммит."
 fi
 
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.

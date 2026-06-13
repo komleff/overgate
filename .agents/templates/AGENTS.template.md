@@ -5,6 +5,7 @@ version: "1.0"
 tags: [agents, conventions, navigation]
 ---
 
+<!-- OG-AGENTS-TEMPLATE-v1 — стабильный машинный маркер шаблона; guard в INSTALL §B.6 ищет именно его (не прозу ниже). Удаляется вместе с этим комментарием при заполнении. -->
 <!--
 ШАБЛОН OverGate для корневого AGENTS.md нового проекта. Этот файл живёт по template-пути
 (.agents/templates/AGENTS.template.md) и НЕ является активным AGENTS.md ни для какого репозитория.
