@@ -295,6 +295,9 @@ fi
 .beads/**/*.db
 .beads/dolt-server.*
 .beads-credential-key
+
+# Install merge-артефакт (fail-closed guard на существующий AGENTS.md, §B.3)
+AGENTS.md.overgate-template
 ```
 
 ### B.4 Шаг d — Адаптация (имя проекта, префикс Beads, стек)
@@ -426,21 +429,24 @@ mkdir -p .memory-bank
 #   .beads-credential-key     — НЕ коммитим (в .gitignore)
 # Placeholder-leak guard: корневой AGENTS.md заполнен (§B.4), плейсхолдеров не осталось.
 # Fail-closed — иначе в репозиторий уедет шаблон с <PROJECT_NAME>/<DOC_INDEX> как «активный» first-touch док.
-if grep -qE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP|ABBREVIATIONS)>' AGENTS.md; then
-  echo "СТОП: в AGENTS.md остались незаполненные плейсхолдеры. Заполни их (§B.4) и удали HTML-комментарий шаблона."
-  grep -nE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP|ABBREVIATIONS)>' AGENTS.md
+# Generic-паттерн <UPPER_SNAKE> (3+ симв.) — ловит и новые плейсхолдеры, добавленные в шаблон позже,
+# не только текущий хардкод-список (защита от silent-stale проверки).
+if grep -qE '<[A-Z][A-Z_]{2,}>' AGENTS.md; then
+  echo "СТОП: в AGENTS.md остались незаполненные плейсхолдеры (<UPPER_SNAKE>). Заполни их (§B.4) и удали HTML-комментарий шаблона."
+  grep -nE '<[A-Z][A-Z_]{2,}>' AGENTS.md
   exit 1
 fi
 # Служебный HTML-комментарий шаблона тоже должен быть удалён (иначе инструкция шаблона уедет в репо).
 # Проверяем стабильный машинный маркер OG-AGENTS-TEMPLATE-v1 (не прозу — она может меняться).
 if grep -q 'OG-AGENTS-TEMPLATE-v1' AGENTS.md; then
-  echo "СТОП: в AGENTS.md остался служебный HTML-комментарий шаблона (маркер OG-AGENTS-TEMPLATE-v1). Удали оба <!-- ... --> блока в шапке."
+  echo "СТОП: в AGENTS.md остался служебный HTML-комментарий шаблона (маркер OG-AGENTS-TEMPLATE-v1). Удали блок <!-- OG-AGENTS-TEMPLATE-v1 ... --> целиком."
   exit 1
 fi
 
-# Временный файл, если срабатывал fail-closed guard на существующий AGENTS.md, НЕ коммитим.
+# Артефакт fail-closed guard'а на существующий AGENTS.md. Он уже в .gitignore (см. шаг c) —
+# `git add` его не застейджит, утечь в коммит не может. Здесь — только напоминание удалить после merge.
 if [ -e AGENTS.md.overgate-template ]; then
-  echo "ВНИМАНИЕ: найден AGENTS.md.overgate-template (артефакт fail-closed guard). Удали его после ручного merge — он не должен попасть в коммит."
+  echo "ВНИМАНИЕ: найден AGENTS.md.overgate-template (gitignored merge-артефакт). Удали его после ручного merge."
 fi
 
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.
