@@ -588,7 +588,7 @@ PR #N готов к merge:
 - [ ] `.gitignore` обновлён (runtime artifacts исключены)
 - [ ] `AGENTS.md` присутствует в корне default branch; payload-плейсхолдеры (`<PROJECT_NAME>`, `<PROJECT_DESCRIPTION>`, `<CURRENT_FOCUS>`, `<DOC_INDEX>`, `<CODE_MAP>`, `<ABBREVIATIONS>`) заполнены; generic-секции (Beads, Session Completion, подпись, публикация ревью) на месте
 - [ ] `.claude/rules/beads.md` присутствует (generic-правило bd)
-- [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как рекомендация: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules .agents` находит только строки-запреты (с «НЕ»/«не применяется»/«override»), не рекомендации
+- [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как **рекомендация**. Проверка ручным аудитом-чтением (не построчным автогейтом): `rg "bd dolt (push|pull)" AGENTS.md .claude/rules .agents` — все вхождения должны быть в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/заголовок «Запрещено» может стоять на соседней строке, а не в той же). Recommendation-сигнатур (`Use bd dolt push`, `# Sync with remote`, `Push changes:`, `bd dolt push` в конце сессии) быть не должно
 
 ### D.2 Runtime
 
