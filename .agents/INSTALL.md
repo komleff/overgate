@@ -615,11 +615,14 @@ PR #N готов к merge:
 - [ ] `.claude/rules/beads.md` присутствует (generic-правило bd)
 - [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как **рекомендация**. Scripted-гейт на известные recommendation-сигнатуры (должен вернуть exit 0 / «нет рекомендаций»):
   ```bash
-  if grep -rniE "(use[d]? +bd dolt (push|pull))|(bd dolt (push|pull) +#)|(# *sync with remote)|(push changes:.*bd dolt)|(bd dolt push.*(end of session|конце сессии))" AGENTS.md .claude/rules .agents; then
+  # Scope — только agent-facing guidance (AGENTS.md + .claude/rules). НЕ сканировать .agents/:
+  # INSTALL.md/PIPELINE_ADR.md легитимно обсуждают анти-паттерн (guard'ы, override, это определение
+  # гейта) и дали бы self-match.
+  if grep -rniE "(use[d]? +bd dolt (push|pull))|(bd dolt (push|pull) +#)|(# *sync with remote)|(push changes:.*bd dolt)|(bd dolt push.*(end of session|конце сессии))" AGENTS.md .claude/rules; then
     echo "FAIL: найдена recommendation-сигнатура bd dolt push/pull"; exit 1
   else echo "OK: рекомендаций нет"; fi
   ```
-  Дополнительно — ручной аудит-чтением: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules .agents` → все вхождения в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/«Запрещено» может стоять на соседней строке). Построчным автогейтом эту часть НЕ проверять — даст ложные срабатывания на multiline-контексте
+  Дополнительно — ручной аудит-чтением: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules` → все вхождения в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/«Запрещено» может стоять на соседней строке). Построчным автогейтом эту часть НЕ проверять — даст ложные срабатывания на multiline-контексте
 
 ### D.2 Runtime
 
