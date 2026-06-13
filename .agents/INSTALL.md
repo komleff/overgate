@@ -159,7 +159,7 @@ git checkout -b "$BRANCH"
 | `$REFERENCE_REPO/.agents/*.md` | `.agents/` | Все markdown — доктрина (10 файлов: см. §F полный список) |
 | `$REFERENCE_REPO/.claude/settings.json` | `.claude/settings.json` | Hooks + deny rules + permissions |
 | `$REFERENCE_REPO/.claude/agents/*.md` | `.claude/agents/` | Native subagents |
-| `$REFERENCE_REPO/.claude/hooks/*.py` | `.claude/hooks/` | Pre/Post tool use hooks |
+| `$REFERENCE_REPO/.claude/hooks/*` | `.claude/hooks/` | Pre/Post/SessionStart hooks (вкл. `codex-login.sh`) |
 | `$REFERENCE_REPO/.claude/skills/` | `.claude/skills/` | verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit |
 | `$REFERENCE_REPO/.claude/rules/*.md` | `.claude/rules/` | universal.md обязателен; client-*/server.md опционально |
 | `$REFERENCE_REPO/.claude/tools/openai-review.mjs` | `.claude/tools/` | Node.js cross-model review |
@@ -181,7 +181,7 @@ mkdir -p .agents .claude/{agents,hooks,skills,rules,tools}
 cp -r "$REFERENCE_REPO/.agents/"*.md .agents/
 cp "$REFERENCE_REPO/.claude/settings.json" .claude/
 cp -r "$REFERENCE_REPO/.claude/agents/"*.md .claude/agents/
-cp -r "$REFERENCE_REPO/.claude/hooks/"*.py .claude/hooks/
+cp -r "$REFERENCE_REPO/.claude/hooks/"* .claude/hooks/
 
 # skills/ — preventive cleanup runtime cache в reference перед копированием
 # (rsync с exclude если доступен; иначе cp + reactive rm)
@@ -338,7 +338,7 @@ done
   - `verify/SKILL.md` + `.claude/rules/tests.md` — поставляются с `<PLACEHOLDER>`-командами/baseline'ами, которые **заполняются** под стек (не удаляются и не «уже generic»);
   - `sync-docs/SKILL.md` + `sync-site-gdd/SKILL.md` — **EXAMPLE** doc/site-навигация: адаптируй пути или удали `sync-site-gdd`, если нет публичного сайта. НЕ считай их «generic, ничего не делать».
 - **U2-payload скиллы/правила, которых в этом overgate-репозитории НЕТ** (`game-designer`, `mobile-game-analyst`, `.claude/rules/server.md`, `.claude/rules/client-*.md`): это содержимое dogfood-проекта U2. Если твой reference-репо их притащил — относись к ним как к стек/домен-специфике (адаптируй или удали), они не часть generic-ядра OverGate.
-- Все `.claude/hooks/*.py` — generic enforcement
+- Все `.claude/hooks/*` — generic enforcement
 - `.claude/settings.json` — generic, deny rules универсальны. ⚠️ PreToolUse-хук `Bash(git commit*)` запускает npm-тесты только при наличии `package.json` (в не-npm проекте — no-op); это уже учтено и не требует правок.
 
 **Адаптация Beads-префикса:**
@@ -478,7 +478,7 @@ EOF
 
 **Иначе если `OPENAI_API_KEY` установлен** → **Mode A-legacy (v3.6 baseline)**: через `openai-review.mjs` (Node.js native Platform API). GPT-5.5 primary + GPT-5.3-Codex или GPT-5.4 fallback.
 
-**Если оба пути недоступны** → Mode C (Claude adversarial) — degraded. **Scope ограничен ADR 3.20: только doc-only landing commit, НЕ для full Bootstrap PR.** Bootstrap PR содержит executable infrastructure (`.claude/hooks/*.py`, `.claude/settings.json`, deny rules, `openai-review.mjs`, skills) — security-sensitive код, для которого требуется cross-model adversarial diversity. Если ни Codex CLI subscription, ни `OPENAI_API_KEY` недоступны на установочной машине — оператор должен либо настроить один из двух путей, либо явно принять risk через operator acceptance перед `/finalize-pr` (Mode D через ручное Copilot review).
+**Если оба пути недоступны** → Mode C (Claude adversarial) — degraded. **Scope ограничен ADR 3.20: только doc-only landing commit, НЕ для full Bootstrap PR.** Bootstrap PR содержит executable infrastructure (`.claude/hooks/*`, `.claude/settings.json`, deny rules, `openai-review.mjs`, skills) — security-sensitive код, для которого требуется cross-model adversarial diversity. Если ни Codex CLI subscription, ни `OPENAI_API_KEY` недоступны на установочной машине — оператор должен либо настроить один из двух путей, либо явно принять risk через operator acceptance перед `/finalize-pr` (Mode D через ручное Copilot review).
 
 **Stateless model dedup:** GPT-5.5 не помнит предыдущие итерации. Если он повторяет finding, который PM уже triage'нул в предыдущей итерации — PM агрегирует как duplicate, не запускает повторный fix-cycle (см. `AGENT_ROLES.md §3 Reviewer`).
 
