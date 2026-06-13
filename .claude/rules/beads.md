@@ -3,7 +3,7 @@ description: Правила работы с трекером задач Beads (b
 globs: "**/*"
 ---
 
-<!-- Извлечено из U2 dogfood, PR #407 (komleff/u2). Generic-правило пайплайна. -->
+<!-- Generic-правило пайплайна (provenance — git history + PIPELINE_ADR ADR 3.7). -->
 
 # Правила работы с задачами Beads (трекер задач пайплайна)
 

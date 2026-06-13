@@ -185,7 +185,9 @@ mkdir -p .agents .claude/{agents,hooks,skills,rules,tools}
 if [ -e AGENTS.md ]; then
   echo "СТОП: target уже содержит AGENTS.md. Шаблон сохранён рядом как AGENTS.md.overgate-template."
   cp "$REFERENCE_REPO/.agents/templates/AGENTS.template.md" ./AGENTS.md.overgate-template
-  echo "Оператор: смержи generic-секции шаблона в существующий AGENTS.md вручную, затем продолжи."
+  echo "Оператор: смержи generic-секции шаблона в существующий AGENTS.md вручную."
+  echo "RE-ENTRY: после merge НЕ перезапускай этот блок (он снова упадёт на существующем AGENTS.md) —"
+  echo "          удали AGENTS.md.overgate-template и продолжи установку со следующей команды (cp .agents)."
   exit 1
 fi
 cp "$REFERENCE_REPO/.agents/templates/AGENTS.template.md" ./AGENTS.md   # first-touch файл; плейсхолдеры заполняются в §B.4
@@ -424,6 +426,11 @@ if grep -qE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP
   grep -nE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP|ABBREVIATIONS)>' AGENTS.md
   exit 1
 fi
+# Служебный HTML-комментарий шаблона тоже должен быть удалён (иначе инструкция шаблона уедет в репо).
+if grep -q 'ШАБЛОН OverGate для корневого AGENTS.md' AGENTS.md; then
+  echo "СТОП: в AGENTS.md остался служебный HTML-комментарий шаблона. Удали блок <!-- ШАБЛОН OverGate ... -->."
+  exit 1
+fi
 
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.
 git add AGENTS.md .agents/ .claude/ .gitignore .beads/ .memory-bank/
@@ -606,7 +613,13 @@ PR #N готов к merge:
 - [ ] `.gitignore` обновлён (runtime artifacts исключены)
 - [ ] `AGENTS.md` присутствует в корне default branch; payload-плейсхолдеры (`<PROJECT_NAME>`, `<PROJECT_DESCRIPTION>`, `<CURRENT_FOCUS>`, `<DOC_INDEX>`, `<CODE_MAP>`, `<ABBREVIATIONS>`) заполнены; generic-секции (Beads, Session Completion, подпись, публикация ревью) на месте
 - [ ] `.claude/rules/beads.md` присутствует (generic-правило bd)
-- [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как **рекомендация**. Проверка ручным аудитом-чтением (не построчным автогейтом): `rg "bd dolt (push|pull)" AGENTS.md .claude/rules .agents` — все вхождения должны быть в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/заголовок «Запрещено» может стоять на соседней строке, а не в той же). Recommendation-сигнатур (`Use bd dolt push`, `# Sync with remote`, `Push changes:`, `bd dolt push` в конце сессии) быть не должно
+- [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как **рекомендация**. Scripted-гейт на известные recommendation-сигнатуры (должен вернуть exit 0 / «нет рекомендаций»):
+  ```bash
+  if grep -rniE "(use[d]? +bd dolt (push|pull))|(bd dolt (push|pull) +#)|(# *sync with remote)|(push changes:.*bd dolt)|(bd dolt push.*(end of session|конце сессии))" AGENTS.md .claude/rules .agents; then
+    echo "FAIL: найдена recommendation-сигнатура bd dolt push/pull"; exit 1
+  else echo "OK: рекомендаций нет"; fi
+  ```
+  Дополнительно — ручной аудит-чтением: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules .agents` → все вхождения в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/«Запрещено» может стоять на соседней строке). Построчным автогейтом эту часть НЕ проверять — даст ложные срабатывания на multiline-контексте
 
 ### D.2 Runtime
 
