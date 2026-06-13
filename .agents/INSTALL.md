@@ -156,12 +156,13 @@ git checkout -b "$BRANCH"
 
 | Источник | Назначение | Примечание |
 |----------|-----------|------------|
+| `$REFERENCE_REPO/AGENTS.md` | `AGENTS.md` (корень) | First-touch инструкция для ИИ-агентов: generic-секции (Beads, Session Completion, подпись, публикация ревью) + payload-плейсхолдеры (адаптируются в §B.4) |
 | `$REFERENCE_REPO/.agents/*.md` | `.agents/` | Все markdown — доктрина (10 файлов: см. §F полный список) |
 | `$REFERENCE_REPO/.claude/settings.json` | `.claude/settings.json` | Hooks + deny rules + permissions |
 | `$REFERENCE_REPO/.claude/agents/*.md` | `.claude/agents/` | Native subagents |
 | `$REFERENCE_REPO/.claude/hooks/*` | `.claude/hooks/` | Pre/Post/SessionStart hooks (вкл. `codex-login.sh`) |
 | `$REFERENCE_REPO/.claude/skills/` | `.claude/skills/` | verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit |
-| `$REFERENCE_REPO/.claude/rules/*.md` | `.claude/rules/` | universal.md обязателен; client-*/server.md опционально |
+| `$REFERENCE_REPO/.claude/rules/*.md` | `.claude/rules/` | universal.md и beads.md обязательны (generic); client-*/server.md опционально (payload) |
 | `$REFERENCE_REPO/.claude/tools/` (`*.mjs`, `*.ps1`, `package.json`, `README.md`) | `.claude/tools/` | Cross-model review backend (`openai-review.mjs`) + helpers (`codex-account-switch.ps1`, `smoke-test.mjs`) + `package.json` (+ `npm ci --ignore-scripts` при наличии lockfile) |
 
 **Что НЕ копировать:**
@@ -177,6 +178,7 @@ git checkout -b "$BRANCH"
 
 ```bash
 mkdir -p .agents .claude/{agents,hooks,skills,rules,tools}
+cp "$REFERENCE_REPO/AGENTS.md" ./AGENTS.md          # корневой first-touch файл (шаблон, адаптируется в §B.4)
 cp -r "$REFERENCE_REPO/.agents/"*.md .agents/
 cp "$REFERENCE_REPO/.claude/settings.json" .claude/
 cp -r "$REFERENCE_REPO/.claude/agents/"*.md .claude/agents/
@@ -287,6 +289,7 @@ fi
 | Файл | Что заменить | На что |
 |------|--------------|--------|
 | `.agents/*.md` ВСЕ файлы (frontmatter `source:`) | `github.com/<reference-owner>/<reference-repo>/...` | `github.com/<your-owner>/<your-repo>/...` — source-only command ниже, без переписывания body. Owner и repo определи через shell-команду в code block ниже (НЕ inline, чтобы pipe `\|` не сломался при copy-paste). |
+| `AGENTS.md` (корень) | плейсхолдеры `<PROJECT_NAME>`, `<PROJECT_DESCRIPTION>`, `<CURRENT_FOCUS>`, `<DOC_INDEX>`, `<CODE_MAP>`, `<ABBREVIATIONS>` | **Заполни** под проект. Generic-секции (Beads, Session Completion, подпись AI-агентов, публикация ревью, временные файлы) — **не трогать**. Удали верхний HTML-комментарий-инструкцию шаблона после заполнения. |
 | `.agents/PM_ROLE.md` строка `**Проект:** Universe Unlimited (U2)` | `Universe Unlimited (U2)` | Имя твоего проекта |
 | `.agents/AGENT_ROLES.md` (frontmatter + строка 12 `Agent Roles — Universe Unlimited (U2)`) | `Universe Unlimited (U2)` | Имя твоего проекта |
 | `.agents/PIPELINE.md` (frontmatter + заголовок `Пайплайн разработки Universe Unlimited (U2)`) | `Universe Unlimited (U2)` | Имя твоего проекта |
@@ -352,9 +355,17 @@ done
 **Beads:**
 
 ```bash
-bd init                                    # создаёт .beads/, .gitignore-entries
+# --skip-agents ОБЯЗАТЕЛЕН: без него bd сгенерирует в AGENTS.md свой блок BEADS
+# INTEGRATION, который рекомендует `bd dolt push/pull` как путь синхронизации.
+# В этом пайплайне sync — только через ветку beads-backup (см. .claude/rules/beads.md);
+# AGENTS.md уже скопирован из reference на шаге c с правильным разделом про Beads.
+bd init --skip-agents                      # создаёт .beads/, .gitignore-entries; AGENTS.md НЕ трогает
 bd doctor                                  # health check — должен быть зелёный
 bd ready --json >/dev/null                 # acceptance check: tracker query работает
+
+# ⚠️ `bd prime` / `bd onboard` (и SessionStart-хук, инжектящий `bd prime`) могут советовать
+# `bd dolt push` — это upstream-дефолт, ПЕРЕОПРЕДЕЛЁН правилом .claude/rules/beads.md.
+# Синхронизация трекера — только: bd backup export-git --force / bd backup fetch-git.
 
 # ВНИМАНИЕ: per ADR 3.21 — только single-quotes для bd commands.
 # Double-quoted с $VAR / $(date) bash раскрывает ДО передачи в bd, и
@@ -397,7 +408,7 @@ mkdir -p .memory-bank
 #   .beads/config.json        — local config (commit)
 #   .beads-credential-key     — НЕ коммитим (в .gitignore)
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.
-git add .agents/ .claude/ .gitignore .beads/ .memory-bank/
+git add AGENTS.md .agents/ .claude/ .gitignore .beads/ .memory-bank/
 git status                                  # покажи оператору
 # Спроси: "один большой коммит ОК?"
 
@@ -575,6 +586,9 @@ PR #N готов к merge:
 - [ ] `.claude/skills/` содержит как минимум: `verify`, `sprint-pr-cycle`, `external-review`, `finalize-pr`, `pipeline-audit`
 - [ ] `.claude/tools/` укомплектован: `openai-review.mjs`, `codex-account-switch.ps1`, `smoke-test.mjs`, `package.json`, `README.md` присутствуют, `npm ci --ignore-scripts` отработал. **Если `package-lock.json` отсутствует** — fail-closed по умолчанию (`exit 1`); fallback `npm install --ignore-scripts` разрешён ТОЛЬКО при явном `INSTALL_ALLOW_NPM_DRIFT=1` operator acceptance (см. §B.3)
 - [ ] `.gitignore` обновлён (runtime artifacts исключены)
+- [ ] `AGENTS.md` присутствует в корне default branch; payload-плейсхолдеры (`<PROJECT_NAME>`, `<PROJECT_DESCRIPTION>`, `<CURRENT_FOCUS>`, `<DOC_INDEX>`, `<CODE_MAP>`, `<ABBREVIATIONS>`) заполнены; generic-секции (Beads, Session Completion, подпись, публикация ревью) на месте
+- [ ] `.claude/rules/beads.md` присутствует (generic-правило bd)
+- [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как рекомендация: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules .agents` находит только строки-запреты (с «НЕ»/«не применяется»/«override»), не рекомендации
 
 ### D.2 Runtime
 
