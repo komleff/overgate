@@ -251,7 +251,7 @@ fi
 
 ```gitignore
 # Claude Code: коммитим shared pipeline-инфру (settings.json, hooks, agents,
-# skills, rules, tools/*.mjs, tools/package.json) для cross-machine portability.
+# skills, rules, tools/*.mjs, tools/*.ps1, tools/package.json) для cross-machine portability.
 # Исключаем только runtime artifacts и personal overrides.
 .claude/settings.local.json
 .claude/worktrees/
@@ -434,7 +434,7 @@ gh pr create \
 Bootstrap OverGate pipeline в новый проект.
 
 - `.agents/` — доктрина (10 файлов): AGENTIC_PIPELINE, AGENT_ROLES, PM_ROLE, PIPELINE, PIPELINE_ADR, HOW_TO_USE, REFERENCES, INSTALL, CODEX_AUTH (legacy fallback для Codex CLI), pipeline-improvement-plan-v3.3 (исторический snapshot)
-- `.claude/` — исполнение: settings.json, agents/, hooks/, skills/ (verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit), rules/, tools/openai-review.mjs
+- `.claude/` — исполнение: settings.json, agents/, hooks/, skills/ (verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit), rules/, tools/ (openai-review.mjs + helpers .mjs/.ps1 + README)
 
 ## Reference
 - Source: U2 PR #185 (21 коммит, 7 итераций cross-model review GPT-5.4/5.5 mixed)
@@ -571,8 +571,9 @@ PR #N готов к merge:
 
 - [ ] `.agents/` присутствует в default branch с 10 doctrine-файлами: AGENTIC_PIPELINE, AGENT_ROLES, PM_ROLE, PIPELINE, PIPELINE_ADR, HOW_TO_USE, REFERENCES, INSTALL, CODEX_AUTH, pipeline-improvement-plan-v3.3
 - [ ] `.claude/settings.json` присутствует в default branch
+- [ ] `.claude/hooks/` укомплектован: `check-merge-ready.py`, `test_check_merge_ready.py`, `codex-login.sh` (SessionStart-хук из `settings.json` — без него `bash .claude/hooks/codex-login.sh` укажет на missing file)
 - [ ] `.claude/skills/` содержит как минимум: `verify`, `sprint-pr-cycle`, `external-review`, `finalize-pr`, `pipeline-audit`
-- [ ] `.claude/tools/openai-review.mjs` + `package.json` присутствуют, `npm ci --ignore-scripts` отработал. **Если `package-lock.json` отсутствует** — fail-closed по умолчанию (`exit 1`); fallback `npm install --ignore-scripts` разрешён ТОЛЬКО при явном `INSTALL_ALLOW_NPM_DRIFT=1` operator acceptance (см. §B.3)
+- [ ] `.claude/tools/` укомплектован: `openai-review.mjs`, `codex-account-switch.ps1`, `smoke-test.mjs`, `package.json`, `README.md` присутствуют, `npm ci --ignore-scripts` отработал. **Если `package-lock.json` отсутствует** — fail-closed по умолчанию (`exit 1`); fallback `npm install --ignore-scripts` разрешён ТОЛЬКО при явном `INSTALL_ALLOW_NPM_DRIFT=1` operator acceptance (см. §B.3)
 - [ ] `.gitignore` обновлён (runtime artifacts исключены)
 
 ### D.2 Runtime
