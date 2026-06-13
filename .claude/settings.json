@@ -1,0 +1,129 @@
+{
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "PYTHONIOENCODING": "utf-8"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "TodoWrite",
+      "Task",
+      "NotebookEdit"
+    ],
+    "deny": [
+      "Read(.env*)",
+      "Read(**/credentials*)",
+      "Read(**/secrets*)",
+      "Bash(rm -rf *)",
+      "Bash(rm -r *)",
+      "Bash(rm -fr *)",
+      "Bash(rmdir *)",
+      "Bash(Remove-Item -Recurse *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push origin main)",
+      "Bash(git push * main)",
+      "Bash(git push origin HEAD:main)",
+      "Bash(git push * HEAD:main)",
+      "Bash(git push origin master)",
+      "Bash(git push * master)",
+      "Bash(git push origin HEAD:master)",
+      "Bash(git push * HEAD:master)",
+      "Bash(gh pr merge *)",
+      "Bash(gh api *merge*)",
+      "Bash(gh repo delete *)",
+      "Bash(gh api -X DELETE *)",
+      "Bash(docker compose -f docker-compose.prod.yml*)",
+      "Bash(docker compose * down*)",
+      "Bash(gh repo edit*)",
+      "Bash(gh secret set*)",
+      "Bash(gh secret delete*)",
+      "Bash(gh secret remove*)",
+      "Bash(bd delete*)",
+      "Bash(bd backup * --force*)",
+      "Bash(bd backup export-git --force*)",
+      "Bash(git push * --delete*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fd*)",
+      "Bash(git clean -fdx*)",
+      "Bash(git checkout -- *)",
+      "Bash(git checkout .)",
+      "Bash(cat .env*)",
+      "Bash(cat **/credentials*)",
+      "Bash(cat **/secrets*)",
+      "Bash(printf*.env*)",
+      "Bash(head .env*)",
+      "Bash(tail .env*)",
+      "Bash(less .env*)",
+      "Bash(more .env*)",
+      "Bash(python -c *open*.env*)",
+      "Bash(python3 -c *open*.env*)",
+      "Bash(node -e *readFile*.env*)",
+      "Edit(.git/**)",
+      "Write(.git/**)",
+      "Edit(.gitignore)",
+      "Write(.gitignore)",
+      "Edit(.gitattributes)",
+      "Write(.gitattributes)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "enableAllProjectMcpServers": false,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/codex-login.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [ -f package.json ]; then npm run test --if-present || (echo \"{\\\"decision\\\": \\\"block\\\", \\\"reason\\\": \\\"Тесты падают. Исправь перед коммитом.\\\"}\" && exit 2); fi'",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(*gh pr comment*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'HOOK=.claude/hooks/check-merge-ready.py; for cmd in py python3 python; do if command -v \"$cmd\" >/dev/null 2>&1; then if [ \"$cmd\" = \"py\" ]; then \"$cmd\" -3 \"$HOOK\"; else \"$cmd\" \"$HOOK\"; fi; exit $?; fi; done; echo \"БЛОКИРОВКА: Python-интерпретатор не найден (py/python3/python). Hook не может выполниться fail-secure.\" >&2; exit 1'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Файл изменён. Убедись, что тесты проходят перед коммитом.'"
+          }
+        ]
+      }
+    ]
+  },
+  "language": "russian",
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true,
+  "plansDirectory": "./docs/plans"
+}

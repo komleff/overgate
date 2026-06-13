@@ -1,0 +1,17 @@
+# Runtime / build
+node_modules/
+*.log
+.DS_Store
+
+# Beads / Dolt (runtime state, не в git)
+.dolt/
+.beads/*.db
+.beads/*.sqlite
+.beads-credential-key
+
+# Codex / external-review runtime
+.codex/
+.claude/skills/external-review/.runtime/
+
+# Personal overrides
+.claude/settings.local.json
