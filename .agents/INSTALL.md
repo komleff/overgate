@@ -156,7 +156,7 @@ git checkout -b "$BRANCH"
 
 | Источник | Назначение | Примечание |
 |----------|-----------|------------|
-| `$REFERENCE_REPO/AGENTS.md` | `AGENTS.md` (корень) | First-touch инструкция для ИИ-агентов: generic-секции (Beads, Session Completion, подпись, публикация ревью) + payload-плейсхолдеры (адаптируются в §B.4) |
+| `$REFERENCE_REPO/.agents/templates/AGENTS.template.md` | `AGENTS.md` (корень) | First-touch инструкция: generic-секции (Beads, Session Completion, подпись, публикация ревью) + payload-плейсхолдеры (заполняются в §B.4). **Копировать с fail-closed guard'ом** (см. cp-блок) — не перезаписывать существующий target-`AGENTS.md` |
 | `$REFERENCE_REPO/.agents/*.md` | `.agents/` | Все markdown — доктрина (10 файлов: см. §F полный список) |
 | `$REFERENCE_REPO/.claude/settings.json` | `.claude/settings.json` | Hooks + deny rules + permissions |
 | `$REFERENCE_REPO/.claude/agents/*.md` | `.claude/agents/` | Native subagents |
@@ -178,7 +178,17 @@ git checkout -b "$BRANCH"
 
 ```bash
 mkdir -p .agents .claude/{agents,hooks,skills,rules,tools}
-cp "$REFERENCE_REPO/AGENTS.md" ./AGENTS.md          # корневой first-touch файл (шаблон, адаптируется в §B.4)
+
+# Корневой AGENTS.md — из ШАБЛОНА (.agents/templates/AGENTS.template.md), с fail-closed guard'ом:
+# НЕ перезаписывать существующий target-AGENTS.md (у проекта могут быть свои инструкции).
+# Совпадает с логикой sanity-check .agents/.claude в §B.1 — locаль не уничтожаем без operator-решения.
+if [ -e AGENTS.md ]; then
+  echo "СТОП: target уже содержит AGENTS.md. Шаблон сохранён рядом как AGENTS.md.overgate-template."
+  cp "$REFERENCE_REPO/.agents/templates/AGENTS.template.md" ./AGENTS.md.overgate-template
+  echo "Оператор: смержи generic-секции шаблона в существующий AGENTS.md вручную, затем продолжи."
+  exit 1
+fi
+cp "$REFERENCE_REPO/.agents/templates/AGENTS.template.md" ./AGENTS.md   # first-touch файл; плейсхолдеры заполняются в §B.4
 cp -r "$REFERENCE_REPO/.agents/"*.md .agents/
 cp "$REFERENCE_REPO/.claude/settings.json" .claude/
 cp -r "$REFERENCE_REPO/.claude/agents/"*.md .claude/agents/
@@ -407,6 +417,14 @@ mkdir -p .memory-bank
 #   .beads/issues.jsonl       — task tracker state (commit)
 #   .beads/config.json        — local config (commit)
 #   .beads-credential-key     — НЕ коммитим (в .gitignore)
+# Placeholder-leak guard: корневой AGENTS.md заполнен (§B.4), плейсхолдеров не осталось.
+# Fail-closed — иначе в репозиторий уедет шаблон с <PROJECT_NAME>/<DOC_INDEX> как «активный» first-touch док.
+if grep -qE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP|ABBREVIATIONS)>' AGENTS.md; then
+  echo "СТОП: в AGENTS.md остались незаполненные плейсхолдеры. Заполни их (§B.4) и удали HTML-комментарий шаблона."
+  grep -nE '<(PROJECT_NAME|PROJECT_DESCRIPTION|CURRENT_FOCUS|DOC_INDEX|CODE_MAP|ABBREVIATIONS)>' AGENTS.md
+  exit 1
+fi
+
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.
 git add AGENTS.md .agents/ .claude/ .gitignore .beads/ .memory-bank/
 git status                                  # покажи оператору

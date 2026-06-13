@@ -1,23 +1,32 @@
 ---
-title: "OverGate — правила для ИИ-агентов"
+title: "<PROJECT_NAME> — правила для ИИ-агентов"
 status: primary
 version: "1.0"
-tags: [agents, conventions, navigation, pipeline]
+tags: [agents, conventions, navigation]
 ---
 
-# OverGate — правила для ИИ-агентов
+<!--
+ШАБЛОН OverGate для корневого AGENTS.md нового проекта. Этот файл живёт по template-пути
+(.agents/templates/AGENTS.template.md) и НЕ является активным AGENTS.md ни для какого репозитория.
+Установщик (INSTALL.md §B.3) копирует его в корень target-проекта как AGENTS.md, после чего
+§B.4 заполняет плейсхолдеры. Generic-секции (Beads, Session Completion, подпись AI-агентов,
+публикация ревью, временные файлы) — оставить как есть. Payload-плейсхолдеры заполнить:
+<PROJECT_NAME>, <PROJECT_DESCRIPTION>, <CURRENT_FOCUS>, <DOC_INDEX>, <CODE_MAP>, <ABBREVIATIONS>.
+После заполнения удалить этот HTML-комментарий. Перед commit проверить, что плейсхолдеров не
+осталось (INSTALL §B.6 placeholder-leak guard).
+-->
 
-Этот файл — короткая инструкция первого касания для любого ИИ-агента, который начинает работу в репозитории. Прочитай его целиком, потом переходи к `README.md` и `.agents/`.
+# <PROJECT_NAME> — правила для ИИ-агентов
 
-> Шаблон этого файла для установки в новые проекты — `.agents/templates/AGENTS.template.md` (копируется установщиком, см. `.agents/INSTALL.md` §B.3). Этот корневой `AGENTS.md` — рабочий документ самого OverGate, без плейсхолдеров.
+Этот файл — короткая инструкция первого касания для любого ИИ-агента, который начинает работу в репозитории. Прочитай его целиком, потом переходи к `<DOC_INDEX>` и `.memory-bank/`.
 
 ## О проекте
 
-**OverGate** — переносимый AI-пайплайн разработки: PM-оркестрация, разделение ролей, кросс-модельное adversarial-ревью, hard-гейты перед merge (v3.9). Это **reference-репозиторий эталона пайплайна**, а не продуктовый проект: здесь живёт generic-ядро (доктрина + исполнение), которое устанавливается в другие проекты через `.agents/INSTALL.md`. Dogfood-инстанс, где пайплайн обкатывается на живом продукте, — `komleff/u2`.
+<PROJECT_DESCRIPTION>
 
 ## Текущий фокус разработки
 
-Поддержка и эволюция эталона: перенос проверенных в dogfood (U2) generic-улучшений, синхронизация доктрины и исполнения, развитие установщика. Продуктовый/игровой контент сюда не попадает — он остаётся в проектах-инстансах.
+<CURRENT_FOCUS>
 
 ## Memory Bank
 
@@ -28,7 +37,7 @@ tags: [agents, conventions, navigation, pipeline]
 | `.memory-bank/projectbrief.md` | Цели, ограничения, milestone-история |
 | `.memory-bank/productContext.md` | Зачем проект, пользовательский опыт |
 | `.memory-bank/systemPatterns.md` | Архитектура, паттерны, тайминги |
-| `.memory-bank/techContext.md` | Стек, команды, структура |
+| `.memory-bank/techContext.md` | Стек, команды, структура, порты |
 | `.memory-bank/activeContext.md` | Текущая работа, последние изменения, блокеры |
 | `.memory-bank/progress.md` | Что готово, что в процессе, метрики |
 
@@ -37,18 +46,13 @@ tags: [agents, conventions, navigation, pipeline]
 ## Первое, что делать перед задачей
 
 1. `.memory-bank/activeContext.md` + `.memory-bank/progress.md` — текущее состояние.
-2. `README.md` — обзор пайплайна и карта `.agents/` / `.claude/`.
-3. Если задача затрагивает архитектуру/процесс пайплайна — `.agents/PIPELINE_ADR.md` (реестр решений) и `docs/architecture/ADR-INDEX.md`. Противоречишь записи — стоп, нужен ADR-пересмотр, а не «улучшение по ходу».
-4. Релевантная доктрина из `.agents/` (`AGENT_ROLES.md`, `PM_ROLE.md`, `PIPELINE.md`, `INSTALL.md`).
+2. `<DOC_INDEX>` — карта документации.
+3. Если задача затрагивает архитектуру/процесс — `docs/architecture/ADR-INDEX.md` (реестр канон-решений; противоречишь записи — стоп, нужен ADR-пересмотр, а не «улучшение по ходу»).
+4. Релевантные документы (обычно 1–3 файла со статусом `primary` / `active`).
 
 ## Карта кода
 
-| Папка | Что там |
-|---|---|
-| `.agents/` | Доктрина пайплайна: роли, ADR, INSTALL, философия (10 файлов) |
-| `.claude/` | Исполнение: `agents/` (нативные субагенты), `hooks/`, `skills/`, `rules/`, `tools/`, `settings.json` |
-| `docs/architecture/` | ADR-процесс (шаблон + индекс) |
-| `.memory-bank/` | Контекст между сессиями |
+<CODE_MAP>
 
 ## Язык и стиль
 
@@ -56,8 +60,7 @@ tags: [agents, conventions, navigation, pipeline]
 
 ## Имена и сокращения
 
-- `OverGate` / `overgate` = этот репозиторий — эталон пайплайна.
-- `U2` = `komleff/u2`, dogfood-инстанс, на котором пайплайн обкатывается; в доктрине часто фигурирует как reference baseline (например, U2 PR #185).
+<ABBREVIATIONS>
 
 ## Многомашинная работа
 
