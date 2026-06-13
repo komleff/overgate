@@ -180,6 +180,21 @@ related:
 
 **Источник:** [Beads — AI Issue Tracker](https://habr.com/ru/articles/912174/).
 
+**Операционные правила (важно — извлечено из U2 dogfood, PR #407):**
+
+- **Dolt — backend, не интерфейс.** Синхронизация задач между машинами — только через служебную
+  git-ветку `beads-backup` (`bd backup export-git --force` / `bd backup fetch-git`), **НЕ**
+  `bd dolt push` / `bd dolt pull` — даже если upstream `bd prime` / `bd onboard` их предлагают
+  (это upstream-дефолт, переопределённый правилом проекта).
+- **`bd` — только из основного checkout, не из git-worktree.** Dolt runtime привязан к checkout и
+  не переключается с git-веткой: в worktree `bd` создаёт пустую базу (рвёт синхронизацию) и плодит
+  lock-зависания (`database "dolt" is locked`).
+- **Локальный `.beads/issues.jsonl` — обрывок, не источник истины** (полный набор — в ветке
+  `beads-backup`).
+- Полные правила и troubleshooting (lock через `lsof .beads/dolt/.dolt/noms/LOCK` → `kill -9`) —
+  `.claude/rules/beads.md`. При установке в новый проект — `bd init --skip-agents` (см. `INSTALL.md`
+  §B.5), чтобы upstream `bd dolt push`-guidance не попал в `AGENTS.md`.
+
 ### 3.8 Pre-commit хуки (тесты перед коммитом)
 
 **Решение:** `.claude/settings.json` содержит hook `PreToolUse` на `Bash(git commit*)`: запуск `npm run test` перед каждым коммитом.
