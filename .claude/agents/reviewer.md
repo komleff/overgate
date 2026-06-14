@@ -203,16 +203,19 @@ PM соберёт из META итоговый JSON-блок и опубликуе
 > Вердикт, не опубликованный в PR, оператор игнорирует.
 
 ```bash
-# Inline через heredoc (единственный допустимый способ для длинных отчётов):
-gh pr comment <NUMBER> --body "$(cat <<'EOF'
+# Inline через heredoc с УНИКАЛЬНЫМ high-entropy делимитером:
+# <RAND> — НЕ копируй буквально: сгенерируй `openssl rand -hex 8`,
+# вставь суффикс в обе строки делимитера и до запуска команды проверь,
+# что тело не содержит выбранный делимитер как отдельную строку.
+gh pr comment <NUMBER> --body "$(cat <<'GH_BODY_<RAND>'
 ## Вердикт: [APPROVED / CHANGES_REQUESTED]
 ...
 
 — Reviewer ([Модель])
-EOF
+GH_BODY_<RAND>
 )"
 ```
 
-> ⚠️ **Флаги `--body-file` / `-F` ЗАПРЕЩЕНЫ** для `gh pr comment` вне `/finalize-pr`: PreToolUse hook `.claude/hooks/check-merge-ready.py` блокирует их, потому что не может провалидировать содержимое файла. Используй inline `--body "..."` (для коротких отчётов) или `--body "$(cat <<'EOF' ... EOF)"` (heredoc для длинных).
+> ⚠️ **Флаги `--body-file` / `-F` ЗАПРЕЩЕНЫ** для `gh pr comment` вне `/finalize-pr`: PreToolUse hook `.claude/hooks/check-merge-ready.py` блокирует их, потому что не может провалидировать содержимое файла. Используй inline `--body "..."` (для коротких отчётов) или `--body "$(cat <<'GH_BODY_<RAND>' ... GH_BODY_<RAND>)"` (heredoc для длинных). `GH_BODY_<RAND>` — плейсхолдер: сгенерируй fresh `openssl rand -hex 8`, вставь суффикс в обе строки и до запуска команды проверь, что тело не содержит выбранный делимитер как отдельную строку.
 
 > ⚠️ **Только `gh pr comment`** — не `gh pr review`. Все агенты работают под аккаунтом оператора, а GitHub запрещает автору ревьюить свой PR.
