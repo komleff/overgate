@@ -31,9 +31,9 @@ Retry не помогает — ошибка детерминистически 
 **Запрещено:**
 
 ```bash
-gh pr comment 270 --body "$(cat <<'EOF'
+gh pr comment 270 --body "$(cat <<'GH_BODY_<RAND>'
 ... 200 строк markdown ...
-EOF
+GH_BODY_<RAND>
 )"
 ```
 
@@ -91,8 +91,10 @@ Pre-tool-use hook проекта (`.claude/hooks/check-merge-ready.py`, matcher 
 
 Легитимные исключения (видны hook'у):
 - Inline literal: `--body '...'` или `--body "..."` без подстановок.
-- Heredoc-cat in body: `--body "$(cat <<'EOF' ... EOF)"` — содержимое инлайн в команде.
-- Heredoc через переменную: `BODY=$(cat <<'EOF' ... EOF); gh pr comment --body "$BODY"` — `_body_var_has_heredoc` распознаёт привязку.
+- Heredoc-cat in body: `--body "$(cat <<'GH_BODY_<RAND>' ... GH_BODY_<RAND>)"` — содержимое инлайн в команде.
+- Heredoc через переменную: `BODY=$(cat <<'GH_BODY_<RAND>' ... GH_BODY_<RAND>); gh pr comment --body "$BODY"` — `_body_var_has_heredoc` распознаёт привязку.
+
+> ⚠️ **Делимитер heredoc — уникальный и заведомо отсутствующий в теле ДО запуска shell-команды** (`GH_BODY_<RAND>` — не копируй буквально; сгенерируй fresh `openssl rand -hex 8` и вставь суффикс в обе строки делимитера), а не фиксированный `EOF`. Тело комментария/ревью часто содержит цитаты кода/diff (включая сами heredoc-примеры с `EOF`): строка ровно `EOF` в теле закроет heredoc раньше, и хвост уйдёт shell'у (delimiter-collision). Кавычки в делимитере (`<<'...'`) блокируют `$()`/backtick/`$VAR` expansion. Агент обязан проверить подготавливаемое тело до эмиссии команды; если выбранный делимитер встречается как отдельная строка — сгенерировать новый. Канон — `AGENTS.md` секция «Публикация ревью в PR».
 
 Что это значит для агентов:
 

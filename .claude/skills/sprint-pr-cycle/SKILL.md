@@ -67,11 +67,14 @@ gh pr list --head "$BRANCH" --json number,title --jq '.[0]'
 ```bash
 TIER_LINE="Tier: Standard"  # или Sprint Final / Critical / Light — см. таблицу выше
 
-# Quoted heredoc `<<'EOF'` блокирует shell-расширения внутри тела:
+# Quoted heredoc с high-entropy делимитером блокирует shell-расширения внутри тела:
 # Summary/Issues могут содержать $VAR, $(...), backticks от пользовательских
 # значений — без кавычек bash раскроет их и исказит/выполнит подстановку.
 # $TIER_LINE подставляется через bash parameter expansion после.
-BODY=$(cat <<'EOF'
+# Перед запуском команды сгенерируй fresh suffix: `openssl rand -hex 8`.
+# Замени <RAND> в обеих строках делимитера и проверь, что тело не содержит
+# выбранный делимитер как отдельную строку.
+BODY=$(cat <<'GH_BODY_<RAND>'
 __TIER_LINE__
 
 ## Summary
@@ -84,7 +87,7 @@ __TIER_LINE__
 - [ ] /verify
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
+GH_BODY_<RAND>
 )
 BODY="${BODY//__TIER_LINE__/$TIER_LINE}"
 gh pr create --title "Sprint N: [краткое описание]" --body "$BODY"
@@ -314,7 +317,7 @@ if [[ -z "$HEAD_COMMIT" || "$HEAD_COMMIT" == "null" || ! "$HEAD_COMMIT" =~ ^[0-9
 fi
 ```
 
-Затем публикуй отчёт. **Используй quoted heredoc `<<'EOF'` + плейсхолдер**, чтобы bash не делал подстановок внутри тела (резюме reviewer-субагентов может содержать `$VAR`, `$(...)`, backticks — без quoted heredoc их раскроет shell и текст исказится). Подставь `$HEAD_COMMIT` после, через bash parameter expansion:
+Затем публикуй отчёт. **Используй quoted heredoc с high-entropy делимитером + плейсхолдер**, чтобы bash не делал подстановок внутри тела (резюме reviewer-субагентов может содержать `$VAR`, `$(...)`, backticks — без quoted heredoc их раскроет shell и текст исказится). Перед запуском команды сгенерируй fresh suffix (`openssl rand -hex 8`), замени `<RAND>` в обеих строках делимитера и проверь подготавливаемое тело: выбранный делимитер не должен встречаться как отдельная строка. Подставь `$HEAD_COMMIT` после, через bash parameter expansion:
 
 ```bash
 # Copilot round 22: ITERATION должна быть задана явно.
@@ -326,7 +329,7 @@ if [[ -z "$ITERATION" || "$ITERATION" == "null" ]]; then
   ITERATION=1
 fi
 
-BODY=$(cat <<'EOF'
+BODY=$(cat <<'GH_BODY_<RAND>'
 ## Внутреннее ревью (Claude) — review-pass
 
 Commit: `__HEAD_COMMIT__`
@@ -360,7 +363,7 @@ Commit: `__HEAD_COMMIT__`
 [резюме]
 
 — PM (Claude Opus 4.6)
-EOF
+GH_BODY_<RAND>
 )
 # Безопасная подстановка маркеров через bash parameter expansion.
 # Тело отчёта остаётся буквальным (quoted heredoc), shell-расширений нет.

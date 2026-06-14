@@ -655,10 +655,10 @@ gh api "repos/$REPO/pulls/<PR_NUMBER>/requested_reviewers" \
 
 `HEAD_COMMIT` уже зафиксирован в шаге 1.4 — повторно не вычисляем.
 
-Публикация отчёта (quoted heredoc + bash parameter expansion, чтобы body-содержимое не проходило shell-расширения):
+Публикация отчёта (quoted heredoc с high-entropy делимитером + bash parameter expansion, чтобы body-содержимое не проходило shell-расширения). Перед запуском команды сгенерируй fresh suffix (`openssl rand -hex 8`), замени `<RAND>` в обеих строках делимитера и проверь подготавливаемое тело: выбранный делимитер не должен встречаться как отдельная строка.
 
 ```bash
-BODY=$(cat <<'EOF'
+BODY=$(cat <<'GH_BODY_<RAND>'
 ## Внешнее ревью (Sprint Final) — Режим: __MODE__
 
 Commit: `__HEAD_COMMIT__`
@@ -759,7 +759,7 @@ Commit: `__HEAD_COMMIT__`
 CRITICAL: N, WARNING: N
 
 — PM (Claude Opus 4.7), по результатам внешнего ревью
-EOF
+GH_BODY_<RAND>
 )
 # Вычисление обязательных полей публикации.
 # MODE из шага 2 (A / A-hybrid / A-legacy / C / D); MODEL_A_NAME и MODEL_B_NAME — из таблицы 5.1.
