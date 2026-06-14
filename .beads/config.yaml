@@ -53,4 +53,8 @@
 # - github.org
 # - github.repo
 
-sync.remote: "git+https://github.com/komleff/overgate.git"
+# sync.remote: "git+https://github.com/komleff/overgate.git"
+
+export.auto: false
+
+backup.git-push: false

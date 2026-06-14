@@ -380,12 +380,25 @@ done
 # В этом пайплайне sync — только через ветку beads-backup (см. .claude/rules/beads.md);
 # AGENTS.md уже скопирован из reference на шаге c с правильным разделом про Beads.
 bd init --skip-agents                      # создаёт .beads/, .gitignore-entries; AGENTS.md НЕ трогает
-bd doctor                                  # health check — должен быть зелёный
+
+# Отключить Dolt auto-sync (канон: Dolt — не операционный путь синхронизации).
+# bd init авто-настраивает git+https Dolt-remote и auto-export → их надо снять,
+# иначе read/мутирующие bd-команды пытаются dolt auto-push в origin/main.
+bd config set export.auto false            # не писать .beads/issues.jsonl в рабочее дерево
+bd config set backup.git-push false        # отключить git-push авто-бэкапа
+bd config unset sync.remote                # убрать sync.remote из config.yaml
+bd dolt remote remove origin 2>/dev/null || true   # убрать dolt-level remote (auto-push target)
+
+# health check. ВНИМАНИЕ: `bd doctor` в bd 1.0.2 работает только в server-mode;
+# в embedded-mode (дефолт `bd init`) он выводит "not yet supported in embedded mode".
+# Основной acceptance в embedded-mode — `bd ready --json` (должен вернуть валидный JSON).
 bd ready --json >/dev/null                 # acceptance check: tracker query работает
+bd doctor 2>/dev/null || true              # опционально (зелёный только в server-mode)
 
 # ⚠️ `bd prime` / `bd onboard` (и SessionStart-хук, инжектящий `bd prime`) могут советовать
 # `bd dolt push` — это upstream-дефолт, ПЕРЕОПРЕДЕЛЁН правилом .claude/rules/beads.md.
-# Синхронизация трекера — только: bd backup export-git --force / bd backup fetch-git.
+# Синхронизация трекера — только: scripts/bd-sync-export.sh / scripts/bd-sync-restore.sh.
+# (Команд `bd backup export-git` / `fetch-git` в bd 1.0.2 нет — это были команды старой версии.)
 
 # ВНИМАНИЕ: per ADR 3.21 — только single-quotes для bd commands.
 # Double-quoted с $VAR / $(date) bash раскрывает ДО передачи в bd, и
@@ -398,7 +411,7 @@ bd remember 'Pipeline installed on YYYY-MM-DD. Reference: U2 PR #185 baseline.' 
 #   bd remember 'Pipeline installed on '"$INSTALL_DATE"'. Reference: ...'
 ```
 
-> **Важно:** `bd doctor` + `bd ready --json` — acceptance gate для шага e. Если любой из них красный — **СТОП**, не двигайся дальше. Чаще всего проблема: missing dolt binary или несовместимая версия. Обновляй `bd` до последней.
+> **Важно:** `bd ready --json` — основной acceptance gate для шага e (валиден и в embedded-mode). Если он красный — **СТОП**, не двигайся дальше. Чаще всего проблема: missing dolt binary или несовместимая версия. Обновляй `bd` до последней. `bd doctor` — дополнительная диагностика, но в embedded-mode (дефолт) она не поддерживается; не считать её красный-в-embedded за провал.
 
 **Memory Bank:**
 
@@ -422,10 +435,11 @@ mkdir -p .memory-bank
 **По умолчанию:** один большой коммит-bundle (все файлы пайплайна) + последующие fix-коммиты в рамках review-цикла. Это паттерн U2 PR #185.
 
 ```bash
-# Уточнение по .beads/: коммитим только конфиг + tracker file, НЕ Dolt history.
-# .gitignore (см. шаг c) уже исключает .dolt/ и Beads-local DB/runtime files. После bd init остаются:
-#   .beads/issues.jsonl       — task tracker state (commit)
-#   .beads/config.json        — local config (commit)
+# Уточнение по .beads/: коммитим только конфиг, НЕ Dolt history и НЕ task snapshot.
+# .gitignore (см. шаг c) уже исключает .dolt/ и Beads-local DB/runtime files. После bd init трекаем:
+#   .beads/config.yaml        — local config (commit)
+#   .beads/metadata.json      — repo/clone id (commit)
+#   .beads/issues.jsonl       — НЕ коммитим в main (auto-export off); source of truth — ветка beads-backup
 #   .beads-credential-key     — НЕ коммитим (в .gitignore)
 # Placeholder-leak guard: корневой AGENTS.md заполнен (§B.4), плейсхолдеров не осталось.
 # Fail-closed — иначе в репозиторий уедет шаблон с <PROJECT_NAME>/<DOC_INDEX> как «активный» first-touch док.
@@ -638,13 +652,18 @@ PR #N готов к merge:
   if grep -rniE "(use[d]? +bd dolt (push|pull))|(bd dolt (push|pull) +#)|(# *sync with remote)|(push changes:.*bd dolt)|(bd dolt push.*(end of session|конце сессии))" AGENTS.md .claude/rules; then
     echo "FAIL: найдена recommendation-сигнатура bd dolt push/pull"; exit 1
   else echo "OK: рекомендаций нет"; fi
+  # Гейт несуществующих в bd 1.0.2 команд: export-git/fetch-git не должны встречаться
+  # как операционная инструкция (sync — через scripts/bd-sync-export.sh / bd-sync-restore.sh):
+  if grep -rniE "bd backup (export-git|fetch-git)" AGENTS.md .claude/rules; then
+    echo "FAIL: ссылка на несуществующую команду bd backup export-git/fetch-git"; exit 1
+  else echo "OK: stale-команд нет"; fi
   ```
   Дополнительно — ручной аудит-чтением: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules` → все вхождения в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/«Запрещено» может стоять на соседней строке). Построчным автогейтом эту часть НЕ проверять — даст ложные срабатывания на multiline-контексте
 
 ### D.2 Runtime
 
-- [ ] `bd doctor` без ошибок
-- [ ] `bd ready` возвращает валидный JSON (даже если пусто)
+- [ ] `bd ready --json` возвращает валидный JSON (даже если пусто) — основной health-check в embedded-mode
+- [ ] `bd doctor` без ошибок (только server-mode; в embedded-mode «not supported» — не провал)
 - [ ] `.memory-bank/activeContext.md` существует и содержит контекст проекта (не пустой)
 - [ ] PM-промпт активации работает (Claude отвечает как PM, читает MEMORY)
 

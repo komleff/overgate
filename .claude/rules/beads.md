@@ -16,17 +16,24 @@ globs: "**/*"
 Beads хранит задачи в локальном Dolt, **но Dolt — деталь реализации, а не интерфейс**. Агенты
 по инерции пытаются «синхронизировать базу» через Dolt — это и есть источник поломок.
 
-- Source of truth для кросс-машинной синхронизации — **служебная ветка `origin/beads-backup`**
-  (дефолтное имя backup-ветки самого `bd`), в ней JSONL-снапшот `.beads/backup/*.jsonl`.
-- Публикация: `bd backup export-git --force`. Восстановление на другой машине: `bd backup fetch-git`.
-- `bd dolt push` / `bd dolt pull` — **НЕ операционный путь синхронизации**. Если в проекте
-  настраивался DoltHub-remote — это исторический fallback, не текущий стандарт.
+- Source of truth для кросс-машинной синхронизации — **служебная ветка `origin/beads-backup`**,
+  в ней JSONL-снапшот `.beads/issues.jsonl` (формат `bd export`).
+- Публикация: `scripts/bd-sync-export.sh` (экспорт → fast-forward-коммит снапшота в `beads-backup`
+  → push). Восстановление на другой машине: `scripts/bd-sync-restore.sh` (fetch ветки → `bd import`
+  из `$TMPDIR`).
+- `bd dolt push` / `bd dolt pull` — **НЕ операционный путь синхронизации** (заблокированы deny-правилом
+  в `.claude/settings.json`). `sync.remote` и Dolt-remote в этом репозитории отключены намеренно
+  (`bd config` → `sync.remote` unset, `export.auto=false`).
+
+> ℹ️ **bd 1.0.2.** Старых команд `export-git` / `fetch-git` (как в прежних версиях bd) в
+> установленной версии **не существует**. Синхронизация — через helper-скрипты выше
+> (`bd export` + ветка `beads-backup` + `bd import`), а не через `bd backup`.
 
 > ⚠️ **Override upstream `bd`.** Команды `bd prime` / `bd onboard` / `bd setup` (а также
 > SessionStart-хук, который авто-инжектит `bd prime`) могут рекомендовать `bd dolt push` /
 > `bd dolt pull` как путь синхронизации — это upstream-дефолт Beads. **В этом пайплайне он НЕ
 > применяется.** Это правило и `AGENTS.md` имеют приоритет над выводом `bd prime`: синхронизация
-> — только через ветку `beads-backup` (`export-git` / `fetch-git`).
+> — только через ветку `beads-backup` (`scripts/bd-sync-export.sh` / `scripts/bd-sync-restore.sh`).
 
 ## Запуск bd — только из основного checkout, НЕ из worktree
 
@@ -38,7 +45,7 @@ Beads хранит задачи в локальном Dolt, **но Dolt — де
   (см. troubleshooting).
 - bd-мутации выполнять из **основного checkout** репозитория, где bd функционален.
 - Из worktree — либо делегировать оператору с готовой командой, либо цикл из основного checkout:
-  `bd backup fetch-git` → `bd <cmd>` → `bd backup export-git --force`.
+  `scripts/bd-sync-restore.sh` → `bd <cmd>` → `scripts/bd-sync-export.sh`.
 
 ## Базовый цикл работы с задачами
 
@@ -50,7 +57,7 @@ bd close <id>            # завершить
 bd prime                 # справочник команд (см. override выше про sync-команды)
 ```
 
-Завершая сессию с изменениями: `bd backup export-git --force` → `git pull --rebase` → `git push`.
+Завершая сессию с изменениями: `scripts/bd-sync-export.sh` → `git pull --rebase` → `git push`.
 
 ## Troubleshooting: bd-команда зависла
 
@@ -73,7 +80,8 @@ kill -9 <pid> ...                          # убить все orphan dolt sql-s
 - Работать с задачами через Dolt напрямую: `bd dolt push/pull`, ручной запуск dolt-сервера,
   правка `.beads/dolt/**`.
 - Запускать `bd`-мутации из git-worktree (плодит пустые базы и lock-зависания).
-- Считать локальный `.beads/issues.jsonl` источником истины — это **обрывок** (1-2 issue),
-  полный набор только в ветке `beads-backup`. Руками `.beads/backup/*.jsonl` не редактировать —
-  сломает manifest/consistency.
+- Считать локальный `.beads/issues.jsonl` источником истины. В этом репозитории auto-export
+  отключён (`export.auto=false`), файл в рабочем дереве `main` не появляется и в git не трекается;
+  полный набор задач — снапшот `.beads/issues.jsonl` в ветке `beads-backup`. Снапшот руками не
+  редактировать — публиковать только через `scripts/bd-sync-export.sh`.
 - Подменять `bd` на TodoWrite/markdown-TODO для трекинга задач проекта.

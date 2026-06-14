@@ -183,14 +183,17 @@ related:
 **Операционные правила (важно — извлечено из U2 dogfood, PR #407):**
 
 - **Dolt — backend, не интерфейс.** Синхронизация задач между машинами — только через служебную
-  git-ветку `beads-backup` (`bd backup export-git --force` / `bd backup fetch-git`), **НЕ**
+  git-ветку `beads-backup` (`scripts/bd-sync-export.sh` / `scripts/bd-sync-restore.sh`), **НЕ**
   `bd dolt push` / `bd dolt pull` — даже если upstream `bd prime` / `bd onboard` их предлагают
-  (это upstream-дефолт, переопределённый правилом проекта).
+  (это upstream-дефолт, переопределённый правилом проекта). Решение (Dolt не операционный канал,
+  `beads-backup` как source of truth) неизменно; команды `bd backup export-git` / `fetch-git`
+  относились к более старой версии bd и в bd 1.0.2 отсутствуют — заменены helper-скриптами
+  (`bd export` + ветка `beads-backup` + `bd import`).
 - **`bd` — только из основного checkout, не из git-worktree.** Dolt runtime привязан к checkout и
   не переключается с git-веткой: в worktree `bd` создаёт пустую базу (рвёт синхронизацию) и плодит
   lock-зависания (`database "dolt" is locked`).
-- **Локальный `.beads/issues.jsonl` — обрывок, не источник истины** (полный набор — в ветке
-  `beads-backup`).
+- **Локальный `.beads/issues.jsonl` — не источник истины** (auto-export отключён, в `main` не
+  трекается; полный набор — снапшот в ветке `beads-backup`).
 - Полные правила и troubleshooting (lock через `lsof .beads/dolt/.dolt/noms/LOCK` → `kill -9`) —
   `.claude/rules/beads.md`. При установке в новый проект — `bd init --skip-agents` (см. `INSTALL.md`
   §B.5), чтобы upstream `bd dolt push`-guidance не попал в `AGENTS.md`.
