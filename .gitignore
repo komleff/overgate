@@ -19,3 +19,6 @@ node_modules/
 # Install artifact: fail-closed guard кладёт сюда шаблон, если target уже имел AGENTS.md.
 # Не коммитить — это временный merge-артефакт (INSTALL.md §B.3/§B.6).
 AGENTS.md.overgate-template
+
+# Beads / Dolt files (added by bd init)
+*.db
