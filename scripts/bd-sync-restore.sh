@@ -15,25 +15,10 @@ set -euo pipefail
 REMOTE="${BD_SYNC_REMOTE:-origin}"
 BRANCH="${BD_SYNC_BRANCH:-beads-backup}"
 
-# Валидация env-параметров (консистентно с bd-sync-export.sh).
-case "$BRANCH" in
-  main|master|HEAD|release/*|releases/*|develop|trunk)
-    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — защищённое имя ветки запрещено." >&2; exit 1 ;;
-  refs/*|-*)
-    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — fully-qualified ref / leading-dash запрещены (нужно short-имя)." >&2; exit 1 ;;
-esac
-if ! git check-ref-format "refs/heads/${BRANCH}"; then
-  echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — некорректное имя git-ветки." >&2; exit 1
-fi
-if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
-  echo "ОШИБКА: BD_SYNC_REMOTE='$REMOTE' — не настроенный named remote." >&2; exit 1
-fi
-
-# Guard: только из основного checkout (не из git-worktree) — см. .claude/rules/beads.md.
-if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
-  echo "ОШИБКА: запуск из git-worktree запрещён — bd привязан к основному checkout." >&2
-  exit 1
-fi
+# Валидация env + guard окружения — общий код с export-скриптом (sourced-helper).
+# shellcheck source=scripts/bd-sync-common.sh
+. "$(cd "$(dirname "$0")" && pwd)/bd-sync-common.sh"
+bd_sync_validate || exit 1
 
 umask 077
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bd-sync.XXXXXX")
@@ -75,7 +60,7 @@ if [ -n "$last_seen" ] && [ "$last_seen" != "$remote_tip" ] && [ "${BD_SYNC_FORC
   if ! git show "${last_seen}:.beads/issues.jsonl" > "$base" 2>/dev/null; then
     git show "${last_seen}:.beads/backup/issues.jsonl" > "$base" 2>/dev/null || : > "$base"
   fi
-  if ! diff -q "$local_now" "$base" >/dev/null 2>&1; then
+  if ! diff -q <(sort "$local_now") <(sort "$base") >/dev/null 2>&1; then
     echo "ОШИБКА: конфликт синхронизации — и локальная БД изменена, и ${REMOTE}/${BRANCH} продвинулся." >&2
     echo "  last-seen: $last_seen" >&2
     echo "  remote:    $remote_tip" >&2

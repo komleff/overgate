@@ -94,8 +94,16 @@ FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1 && ok "export ok
 printf '{"id":"og-1"}\n{"id":"og-9"}\n{"id":"og-10"}\n{"id":"og-77","title":"local-only"}\n' > "$TMP/expDiv.jsonl"
 if FAKE_BD_EXPORT="$TMP/expDiv.jsonl" bash "$RESTORE" >/dev/null 2>&1; then no "restore conflict blocked"; else ok "restore conflict blocked"; fi
 
-# 6. Branch-injection guard: BD_SYNC_BRANCH=main отвергается.
-if BD_SYNC_BRANCH=main FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "protected-branch rejected"; else ok "protected-branch rejected"; fi
+# 6. Branch whitelist: только beads-backup / beads-backup-* допустимы; всё прочее отвергается
+#    (whitelist, не blacklist — feature/x тоже схлопнул бы рабочую ветку до snapshot).
+for bad in main feature/x refs/heads/main ../evil; do
+  if BD_SYNC_BRANCH="$bad" FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1; then
+    no "branch whitelist rejects '$bad'"
+  else ok "branch whitelist rejects '$bad'"; fi
+done
+# beads-backup-* допустим (полноценный export в вариантную ветку проходит).
+( cd "$TMP/cloneB" && BD_SYNC_BRANCH=beads-backup-alt FAKE_BD_EXPORT="$TMP/expB.jsonl" bash "$EXPORT" >/dev/null 2>&1 ) \
+  && ok "branch whitelist allows beads-backup-alt" || no "branch whitelist allows beads-backup-alt"
 
 # 7. Worktree-guard: запуск из linked-worktree → блок (с проверкой что worktree реально создан).
 if git -C "$TMP/work" worktree add -q "$TMP/wt" HEAD >/dev/null 2>&1 && [ -e "$TMP/wt/.git" ]; then

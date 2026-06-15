@@ -23,27 +23,11 @@ set -euo pipefail
 REMOTE="${BD_SYNC_REMOTE:-origin}"
 BRANCH="${BD_SYNC_BRANCH:-beads-backup}"
 
-# Валидация env-параметров (целостность репозитория). Без неё BD_SYNC_BRANCH=main + наш
-# low-level update-ref/push деревом из одного .beads/issues.jsonl снёс бы содержимое main.
-case "$BRANCH" in
-  main|master|HEAD|release/*|releases/*|develop|trunk)
-    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — защищённое имя ветки запрещено." >&2; exit 1 ;;
-  refs/*|-*)
-    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — fully-qualified ref / leading-dash запрещены (нужно short-имя)." >&2; exit 1 ;;
-esac
-if ! git check-ref-format "refs/heads/${BRANCH}"; then
-  echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — некорректное имя git-ветки." >&2; exit 1
-fi
-if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
-  echo "ОШИБКА: BD_SYNC_REMOTE='$REMOTE' — не настроенный named remote." >&2; exit 1
-fi
-
-# Guard: только из основного checkout. В git-worktree bd привязан к чужой dolt-базе и export
-# опубликовал бы некорректный снапшот (known failure mode, .claude/rules/beads.md).
-if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
-  echo "ОШИБКА: запуск из git-worktree запрещён — bd привязан к основному checkout." >&2
-  exit 1
-fi
+# Валидация env + guard окружения (whitelist ветки, named remote, не-worktree) — общий код
+# с restore-скриптом вынесен в sourced-helper во избежание расхождения логики.
+# shellcheck source=scripts/bd-sync-common.sh
+. "$(cd "$(dirname "$0")" && pwd)/bd-sync-common.sh"
+bd_sync_validate || exit 1
 
 # Приватная временная директория (umask 077, mktemp).
 umask 077
