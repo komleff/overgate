@@ -28,6 +28,8 @@ BRANCH="${BD_SYNC_BRANCH:-beads-backup}"
 case "$BRANCH" in
   main|master|HEAD|release/*|releases/*|develop|trunk)
     echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — защищённое имя ветки запрещено." >&2; exit 1 ;;
+  refs/*|-*)
+    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — fully-qualified ref / leading-dash запрещены (нужно short-имя)." >&2; exit 1 ;;
 esac
 if ! git check-ref-format "refs/heads/${BRANCH}"; then
   echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — некорректное имя git-ветки." >&2; exit 1
@@ -149,8 +151,9 @@ else
 fi
 git update-ref "refs/heads/${BRANCH}" "$commit"
 
-# 5. Fast-forward push (без --force). При reject — откат локальной ветки + просьба перезапуска.
-if ! git push "$REMOTE" "${BRANCH}"; then
+# 5. Fast-forward push (без --force) с ЯВНЫМ refspec (src:dst) — не полагаемся на короткое имя,
+#    чтобы исключить ambiguity/неявную трактовку ref. При reject — откат локальной ветки.
+if ! git push "$REMOTE" "refs/heads/${BRANCH}:refs/heads/${BRANCH}"; then
   if [ -n "$parent" ]; then
     git update-ref "refs/heads/${BRANCH}" "$parent"
   else

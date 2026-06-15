@@ -82,10 +82,17 @@ else ok "empty-lastSeen blocks export"; fi
   && ok "cloneB export ok after restore" || no "cloneB export ok after restore"
 #    5c. Клон A (lastSeen устарел, remote двинул B) → stale export блокируется.
 if FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "stale export blocked"; else ok "stale export blocked"; fi
-#    5d. После restore у A lastSeen обновлён → export superset проходит.
-bash "$RESTORE" >/dev/null 2>&1 || true
+#    5d. Чистый restore у A (локальное состояние == base@lastSeen, og-1) → conflict-guard НЕ срабатывает.
+( FAKE_BD_EXPORT="$TMP/exp1.jsonl" bash "$RESTORE" >/dev/null 2>&1 ) && ok "clean restore ok" || no "clean restore ok"
+#    5e. После restore у A lastSeen обновлён → export superset проходит.
 printf '{"id":"og-1","title":"a"}\n{"id":"og-9","title":"fromB"}\n{"id":"og-10","title":"new"}\n' > "$TMP/exp3.jsonl"
 FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1 && ok "export ok after restore" || no "export ok after restore"
+#    5f. Conflict-guard: A имеет дивергентные локальные правки И remote ушёл вперёд → restore блокируется.
+( cd "$TMP/cloneB" && FAKE_BD_EXPORT="$TMP/expB.jsonl" bash "$RESTORE" >/dev/null 2>&1 \
+  && printf '{"id":"og-1"}\n{"id":"og-9"}\n{"id":"og-10"}\n{"id":"og-12","title":"B2"}\n' > "$TMP/expB2.jsonl" \
+  && FAKE_BD_EXPORT="$TMP/expB2.jsonl" bash "$EXPORT" >/dev/null 2>&1 ) && ok "cloneB advances remote again" || no "cloneB advances remote again"
+printf '{"id":"og-1"}\n{"id":"og-9"}\n{"id":"og-10"}\n{"id":"og-77","title":"local-only"}\n' > "$TMP/expDiv.jsonl"
+if FAKE_BD_EXPORT="$TMP/expDiv.jsonl" bash "$RESTORE" >/dev/null 2>&1; then no "restore conflict blocked"; else ok "restore conflict blocked"; fi
 
 # 6. Branch-injection guard: BD_SYNC_BRANCH=main отвергается.
 if BD_SYNC_BRANCH=main FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "protected-branch rejected"; else ok "protected-branch rejected"; fi

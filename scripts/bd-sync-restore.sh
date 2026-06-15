@@ -19,6 +19,8 @@ BRANCH="${BD_SYNC_BRANCH:-beads-backup}"
 case "$BRANCH" in
   main|master|HEAD|release/*|releases/*|develop|trunk)
     echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — защищённое имя ветки запрещено." >&2; exit 1 ;;
+  refs/*|-*)
+    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — fully-qualified ref / leading-dash запрещены (нужно short-имя)." >&2; exit 1 ;;
 esac
 if ! git check-ref-format "refs/heads/${BRANCH}"; then
   echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — некорректное имя git-ветки." >&2; exit 1
@@ -59,6 +61,28 @@ elif git show "${REMOTE}/${BRANCH}:.beads/backup/issues.jsonl" > "$SNAP" 2>/dev/
 else
   echo "ОШИБКА: снапшот не найден в ${REMOTE}/${BRANCH}" >&2
   exit 1
+fi
+
+# 2a. Conflict-guard (зеркало last-seen guard в export). restore делает upsert remote поверх
+#     локальной БД. Если локальная БД изменена с момента последней синхронизации И remote tip
+#     при этом продвинулся — это конкурентная правка (same-id конфликт): безусловный upsert
+#     молча затёр бы локальные неэкспортированные изменения. Fail-closed, требуем ручного
+#     разрешения / BD_SYNC_FORCE=1. (lastSeen хранит коммит, base — его снапшот.)
+last_seen=$(git config --local --get beads-sync.lastSeen 2>/dev/null || true)
+if [ -n "$last_seen" ] && [ "$last_seen" != "$remote_tip" ] && [ "${BD_SYNC_FORCE:-}" != "1" ]; then
+  local_now="$WORK/local.jsonl"; base="$WORK/base.jsonl"
+  bd export --all -o "$local_now" 2>/dev/null || : > "$local_now"; touch "$local_now"
+  if ! git show "${last_seen}:.beads/issues.jsonl" > "$base" 2>/dev/null; then
+    git show "${last_seen}:.beads/backup/issues.jsonl" > "$base" 2>/dev/null || : > "$base"
+  fi
+  if ! diff -q "$local_now" "$base" >/dev/null 2>&1; then
+    echo "ОШИБКА: конфликт синхронизации — и локальная БД изменена, и ${REMOTE}/${BRANCH} продвинулся." >&2
+    echo "  last-seen: $last_seen" >&2
+    echo "  remote:    $remote_tip" >&2
+    echo "restore сделал бы upsert remote поверх локальных неэкспортированных правок. Разреши" >&2
+    echo "конфликт вручную (свери задачи) или принудительно: BD_SYNC_FORCE=1 (локальные правки тех же id будут перезаписаны remote)." >&2
+    exit 1
+  fi
 fi
 
 # 3. Импорт (upsert: новые создаются, существующие обновляются).
