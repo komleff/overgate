@@ -38,6 +38,19 @@ elif git rev-parse --verify -q "refs/heads/${BRANCH}" >/dev/null; then
   parent=$(git rev-parse "refs/heads/${BRANCH}")
 fi
 
+# 2a. Защита от перезаписи: если локальный export пуст, а на beads-backup уже есть НЕПУСТОЙ
+#     снапшот — отказ (иначе деградированная/пустая база затрёт реальные задачи пустым файлом,
+#     known failure mode из правил). Пустой трекер — легитимен (свежий проект): override
+#     через BD_SYNC_ALLOW_EMPTY=1. Пустой→пустой и первая публикация проходят без override.
+if [ ! -s "$SNAP" ] && [ -n "$parent" ] && git cat-file -e "${parent}:.beads/issues.jsonl" 2>/dev/null; then
+  remote_size=$(git cat-file -s "${parent}:.beads/issues.jsonl" 2>/dev/null || echo 0)
+  if [ "$remote_size" -gt 0 ] && [ "${BD_SYNC_ALLOW_EMPTY:-}" != "1" ]; then
+    echo "ОШИБКА: bd export вернул пустой снапшот, а на ${BRANCH} есть непустой (${remote_size} б)." >&2
+    echo "Публикация отменена (защита от перезаписи). Если трекер действительно пуст — BD_SYNC_ALLOW_EMPTY=1." >&2
+    exit 1
+  fi
+fi
+
 # 3. Дерево из единственного файла .beads/issues.jsonl (стандартный путь снапшота).
 #    Сборка во временном индексе — рабочий индекс/дерево не трогаем.
 rm -f "$IDX"
