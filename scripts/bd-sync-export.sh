@@ -29,7 +29,10 @@ blob=$(git hash-object -w "$SNAP")
 #    когда remote-ветки ещё нет (первая публикация).
 parent=""
 if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
-  git fetch -q origin "${BRANCH}"
+  # Явный destination-refspec: на single-branch/CI-клонах (remote.origin.fetch сужен до
+  # default-ветки) обычный `git fetch origin <branch>` НЕ обновляет refs/remotes/origin/<branch>,
+  # и rev-parse ниже упал бы. Принудительно пишем remote-tracking ref.
+  git fetch -q origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
   parent=$(git rev-parse "refs/remotes/origin/${BRANCH}")
 elif git rev-parse --verify -q "refs/heads/${BRANCH}" >/dev/null; then
   parent=$(git rev-parse "refs/heads/${BRANCH}")

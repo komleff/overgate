@@ -24,8 +24,10 @@ if ! bd where >/dev/null 2>&1; then
   exit 1
 fi
 
-# 1. Получить ветку.
-git fetch origin "${BRANCH}"
+# 1. Получить ветку. Явный destination-refspec: на single-branch/CI-клонах обычный
+#    `git fetch origin <branch>` может заполнить только FETCH_HEAD и НЕ создать
+#    refs/remotes/origin/<branch> → `git show origin/<branch>:...` ниже не нашёл бы снапшот.
+git fetch -q origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
 
 # 2. Извлечь снапшот во временный файл. Основной путь — .beads/issues.jsonl;
 #    fallback — .beads/backup/issues.jsonl (снапшоты до стандартизации пути).
