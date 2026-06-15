@@ -93,6 +93,14 @@ FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1 && ok "export ok
   && FAKE_BD_EXPORT="$TMP/expB2.jsonl" bash "$EXPORT" >/dev/null 2>&1 ) && ok "cloneB advances remote again" || no "cloneB advances remote again"
 printf '{"id":"og-1"}\n{"id":"og-9"}\n{"id":"og-10"}\n{"id":"og-77","title":"local-only"}\n' > "$TMP/expDiv.jsonl"
 if FAKE_BD_EXPORT="$TMP/expDiv.jsonl" bash "$RESTORE" >/dev/null 2>&1; then no "restore conflict blocked"; else ok "restore conflict blocked"; fi
+#    5g. empty-lastSeen + непустая дивергентная локальная БД → restore блокируется (зеркало export).
+git clone -q "$TMP/remote.git" "$TMP/cloneC"
+git -C "$TMP/cloneC" config user.email c@example.com
+git -C "$TMP/cloneC" config user.name cloneC
+printf '{"id":"og-1"}\n{"id":"og-50","title":"local-only-C"}\n' > "$TMP/expC.jsonl"
+if (cd "$TMP/cloneC" && FAKE_BD_EXPORT="$TMP/expC.jsonl" bash "$RESTORE" >/dev/null 2>&1); then
+  no "restore empty-lastSeen conflict blocked"
+else ok "restore empty-lastSeen conflict blocked"; fi
 
 # 6. Branch whitelist: только beads-backup / beads-backup-* допустимы; всё прочее отвергается
 #    (whitelist, не blacklist — feature/x тоже схлопнул бы рабочую ветку до snapshot).

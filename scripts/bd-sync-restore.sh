@@ -54,19 +54,30 @@ fi
 #     молча затёр бы локальные неэкспортированные изменения. Fail-closed, требуем ручного
 #     разрешения / BD_SYNC_FORCE=1. (lastSeen хранит коммит, base — его снапшот.)
 last_seen=$(git config --local --get beads-sync.lastSeen 2>/dev/null || true)
-if [ -n "$last_seen" ] && [ "$last_seen" != "$remote_tip" ] && [ "${BD_SYNC_FORCE:-}" != "1" ]; then
-  local_now="$WORK/local.jsonl"; base="$WORK/base.jsonl"
+if [ "${BD_SYNC_FORCE:-}" != "1" ]; then
+  local_now="$WORK/local.jsonl"
   bd export --all -o "$local_now" 2>/dev/null || : > "$local_now"; touch "$local_now"
-  if ! git show "${last_seen}:.beads/issues.jsonl" > "$base" 2>/dev/null; then
-    git show "${last_seen}:.beads/backup/issues.jsonl" > "$base" 2>/dev/null || : > "$base"
-  fi
-  if ! diff -q <(sort "$local_now") <(sort "$base") >/dev/null 2>&1; then
-    echo "ОШИБКА: конфликт синхронизации — и локальная БД изменена, и ${REMOTE}/${BRANCH} продвинулся." >&2
-    echo "  last-seen: $last_seen" >&2
-    echo "  remote:    $remote_tip" >&2
-    echo "restore сделал бы upsert remote поверх локальных неэкспортированных правок. Разреши" >&2
-    echo "конфликт вручную (свери задачи) или принудительно: BD_SYNC_FORCE=1 (локальные правки тех же id будут перезаписаны remote)." >&2
-    exit 1
+  # Проверяем риск потери ТОЛЬКО если в локальной БД есть данные.
+  if [ -s "$local_now" ]; then
+    # base — снапшот, с которым локальная БД синхронизирована. Если lastSeen нет (клон ни разу
+    # не синхронизировался) — base пуст, т.е. любые локальные данные считаются несинхронизированными.
+    base="$WORK/base.jsonl"; : > "$base"
+    if [ -n "$last_seen" ]; then
+      git show "${last_seen}:.beads/issues.jsonl" > "$base" 2>/dev/null \
+        || git show "${last_seen}:.beads/backup/issues.jsonl" > "$base" 2>/dev/null || : > "$base"
+    fi
+    # Конфликт, если: локальная БД ≠ remote-снапшот (есть расхождение) И локальная БД ≠ base
+    # (есть несинхронизированные локальные правки, которые upsert remote затёр бы).
+    # lastSeen пуст + непустая локальная БД ≠ remote → подпадает (base пуст). Зеркало export-guard.
+    if ! diff -q <(sort "$local_now") <(sort "$SNAP") >/dev/null 2>&1 \
+       && ! diff -q <(sort "$local_now") <(sort "$base") >/dev/null 2>&1; then
+      echo "ОШИБКА: конфликт синхронизации — локальная БД содержит несинхронизированные изменения," >&2
+      echo "а ${REMOTE}/${BRANCH} отличается. restore (upsert) затёр бы локальные правки тех же id." >&2
+      echo "  last-seen: ${last_seen:-<нет>}" >&2
+      echo "  remote:    $remote_tip" >&2
+      echo "Сверь задачи вручную или принудительно: BD_SYNC_FORCE=1 (локальные правки будут перезаписаны remote)." >&2
+      exit 1
+    fi
   fi
 fi
 
