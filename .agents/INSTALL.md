@@ -164,6 +164,7 @@ git checkout -b "$BRANCH"
 | `$REFERENCE_REPO/.claude/skills/` | `.claude/skills/` | verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit |
 | `$REFERENCE_REPO/.claude/rules/*.md` | `.claude/rules/` | universal.md и beads.md обязательны (generic); client-*/server.md опционально (payload) |
 | `$REFERENCE_REPO/.claude/tools/` (`*.mjs`, `*.ps1`, `package.json`, `README.md`) | `.claude/tools/` | Cross-model review backend (`openai-review.mjs`) + helpers (`codex-account-switch.ps1`, `smoke-test.mjs`) + `package.json` (+ `npm ci --ignore-scripts` при наличии lockfile) |
+| `$REFERENCE_REPO/scripts/bd-sync-*.sh`, `scripts/test-bd-sync.sh` | `scripts/` | Beads sync helpers (`bd-sync-export.sh`/`bd-sync-restore.sh`) — на них ссылаются `AGENTS.md`/`beads.md`; без них установленный `AGENTS.md` ссылался бы на отсутствующие скрипты |
 
 **Что НЕ копировать:**
 
@@ -177,7 +178,7 @@ git checkout -b "$BRANCH"
 **Команды:**
 
 ```bash
-mkdir -p .agents .claude/{agents,hooks,skills,rules,tools}
+mkdir -p .agents .claude/{agents,hooks,skills,rules,tools} scripts
 
 # Корневой AGENTS.md — из ШАБЛОНА (.agents/templates/AGENTS.template.md), с fail-closed guard'ом:
 # НЕ перезаписывать существующий target-AGENTS.md (у проекта могут быть свои инструкции).
@@ -235,6 +236,11 @@ for tf in "$REFERENCE_REPO/.claude/tools/"*.mjs "$REFERENCE_REPO/.claude/tools/"
 done
 # Lockfile (если есть) — для воспроизводимости через npm ci
 [ -f "$REFERENCE_REPO/.claude/tools/package-lock.json" ] && cp "$REFERENCE_REPO/.claude/tools/package-lock.json" .claude/tools/
+
+# Beads sync helpers — на них ссылаются AGENTS.md / .claude/rules/beads.md
+for sf in "$REFERENCE_REPO/scripts/"bd-sync-*.sh "$REFERENCE_REPO/scripts/test-bd-sync.sh"; do
+  [ -f "$sf" ] && { cp "$sf" scripts/; chmod +x "scripts/$(basename "$sf")"; }
+done
 
 # Удалить runtime cache если случайно попал (defensive — на случай если
 # rsync недоступен и пришлось fallback на cp)

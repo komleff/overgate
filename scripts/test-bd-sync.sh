@@ -66,23 +66,36 @@ export FAKE_BD_IMPORT_LOG="$TMP/import.log"; : > "$FAKE_BD_IMPORT_LOG"
 bash "$RESTORE" >/dev/null 2>&1 && ok "restore runs" || no "restore runs"
 [ -s "$FAKE_BD_IMPORT_LOG" ] && ok "restore invoked bd import" || no "restore invoked bd import"
 
-# 5. Last-seen guard: remote ушёл вперёд с момента последней синхронизации клона A → блок.
-#    Клон B независимо публикует новый снапшот (superset, чтобы пройти drop-guard), после чего
-#    export из A (его lastSeen устарел) должен fail-closed — иначе затёр бы изменения B.
+# 5. Last-seen / freshness guard.
+#    5a. Свежий клон B с непустым контентом, но БЕЗ restore (lastSeen пуст) → export блокируется
+#        (защита от stale same-id overwrite при пустом lastSeen).
 git clone -q "$TMP/remote.git" "$TMP/cloneB"
-( cd "$TMP/cloneB"
-  git config user.email b@example.com; git config user.name cloneB
-  printf '{"id":"og-1","title":"a"}\n{"id":"og-9","title":"fromB"}\n' > "$TMP/expB.jsonl"
-  FAKE_BD_EXPORT="$TMP/expB.jsonl" bash "$EXPORT" >/dev/null 2>&1 ) && ok "cloneB advances remote" || no "cloneB advances remote"
-if FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "last-seen guard blocks stale export"; else ok "last-seen guard blocks stale export"; fi
-# После restore lastSeen обновляется → export снова разрешён (если снапшот не теряет задачи).
+git -C "$TMP/cloneB" config user.email b@example.com
+git -C "$TMP/cloneB" config user.name cloneB
+printf '{"id":"og-1","title":"a"}\n{"id":"og-9","title":"fromB"}\n' > "$TMP/expB.jsonl"
+if (cd "$TMP/cloneB" && FAKE_BD_EXPORT="$TMP/expB.jsonl" bash "$EXPORT" >/dev/null 2>&1); then
+  no "empty-lastSeen blocks export"
+else ok "empty-lastSeen blocks export"; fi
+#    5b. После restore у клона B lastSeen установлен → export superset проходит и двигает remote.
+( cd "$TMP/cloneB" && bash "$RESTORE" >/dev/null 2>&1 \
+  && FAKE_BD_EXPORT="$TMP/expB.jsonl" bash "$EXPORT" >/dev/null 2>&1 ) \
+  && ok "cloneB export ok after restore" || no "cloneB export ok after restore"
+#    5c. Клон A (lastSeen устарел, remote двинул B) → stale export блокируется.
+if FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "stale export blocked"; else ok "stale export blocked"; fi
+#    5d. После restore у A lastSeen обновлён → export superset проходит.
 bash "$RESTORE" >/dev/null 2>&1 || true
 printf '{"id":"og-1","title":"a"}\n{"id":"og-9","title":"fromB"}\n{"id":"og-10","title":"new"}\n' > "$TMP/exp3.jsonl"
 FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1 && ok "export ok after restore" || no "export ok after restore"
 
-# 6. Worktree-guard: запуск из linked-worktree → блок.
-git -C "$TMP/work" worktree add -q "$TMP/wt" HEAD >/dev/null 2>&1
-if (cd "$TMP/wt" && FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1); then no "worktree guard blocks"; else ok "worktree guard blocks"; fi
+# 6. Branch-injection guard: BD_SYNC_BRANCH=main отвергается.
+if BD_SYNC_BRANCH=main FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "protected-branch rejected"; else ok "protected-branch rejected"; fi
+
+# 7. Worktree-guard: запуск из linked-worktree → блок (с проверкой что worktree реально создан).
+if git -C "$TMP/work" worktree add -q "$TMP/wt" HEAD >/dev/null 2>&1 && [ -e "$TMP/wt/.git" ]; then
+  if (cd "$TMP/wt" && FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1); then no "worktree guard blocks"; else ok "worktree guard blocks"; fi
+else
+  no "worktree setup (add failed)"
+fi
 
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" = "0" ]

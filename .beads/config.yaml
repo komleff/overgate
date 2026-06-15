@@ -53,7 +53,8 @@
 # - github.org
 # - github.repo
 
-# sync.remote: "git+https://github.com/komleff/overgate.git"
+# sync.remote намеренно НЕ задан: Dolt не операционный путь синхронизации
+# (канон .claude/rules/beads.md). Синхронизация — scripts/bd-sync-*.sh.
 
 export.auto: false
 

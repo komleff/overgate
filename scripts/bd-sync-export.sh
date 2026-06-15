@@ -7,22 +7,34 @@
 # merge-движок (Dolt-merge намеренно запрещён каноном). Поэтому:
 #  - export строит снапшот из ЛОКАЛЬНОЙ БД и публикует его как новый tip beads-backup;
 #  - чтобы это не приводило к last-writer-wins потере чужих правок, export FAIL-CLOSED,
-#    если origin/beads-backup продвинулся с момента последней синхронизации этого клона
-#    (last-seen guard) ИЛИ если на remote есть задачи, отсутствующие локально (drop-guard).
-#    В обоих случаях нужно сперва scripts/bd-sync-restore.sh, затем повторить export;
-#  - контракт по сути «restore-before-export». Удаления задач не зеркалируются автоматически
-#    (restore = upsert без prune; `bd delete` запрещён deny-правилом) — осознанное ограничение
-#    snapshot-модели.
+#    если локальная БД не синхронизирована с актуальным remote tip (last-seen guard) ИЛИ
+#    если на remote есть задачи, отсутствующие локально (drop-guard). В обоих случаях нужно
+#    сперва scripts/bd-sync-restore.sh, затем повторить export — контракт «restore-before-export»;
+#  - удаления задач не зеркалируются (restore = upsert без prune; `bd delete` запрещён) —
+#    осознанное ограничение snapshot-модели.
 #
 # Скрипт НИКОГДА не пишет .beads/issues.jsonl в рабочее дерево (только приватный mktemp-каталог),
 # коммитит снапшот через temp-index плюминг и делает fast-forward push (force/delete запрещены).
 #
 # env: BD_SYNC_REMOTE (default origin), BD_SYNC_BRANCH (default beads-backup),
-#      BD_SYNC_FORCE=1 (override last-seen/drop guard — напр. намеренное удаление задач).
+#      BD_SYNC_FORCE=1 (override last-seen/drop guard — operator-only, см. deny в settings.json).
 set -euo pipefail
 
 REMOTE="${BD_SYNC_REMOTE:-origin}"
 BRANCH="${BD_SYNC_BRANCH:-beads-backup}"
+
+# Валидация env-параметров (целостность репозитория). Без неё BD_SYNC_BRANCH=main + наш
+# low-level update-ref/push деревом из одного .beads/issues.jsonl снёс бы содержимое main.
+case "$BRANCH" in
+  main|master|HEAD|release/*|releases/*|develop|trunk)
+    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — защищённое имя ветки запрещено." >&2; exit 1 ;;
+esac
+if ! git check-ref-format "refs/heads/${BRANCH}"; then
+  echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — некорректное имя git-ветки." >&2; exit 1
+fi
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+  echo "ОШИБКА: BD_SYNC_REMOTE='$REMOTE' — не настроенный named remote." >&2; exit 1
+fi
 
 # Guard: только из основного checkout. В git-worktree bd привязан к чужой dolt-базе и export
 # опубликовал бы некорректный снапшот (known failure mode, .claude/rules/beads.md).
@@ -31,8 +43,7 @@ if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
   exit 1
 fi
 
-# Приватная временная директория (umask 077, mktemp) — снапшот не читаем другим юзерам,
-# нет symlink/race на предсказуемых путях.
+# Приватная временная директория (umask 077, mktemp).
 umask 077
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bd-sync.XXXXXX")
 cleanup() { rm -rf "$WORK"; }
@@ -54,21 +65,33 @@ elif git rev-parse --verify -q "refs/heads/${BRANCH}" >/dev/null; then
   parent=$(git rev-parse "refs/heads/${BRANCH}")
 fi
 
-# 2a. Last-seen guard (защита от stale-overwrite, в т.ч. правок той же задачи на другой машине).
-#     Если remote tip изменился с момента последней синхронизации этого клона — fast-forward
-#     push молча затёр бы чужие изменения. Отказываемся, требуем restore. Хранится в git config
-#     (--local, per-clone, не коммитится — gitignore не нужен).
+# 2a. No-op skip: снапшот побайтно идентичен remote — публикация не нужна, безопасно при любом
+#     состоянии lastSeen. Фиксируем sync-состояние и выходим.
+if [ -n "$parent" ]; then
+  prev_blob=$(git rev-parse -q --verify "${parent}:.beads/issues.jsonl" 2>/dev/null || true)
+  if [ "$prev_blob" = "$blob" ]; then
+    git config --local beads-sync.lastSeen "$parent"
+    echo "OK: снапшот не изменился относительно ${REMOTE}/${BRANCH} — публикация не требуется."
+    exit 0
+  fi
+fi
+
+# 2b. Freshness (last-seen) guard — fail-closed restore-before-export. Блокирует, если remote-ветка
+#     существует, а локальная БД НЕ синхронизирована с её tip: либо lastSeen пуст (клон ни разу не
+#     делал restore/export), либо lastSeen != current tip (другая машина опубликовала раньше).
+#     Иначе fast-forward push молча затёр бы чужие правки (в т.ч. тех же id — drop-guard их не ловит).
+#     No-op-случай уже отсеян в 2a. Override — BD_SYNC_FORCE=1.
 last_seen=$(git config --local --get beads-sync.lastSeen 2>/dev/null || true)
-if [ -n "$parent" ] && [ -n "$last_seen" ] && [ "$last_seen" != "$parent" ] && [ "${BD_SYNC_FORCE:-}" != "1" ]; then
-  echo "ОШИБКА: ${REMOTE}/${BRANCH} продвинулся с момента последней синхронизации этого клона." >&2
-  echo "  last-seen: $last_seen" >&2
+if [ -n "$parent" ] && [ "$last_seen" != "$parent" ] && [ "${BD_SYNC_FORCE:-}" != "1" ]; then
+  echo "ОШИБКА: локальная БД не синхронизирована с ${REMOTE}/${BRANCH} (restore-before-export)." >&2
+  echo "  last-seen: ${last_seen:-<нет>}" >&2
   echo "  remote:    $parent" >&2
-  echo "Сначала: scripts/bd-sync-restore.sh (подтянуть чужие изменения), затем повтори export." >&2
-  echo "Override (намеренная перезапись): BD_SYNC_FORCE=1." >&2
+  echo "Сначала: scripts/bd-sync-restore.sh, затем повтори export. Override: BD_SYNC_FORCE=1." >&2
   exit 1
 fi
 
-# 2b. Снапшот, лежащий сейчас на remote (канонический путь либо legacy .beads/backup/).
+# 2c. Drop-guard: не теряем задачи, существующие на remote, но отсутствующие в локальном снапшоте
+#     (вторая линия защиты). id извлекаются надёжным JSON-парсером (python3), fallback на grep.
 remote_snap=""
 if [ -n "$parent" ]; then
   remote_snap="$WORK/remote.jsonl"
@@ -76,10 +99,6 @@ if [ -n "$parent" ]; then
     git show "${parent}:.beads/backup/issues.jsonl" > "$remote_snap" 2>/dev/null || : > "$remote_snap"
   fi
 fi
-
-# 2c. Drop-guard: не теряем задачи, существующие на remote, но отсутствующие в локальном снапшоте
-#     (вторая линия защиты к last-seen). id извлекаются надёжным JSON-парсером (python3), с
-#     fallback на grep если python3 нет. Override — BD_SYNC_FORCE=1.
 if [ -n "$remote_snap" ] && [ -s "$remote_snap" ] && [ "${BD_SYNC_FORCE:-}" != "1" ]; then
   if command -v python3 >/dev/null 2>&1; then
     dropped=$(python3 - "$remote_snap" "$SNAP" <<'PY'
@@ -113,16 +132,6 @@ PY
     printf '%s\n' "$dropped" | sed 's/^/  - /' >&2
     echo "Сначала: scripts/bd-sync-restore.sh, затем повтори export. Override: BD_SYNC_FORCE=1." >&2
     exit 1
-  fi
-fi
-
-# 2d. No-op skip: снапшот идентичен remote — не плодим пустой коммит, но фиксируем sync-состояние.
-if [ -n "$parent" ]; then
-  prev_blob=$(git rev-parse -q --verify "${parent}:.beads/issues.jsonl" 2>/dev/null || true)
-  if [ "$prev_blob" = "$blob" ]; then
-    git config --local beads-sync.lastSeen "$parent"
-    echo "OK: снапшот не изменился относительно ${REMOTE}/${BRANCH} — публикация не требуется."
-    exit 0
   fi
 fi
 

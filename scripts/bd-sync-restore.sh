@@ -15,6 +15,18 @@ set -euo pipefail
 REMOTE="${BD_SYNC_REMOTE:-origin}"
 BRANCH="${BD_SYNC_BRANCH:-beads-backup}"
 
+# Валидация env-параметров (консистентно с bd-sync-export.sh).
+case "$BRANCH" in
+  main|master|HEAD|release/*|releases/*|develop|trunk)
+    echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — защищённое имя ветки запрещено." >&2; exit 1 ;;
+esac
+if ! git check-ref-format "refs/heads/${BRANCH}"; then
+  echo "ОШИБКА: BD_SYNC_BRANCH='$BRANCH' — некорректное имя git-ветки." >&2; exit 1
+fi
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+  echo "ОШИБКА: BD_SYNC_REMOTE='$REMOTE' — не настроенный named remote." >&2; exit 1
+fi
+
 # Guard: только из основного checkout (не из git-worktree) — см. .claude/rules/beads.md.
 if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
   echo "ОШИБКА: запуск из git-worktree запрещён — bd привязан к основному checkout." >&2

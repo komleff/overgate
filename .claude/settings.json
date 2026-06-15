@@ -49,6 +49,7 @@
       "Bash(bd delete*)",
       "Bash(bd dolt push*)",
       "Bash(bd dolt pull*)",
+      "Bash(*BD_SYNC_FORCE*)",
       "Bash(git push * --delete*)",
       "Bash(git reset --hard*)",
       "Bash(git clean -fd*)",
