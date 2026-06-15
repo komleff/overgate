@@ -36,6 +36,7 @@ fi
 #    `git fetch origin <branch>` может заполнить только FETCH_HEAD и НЕ создать
 #    remote-tracking ref → `git show <remote>/<branch>:...` ниже не нашёл бы снапшот.
 git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
+remote_tip=$(git rev-parse "refs/remotes/${REMOTE}/${BRANCH}")
 
 # 2. Извлечь снапшот во временный файл. Основной путь — .beads/issues.jsonl;
 #    fallback — .beads/backup/issues.jsonl (снапшоты до стандартизации пути).
@@ -49,10 +50,14 @@ else
 fi
 
 # 3. Импорт (upsert: новые создаются, существующие обновляются).
+#    Зафиксировать sync-состояние: после restore локальная БД синхронизирована с этим tip,
+#    поэтому последующий export пройдёт last-seen guard.
 if [ ! -s "$SNAP" ]; then
+  git config --local beads-sync.lastSeen "$remote_tip"
   echo "OK: снапшот пуст — импортировать нечего."
   exit 0
 fi
 bd import "$SNAP"
+git config --local beads-sync.lastSeen "$remote_tip"
 
 echo "OK: задачи восстановлены из ${REMOTE}/${BRANCH}"

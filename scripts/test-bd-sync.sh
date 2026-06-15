@@ -66,7 +66,21 @@ export FAKE_BD_IMPORT_LOG="$TMP/import.log"; : > "$FAKE_BD_IMPORT_LOG"
 bash "$RESTORE" >/dev/null 2>&1 && ok "restore runs" || no "restore runs"
 [ -s "$FAKE_BD_IMPORT_LOG" ] && ok "restore invoked bd import" || no "restore invoked bd import"
 
-# 5. Worktree-guard: запуск из linked-worktree → блок.
+# 5. Last-seen guard: remote ушёл вперёд с момента последней синхронизации клона A → блок.
+#    Клон B независимо публикует новый снапшот (superset, чтобы пройти drop-guard), после чего
+#    export из A (его lastSeen устарел) должен fail-closed — иначе затёр бы изменения B.
+git clone -q "$TMP/remote.git" "$TMP/cloneB"
+( cd "$TMP/cloneB"
+  git config user.email b@example.com; git config user.name cloneB
+  printf '{"id":"og-1","title":"a"}\n{"id":"og-9","title":"fromB"}\n' > "$TMP/expB.jsonl"
+  FAKE_BD_EXPORT="$TMP/expB.jsonl" bash "$EXPORT" >/dev/null 2>&1 ) && ok "cloneB advances remote" || no "cloneB advances remote"
+if FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1; then no "last-seen guard blocks stale export"; else ok "last-seen guard blocks stale export"; fi
+# После restore lastSeen обновляется → export снова разрешён (если снапшот не теряет задачи).
+bash "$RESTORE" >/dev/null 2>&1 || true
+printf '{"id":"og-1","title":"a"}\n{"id":"og-9","title":"fromB"}\n{"id":"og-10","title":"new"}\n' > "$TMP/exp3.jsonl"
+FAKE_BD_EXPORT="$TMP/exp3.jsonl" bash "$EXPORT" >/dev/null 2>&1 && ok "export ok after restore" || no "export ok after restore"
+
+# 6. Worktree-guard: запуск из linked-worktree → блок.
 git -C "$TMP/work" worktree add -q "$TMP/wt" HEAD >/dev/null 2>&1
 if (cd "$TMP/wt" && FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1); then no "worktree guard blocks"; else ok "worktree guard blocks"; fi
 
