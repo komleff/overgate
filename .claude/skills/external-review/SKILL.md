@@ -76,7 +76,7 @@ if [ "$STATE" != "OPEN" ]; then echo "СТОП: PR не открыт"; exit 1; f
 
 # Fetch PR head как локальный ref (БЕЗ checkout — cwd остаётся в trusted base).
 # refspec `pull/<PR>/head` — это GitHub-специфичный ref для PR head независимо от source repo.
-PR_REF="u2-pr-<PR_NUMBER>"
+PR_REF="og-pr-<PR_NUMBER>"
 git fetch origin "+pull/<PR_NUMBER>/head:refs/heads/${PR_REF}"
 ```
 
@@ -427,7 +427,7 @@ fi
 # Возврат в trusted base branch (был git checkout --detach в Шаге 3.1).
 git checkout "$BASE_BRANCH"
 
-# Удалить локальный ref u2-pr-<PR_NUMBER> — идемпотентно (флаг -f игнорирует отсутствие).
+# Удалить локальный ref og-pr-<PR_NUMBER> — идемпотентно (флаг -f игнорирует отсутствие).
 git update-ref -d "refs/heads/${PR_REF}" || true
 
 # Альтернатива (если ref был как обычная ветка):
