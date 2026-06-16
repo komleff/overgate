@@ -513,6 +513,20 @@ fi
 if grep -qE '<[A-Z][A-Z_]{2,}>' .claude/rules/tests.md; then
   echo "ВНИМАНИЕ: в .claude/rules/tests.md остались baseline-плейсхолдеры (<UPPER_SNAKE>) — проставь счётчики тестов / warning-baseline под свой стек (§B.4). Не блокирует установку."
 fi
+# Advisory (НЕ fail-closed): EXAMPLE-скиллы sync-docs/sync-site-gdd и install-команды в
+# .claude/skills/*/README.md содержат плейсхолдеры (<REPO_ROOT>/<SITE_HOST>/<SITE_MANIFEST>)
+# в ИСПОЛНЯЕМЫХ командах (worktree/PowerShell-install). Это EXAMPLE-артефакты (адаптируются
+# или удаляются целиком по §B.4) — fail-closed здесь неверен (скилл может быть удалён), но
+# предупреждаем: незаполненные плейсхолдеры → команда упадёт при первом запуске скилла.
+SYNC_PH=$(grep -lE '<(REPO_ROOT|SITE_HOST|SITE_MANIFEST)>' \
+  .claude/skills/sync-docs/SKILL.md .claude/skills/sync-site-gdd/SKILL.md \
+  .claude/skills/README.md .claude/skills/architect/README.md \
+  .claude/skills/project-manager/README.md 2>/dev/null || true)
+if [ -n "$SYNC_PH" ]; then
+  echo "ВНИМАНИЕ: EXAMPLE-скиллы/READMEs с незаполненными плейсхолдерами в исполняемых командах:"
+  echo "$SYNC_PH"
+  echo "  → перед использованием этих скиллов заполни <REPO_ROOT>/<SITE_HOST>/<SITE_MANIFEST> (или удали скиллы, §B.4). Установку не блокирует."
+fi
 
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.
 git add AGENTS.md .agents/ .claude/ .gitignore .beads/ .memory-bank/
