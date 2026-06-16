@@ -77,6 +77,8 @@ related:
 | Шаги g-i (review-cycle) | Report-only | НЕ вмешивайся, кроме случаев явного блокера | Доверяй вердиктам — в этом смысл пайплайна |
 | Шаг j (merge) | **Blocking** | **Только ты** мержишь после `## ✅ Готов к merge` без warning | См. `HOW_TO_USE.md §4` про dual-invocation |
 
+> **Fallback `INSTALL_ALLOW_NPM_DRIFT=1`:** если в reference-репо нет `.claude/tools/package-lock.json`, шаг c (копирование) остановится fail-closed. Осознанный fallback на `npm install` без lock — выставь env-переменную `INSTALL_ALLOW_NPM_DRIFT=1` перед запуском агента (детали и обоснование — §B.3).
+
 ### A.4 Когда установка завершена
 
 Полные критерии — секция D. Кратко: после твоего merge Bootstrap PR в default branch, ИИ-агент должен подтвердить:
@@ -110,6 +112,14 @@ if [[ ! -f "$REFERENCE_REPO/.agents/INSTALL.md" ]] || [[ ! -f "$REFERENCE_REPO/.
   echo "СТОП: \$REFERENCE_REPO=$REFERENCE_REPO не похож на валидный pipeline reference"
   echo "(нужны .agents/INSTALL.md и .claude/settings.json). Проверь путь."
   exit 1
+fi
+
+# Sanity-check bd: helper-скрипты синхронизации (scripts/bd-sync-*.sh) завязаны на command
+# surface bd 1.0.2 — surface версию здесь (fail-fast), а не на шаге e (bd init).
+if command -v bd >/dev/null 2>&1; then
+  echo "bd: $(bd --version 2>/dev/null || echo 'версия не определена')   # ожидается >= 1.0.2"
+else
+  echo "ВНИМАНИЕ: bd не найден в PATH. Установи Beads (>= 1.0.2) до шага e (bd init)."
 fi
 
 ls "$REFERENCE_REPO/.agents/"                      # должно быть: AGENTIC_PIPELINE.md, AGENT_ROLES.md, ..., INSTALL.md (10 файлов)
@@ -476,15 +486,18 @@ fi
 
 # Placeholder-leak guard для стек-шаблона /verify (§B.4). РАНТАЙМ-РИСК: незаполненный
 # <PLACEHOLDER> в ИСПОЛНЯЕМОМ блоке → /verify запустит литерал (напр. <TEST_CMD>) и упадёт в
-# первом же спринте. Проверяем ТОЛЬКО содержимое bash-блоков (awk вырезает их; маркер fence
-# строится через sprintf, чтобы не плодить тройные backticks в доке). Прозу-легенду под командами
-# и блок «Пример (U2 reference)» НЕ трогаем — там имена плейсхолдеров легитимны / плейсхолдеров нет.
-# В reference-репо overgate эти блоки намеренно остаются шаблоном; гейт применяется в target-проекте.
-if awk 'BEGIN{b=sprintf("%c",96);F="^" b b b} $0~(F "bash"){f=1;next} $0~F{f=0;next} f' \
-     .claude/skills/verify/SKILL.md | grep -qE '<[A-Z][A-Z_]{2,}>'; then
+# первом же спринте. awk вырезает содержимое ЛЮБЫХ fenced code-блоков (toggle f на каждой
+# строке-fence `^\s*```...`; маркер строится через sprintf, чтобы не плодить тройные backticks
+# в доке). Покрывает ```bash, ```sh/```shell/```console и ОТСТУПЛЕННЫЕ fence — без привязки к
+# языку. Прозу-легенду под командами и блок «Пример (U2 reference)» НЕ трогаем: она вне fenced-
+# блоков либо без плейсхолдеров. Ограничение: незакрытый fence в malformed-доке захватит хвост
+# до EOF (ложная блокировка) — приемлемо, это баг самого дока адаптера. В reference-репо overgate
+# блоки намеренно остаются шаблоном; гейт применяется в target-проекте, не к overgate.
+VERIFY_BLOCKS=$(awk 'BEGIN{b=sprintf("%c",96);F="^[[:space:]]*" b b b} $0~F{f=!f;next} f' \
+     .claude/skills/verify/SKILL.md)
+if printf '%s\n' "$VERIFY_BLOCKS" | grep -qE '<[A-Z][A-Z_]{2,}>'; then
   echo "СТОП: в исполняемых блоках .claude/skills/verify/SKILL.md остались незаполненные <PLACEHOLDER>. Подставь команды своего стека (§B.4) — иначе /verify запустит литерал и упадёт."
-  awk 'BEGIN{b=sprintf("%c",96);F="^" b b b} $0~(F "bash"){f=1;next} $0~F{f=0;next} f' \
-     .claude/skills/verify/SKILL.md | grep -nE '<[A-Z][A-Z_]{2,}>'
+  printf '%s\n' "$VERIFY_BLOCKS" | grep -nE '<[A-Z][A-Z_]{2,}>'
   exit 1
 fi
 # Advisory (НЕ fail-closed): tests.md — документ baseline-чисел, не исполняемый код. Незаполненные
