@@ -21,3 +21,10 @@ node_modules/
 # Install artifact: fail-closed guard кладёт сюда шаблон, если target уже имел AGENTS.md.
 # Не коммитить — это временный merge-артефакт (INSTALL.md §B.3/§B.6).
 AGENTS.md.overgate-template
+
+# Python bytecode cache (регенерируемый)
+__pycache__/
+*.pyc
+
+# External-review артефакты (исторические записи ревью, в дистрибутив не идут)
+.review-responses/
