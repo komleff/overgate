@@ -116,7 +116,7 @@ fi
 
 # Sanity-check bd (обязательный пререквизит, §A.1): helper-скрипты синхронизации
 # (scripts/bd-sync-*.sh) завязаны на command surface bd 1.0.2 — fail-fast здесь, не на шаге e.
-# Реальный gate: stop при отсутствии bd; best-effort version-compare (sort -V) — stop при < 1.0.2.
+# Реальный gate: stop при отсутствии bd; best-effort version-compare (portable awk) — stop при < 1.0.2.
 # Функциональный hard-gate совместимости — `bd ready --json` на шаге e (см. §A.3).
 if ! command -v bd >/dev/null 2>&1; then
   echo "СТОП: bd не найден в PATH. Установи Beads (>= 1.0.2) до продолжения (§A.1)." >&2
