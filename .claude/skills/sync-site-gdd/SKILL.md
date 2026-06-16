@@ -101,7 +101,7 @@ git worktree add <REPO_ROOT>-sync-site-<YYYY-MM-DD> -B docs/sync-site-manifest-<
 cd <REPO_ROOT>-sync-site-<YYYY-MM-DD>
 ```
 
-> Применяются те же запреты, что в `/sync-docs`: только нативный Windows git, только внутри `D:\GitHub\`, не трогать основной worktree оператора.
+> Применяются те же запреты, что в `/sync-docs`: только нативный Windows git, worktree рядом с репозиторием (sibling-каталог к `<REPO_ROOT>`, не в корне диска/ФС), не трогать основной worktree оператора.
 
 ### Шаг 4 — Обновить manifest.json
 

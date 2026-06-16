@@ -114,13 +114,20 @@ if [[ ! -f "$REFERENCE_REPO/.agents/INSTALL.md" ]] || [[ ! -f "$REFERENCE_REPO/.
   exit 1
 fi
 
-# Sanity-check bd: helper-скрипты синхронизации (scripts/bd-sync-*.sh) завязаны на command
-# surface bd 1.0.2 — surface версию здесь (fail-fast), а не на шаге e (bd init).
-if command -v bd >/dev/null 2>&1; then
-  echo "bd: $(bd --version 2>/dev/null || echo 'версия не определена')   # ожидается >= 1.0.2"
-else
-  echo "ВНИМАНИЕ: bd не найден в PATH. Установи Beads (>= 1.0.2) до шага e (bd init)."
+# Sanity-check bd (обязательный пререквизит, §A.1): helper-скрипты синхронизации
+# (scripts/bd-sync-*.sh) завязаны на command surface bd 1.0.2 — fail-fast здесь, не на шаге e.
+# Реальный gate: stop при отсутствии bd; best-effort version-compare (sort -V) — stop при < 1.0.2.
+# Функциональный hard-gate совместимости — `bd ready --json` на шаге e (см. §A.3).
+if ! command -v bd >/dev/null 2>&1; then
+  echo "СТОП: bd не найден в PATH. Установи Beads (>= 1.0.2) до продолжения (§A.1)." >&2
+  exit 1
 fi
+BD_VER=$(bd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [ -n "$BD_VER" ] && [ "$(printf '%s\n%s\n' "1.0.2" "$BD_VER" | sort -V | head -1)" != "1.0.2" ]; then
+  echo "СТОП: bd $BD_VER < 1.0.2 — helper-скрипты синхронизации требуют command surface 1.0.2. Обнови Beads." >&2
+  exit 1
+fi
+echo "bd: ${BD_VER:-версия не распознана} (ожидается >= 1.0.2; функциональная проверка — bd ready на шаге e)"
 
 ls "$REFERENCE_REPO/.agents/"                      # должно быть: AGENTIC_PIPELINE.md, AGENT_ROLES.md, ..., INSTALL.md (10 файлов)
 ls "$REFERENCE_REPO/.claude/"                      # должно быть: settings.json, agents/, hooks/, skills/, rules/, tools/
@@ -338,6 +345,7 @@ AGENTS.md.overgate-template
 | `.claude/rules/universal.md` (если есть упоминания проекта) | проектные упоминания | Адаптируй |
 | `.claude/skills/verify/SKILL.md`, `.claude/rules/tests.md` | `<PLACEHOLDER>`-команды и baseline-числа (стек-агностичный шаблон) | **Заполни** плейсхолдеры (`<CLIENT_DIR>`, `<CLIENT_BUILD_CMD>`, `<SERVER_BUILD_CMD>`, `<TEST_CMD>`, `<EXPECTED_CLIENT_TESTS>`, `<EXPECTED_SERVER_TESTS>`, `<WARNING_BASELINE>`) под свой стек. **Не удаляй** — скиллы поставляются как шаблон, а не как U2-хардкод. Имя скилла `/verify` менять нельзя. |
 | `.claude/skills/sync-docs/SKILL.md`, `.claude/skills/sync-site-gdd/SKILL.md` | EXAMPLE doc/site-навигация (U2-пути `docs/INDEX.md`, ADR-INDEX, memory-bank, manifest сайта) | **Не generic как прочие скиллы.** `sync-docs` — адаптируй doc-пути (`<DOC_INDEX>`, `<ADR_INDEX>`, `<MEMORY_BANK>`) под свою структуру. `sync-site-gdd` — если у проекта **нет публичного сайта документации, удали скилл целиком**; иначе адаптируй `<SITE_HOST>`/`<SITE_MANIFEST>` и `scripts/find-missing.py`. Те же `<SITE_HOST>`/`<SITE_MANIFEST>` есть в роли Doc Sync (`.agents/AGENT_ROLES.md §5`) — адаптируй/удали там же. |
+| `.claude/skills/README.md`, `architect/README.md`, `project-manager/README.md`, `sync-docs`/`sync-site-gdd` SKILL | плейсхолдер `<REPO_ROOT>` (абсолютный путь корня твоего репозитория) | **Заполни** своим путём — встречается в PowerShell install-командах README-скиллов и в worktree-путях sync-скиллов. |
 | `.claude/rules/client-*.md`, `server.md` (если присутствуют) | Стек-специфичные tactical-правила (в reference-репо U2 — TS+Three.js, .NET+Entitas) | U2-payload: в этом overgate-репозитории таких файлов **нет**. Если твой reference-репо их принёс и стек **не** совпадает — удали или замени на свои; совпадает — оставь. |
 
 **Shell-команда для автоматического определения owner/repo:**
