@@ -11,7 +11,7 @@
 - `LICENSE` — MIT.
 - `CHANGELOG.md` (этот файл).
 - Таблица пререквизитов (Python, `gh`, Node.js, `bd`, инструменты внешнего ревью) в `README.md` и `.agents/INSTALL.md §A`.
-- Fail-closed гейт на незаполненные `<PLACEHOLDER>` в `/verify` и `.claude/rules/tests.md` при установке (`.agents/INSTALL.md`).
+- Fail-closed гейт на незаполненные `<PLACEHOLDER>` в **исполняемых блоках** `/verify` + **advisory** (не блокирующее предупреждение) для `.claude/rules/tests.md` (baseline-числа) при установке (`.agents/INSTALL.md`).
 - Helper-скрипты синхронизации Beads: `scripts/bd-sync-export.sh`, `bd-sync-restore.sh`, `bd-sync-common.sh` (PR #3).
 
 ### Changed
