@@ -33,6 +33,11 @@ related:
 - Открыта папка нового проекта
 - Доступ к GitHub-репо нового проекта (для PR)
 - **Reference-репозиторий** установлен локально (откуда копируем) — например `~/GitHub/u2/`; reference должен уже содержать `.agents/INSTALL.md` и `.claude/settings.json`
+- **Runtime-инструменты в `PATH`** (проверь до старта — без них установка/спринт сломаются):
+  - **Python 3.x** (`py` / `python3` / `python`) — hook `check-merge-ready.py` (без него блокируется `gh pr comment`) и EXAMPLE-скилл `/sync-site-gdd`.
+  - **GitHub CLI** (`gh`), authenticated (`gh auth status`) — все PR-операции скиллов.
+  - **Node.js ≥ 18.17.0** — `openai-review.mjs` (Mode A-legacy внешнего ревью).
+  - **Beads `bd` ≥ 1.0.2** (`bd --version`) — трекер задач + helper-скрипты синхронизации завязаны на command surface 1.0.2.
 - **Сильно рекомендуется (любой из путей):** (a) **ChatGPT subscription** (Plus/Pro/Business) + Codex CLI logged in (`codex login` → "Logged in using ChatGPT") для Mode A primary (v3.9, ADR 3.27); ИЛИ (b) `OPENAI_API_KEY` для Mode A-legacy (v3.6 baseline через `openai-review.mjs` Platform API). Без обоих путей Bootstrap PR (executable infrastructure) не сможет пройти Sprint Final review-gate стандартным путём. Альтернатива — Mode D (ручное Copilot review) через явный operator risk acceptance, фиксируется в PR. См. §B.8 + §D.3 + ADR 3.20 + ADR 3.27.
 
 ### A.2 Промпт активации (копируй целиком)
@@ -467,6 +472,25 @@ fi
 # `git add` его не застейджит, утечь в коммит не может. Здесь — только напоминание удалить после merge.
 if [ -e AGENTS.md.overgate-template ]; then
   echo "ВНИМАНИЕ: найден AGENTS.md.overgate-template (gitignored merge-артефакт). Удали его после ручного merge."
+fi
+
+# Placeholder-leak guard для стек-шаблона /verify (§B.4). РАНТАЙМ-РИСК: незаполненный
+# <PLACEHOLDER> в ИСПОЛНЯЕМОМ блоке → /verify запустит литерал (напр. <TEST_CMD>) и упадёт в
+# первом же спринте. Проверяем ТОЛЬКО содержимое bash-блоков (awk вырезает их; маркер fence
+# строится через sprintf, чтобы не плодить тройные backticks в доке). Прозу-легенду под командами
+# и блок «Пример (U2 reference)» НЕ трогаем — там имена плейсхолдеров легитимны / плейсхолдеров нет.
+# В reference-репо overgate эти блоки намеренно остаются шаблоном; гейт применяется в target-проекте.
+if awk 'BEGIN{b=sprintf("%c",96);F="^" b b b} $0~(F "bash"){f=1;next} $0~F{f=0;next} f' \
+     .claude/skills/verify/SKILL.md | grep -qE '<[A-Z][A-Z_]{2,}>'; then
+  echo "СТОП: в исполняемых блоках .claude/skills/verify/SKILL.md остались незаполненные <PLACEHOLDER>. Подставь команды своего стека (§B.4) — иначе /verify запустит литерал и упадёт."
+  awk 'BEGIN{b=sprintf("%c",96);F="^" b b b} $0~(F "bash"){f=1;next} $0~F{f=0;next} f' \
+     .claude/skills/verify/SKILL.md | grep -nE '<[A-Z][A-Z_]{2,}>'
+  exit 1
+fi
+# Advisory (НЕ fail-closed): tests.md — документ baseline-чисел, не исполняемый код. Незаполненные
+# плейсхолдеры там не роняют спринт, но baseline стоит проставить под свой стек.
+if grep -qE '<[A-Z][A-Z_]{2,}>' .claude/rules/tests.md; then
+  echo "ВНИМАНИЕ: в .claude/rules/tests.md остались baseline-плейсхолдеры (<UPPER_SNAKE>) — проставь счётчики тестов / warning-baseline под свой стек (§B.4). Не блокирует установку."
 fi
 
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.

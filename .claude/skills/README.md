@@ -7,7 +7,7 @@
 После клонирования репо или `git pull`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "D:\GitHub\u2\.claude\skills\install-all.ps1"
+powershell -ExecutionPolicy Bypass -File "<REPO_ROOT>\.claude\skills\install-all.ps1"
 ```
 
 Скрипт пройдёт по подпапкам, найдёт `install.ps1` в каждой и запустит их по очереди. Старые версии скиллов будут забэкаплены автоматически с timestamp.
@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -File "D:\GitHub\u2\.claude\skills\install-al
 ## Установка одного скилла
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "D:\GitHub\u2\.claude\skills\<skill-name>\install.ps1"
+powershell -ExecutionPolicy Bypass -File "<REPO_ROOT>\.claude\skills\<skill-name>\install.ps1"
 ```
 
 ## Скиллы с мастер-копией в репо

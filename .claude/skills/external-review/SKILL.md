@@ -238,6 +238,7 @@ Codex CLI выводит markdown report на stdout. Exit codes: 0 OK, ≠0 run
 - **Reviewer B:** `node .claude/tools/openai-review.mjs --model gpt-5.3-codex --base "$BASE_BRANCH" --head "$PR_REF"` — code-специализация (`/v1/responses` с `reasoning.effort: "high"`).
 - Две полноразмерные модели разных архитектур = максимальная adversarial diversity. Платформа: OpenAI Platform API (pay-per-token, `$OPENAI_API_KEY`).
 - В отчёте: `— Reviewer (GPT-5.5 Platform API)` и `— Reviewer (GPT-5.3-Codex Platform API)` + label `⚠️ Mode A-legacy fallback — primary v3.9 path (Codex CLI subscription) недоступен`.
+- **⚠️ Стоимость (для адаптера):** Platform API — pay-per-token, ~$20-22 за полный вызов ревью (vs $0 в пределах ChatGPT subscription quota, Mode A primary). Это auto-fallback; для регулярной работы предпочтительна subscription (Codex CLI). См. README «Требования» и `.agents/CODEX_AUTH.md`.
 
 Скрипт возвращает raw markdown на stdout (4 аспекта + вердикт `APPROVED | CHANGES_REQUESTED | ESCALATION`). Exit codes: 0 OK, 1 runtime/API, 2 валидация, 3 nothing to review — см. `.claude/tools/README.md` таблицу.
 

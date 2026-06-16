@@ -4,7 +4,7 @@ description: (EXAMPLE, U2-специфичный) Обновление manifest 
 user-invocable: true
 ---
 
-> ⚙️ EXAMPLE site-навигация (специфично для U2 docs.u2game.space). Нет публичного сайта — удали скилл; иначе адаптируй пути/манифест. Плейсхолдеры: `<SITE_HOST>` (хост публичного сайта), `<SITE_MANIFEST>` (путь к manifest сайта).
+> ⚙️ EXAMPLE site-навигация (специфично для U2 <SITE_HOST>). Нет публичного сайта — удали скилл; иначе адаптируй пути/манифест. Плейсхолдеры: `<SITE_HOST>` (хост публичного сайта), `<SITE_MANIFEST>` (путь к manifest сайта).
 
 # Sync Site GDD — обновление manifest публичного сайта
 
@@ -76,7 +76,7 @@ Slug раздела ниже — это **реальный `section.slug` из `
 Используй `scripts/find-missing.py` рядом с этим скиллом — он надёжно сравнивает `manifest.json` со списком ГД-релевантных документов в `docs/`. Эвристика разделов и набор исключений (ADR-INDEX, ARCHIVE и т.п.) совпадают с таблицей в этом SKILL.md.
 
 ```bash
-cd D:/GitHub/u2-sync-site-<YYYY-MM-DD>   # запускать из worktree от свежего main, см. Шаг 3
+cd <REPO_ROOT>-sync-site-<YYYY-MM-DD>   # запускать из worktree от свежего main, см. Шаг 3
 python .claude/skills/sync-site-gdd/scripts/find-missing.py
 ```
 
@@ -97,8 +97,8 @@ python .claude/skills/sync-site-gdd/scripts/find-missing.py
 ### Шаг 3 — Создать worktree
 
 ```powershell
-git worktree add D:\GitHub\u2-sync-site-<YYYY-MM-DD> -B docs/sync-site-manifest-<YYYY-MM-DD> origin/main
-cd D:\GitHub\u2-sync-site-<YYYY-MM-DD>
+git worktree add <REPO_ROOT>-sync-site-<YYYY-MM-DD> -B docs/sync-site-manifest-<YYYY-MM-DD> origin/main
+cd <REPO_ROOT>-sync-site-<YYYY-MM-DD>
 ```
 
 > Применяются те же запреты, что в `/sync-docs`: только нативный Windows git, только внутри `D:\GitHub\`, не трогать основной worktree оператора.
@@ -230,8 +230,8 @@ Tier ревью: Light (только manifest.json, без логики кода
 ### Шаг 9 — После merge оператором
 
 ```powershell
-cd D:\GitHub\u2
-git worktree remove D:\GitHub\u2-sync-site-<YYYY-MM-DD>
+cd <REPO_ROOT>
+git worktree remove <REPO_ROOT>-sync-site-<YYYY-MM-DD>
 git branch -D docs/sync-site-manifest-<YYYY-MM-DD>
 ```
 
