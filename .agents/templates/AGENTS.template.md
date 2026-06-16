@@ -83,9 +83,9 @@ bd prime                 # справочник команд
 
 Три «не», на которых агенты чаще всего спотыкаются:
 
-- **Не работать через Dolt напрямую.** Backend — локальный Dolt, но это деталь реализации, а не интерфейс. Синхронизация — только через ветку `origin/beads-backup` (`bd backup export-git --force` / `bd backup fetch-git`), **НЕ** `bd dolt push/pull`. Команды `bd prime` / `bd onboard` могут предлагать `bd dolt push` (upstream-дефолт) — он **переопределён**: используется только `beads-backup`.
+- **Не работать через Dolt напрямую.** Backend — локальный Dolt, но это деталь реализации, а не интерфейс. Синхронизация — только через ветку `origin/beads-backup` (`scripts/bd-sync-export.sh` / `scripts/bd-sync-restore.sh`), **НЕ** `bd dolt push/pull`. Команды `bd prime` / `bd onboard` могут предлагать `bd dolt push` (upstream-дефолт) — он **переопределён**: используется только `beads-backup`. (Старых команд `export-git` / `fetch-git` в bd 1.0.2 нет.)
 - **Не запускать `bd`-мутации из git-worktree.** Dolt runtime привязан к checkout: в worktree `bd` создаёт пустую базу и рвёт синхронизацию. Выполнять из основного checkout либо делегировать оператору.
-- **`.beads/issues.jsonl` — обрывок, не источник истины.** Полный набор задач — только в ветке `beads-backup`; руками JSONL не править.
+- **`.beads/issues.jsonl` не источник истины.** Auto-export отключён (`export.auto=false`), файл в `main` не трекается. Полный набор задач — снапшот в ветке `beads-backup`; руками JSONL не править.
 
 > ℹ️ В этом пайплайне `AGENTS.md` не содержит авто-генерируемого блока `BEADS INTEGRATION` — установка идёт через `bd init --skip-agents` (см. `.agents/INSTALL.md` §B.5), чтобы upstream `bd dolt push`-guidance не попал сюда. Источник правды по работе с bd — секция выше + `.claude/rules/beads.md`.
 
@@ -98,7 +98,7 @@ bd prime                 # справочник команд
 3. **Обнови статусы задач** — закрой завершённое, обнови in-progress.
 4. **PUSH:**
    ```bash
-   bd backup export-git --force   # синхронизация трекера через ветку beads-backup (НЕ bd dolt push)
+   scripts/bd-sync-export.sh      # синхронизация трекера через ветку beads-backup (НЕ bd dolt push)
    git pull --rebase
    git push
    git status                      # должно быть "up to date with origin"

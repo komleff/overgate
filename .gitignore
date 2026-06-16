@@ -8,6 +8,8 @@ node_modules/
 .beads/*.db
 .beads/*.sqlite
 .beads-credential-key
+# Task snapshot — source of truth в ветке beads-backup, в main не трекается
+.beads/issues.jsonl
 
 # Codex / external-review runtime
 .codex/
