@@ -124,7 +124,7 @@
 
 1. **Ветка** `chore/release-v3.9.0-beta.1` от свежего `origin/main`.
 2. Реализовать Workstreams 1–3. Нюансы: §1.5 Release — post-merge; §3.2 `.gitignore` — **в этом PR** после pre-auth `Edit` оператором (Preconditions); §3.4 `.agents/skills/` — working-tree cleanup с согласия оператора (вне диффа). Комментарии в коде/доках — на русском.
-3. **Verification релиз-PR — НЕ через адаптацию shipped `/verify`.** overgate — reference-шаблон: `verify/SKILL.md` и `tests.md` обязаны остаться с `<PLACEHOLDER>` (иначе теряется переносимость дистрибутива). **Запрещено** заполнять/менять плейсхолдеры shipped `/verify`/`tests.md` под overgate. Для этого PR — явный блок: `bash scripts/test-bd-sync.sh` + grep-гейты де-догфудинга (§Verification) + `bd doctor` + `/pipeline-audit` (затронуты нормативные артефакты).
+3. **Verification релиз-PR — НЕ через адаптацию shipped `/verify`.** overgate — reference-шаблон: `verify/SKILL.md` и `tests.md` обязаны остаться с `<PLACEHOLDER>` (иначе теряется переносимость дистрибутива). **Запрещено** заполнять/менять плейсхолдеры shipped `/verify`/`tests.md` под overgate. Для этого PR — явный блок: `bash scripts/test-bd-sync.sh` + grep-гейты де-догфудинга (§Verification) + `bd ready --json` + `/pipeline-audit` (затронуты нормативные артефакты).
 4. **PR** через `gh pr create`. **Tier: Critical** — затрагиваются нормативные артефакты пайплайна (`.claude/skills/*/SKILL.md`, `.agents/*.md`, `.claude/rules/tests.md`). Это `/sprint-pr-cycle` (4 аспекта, 2 прохода + Tester gate) + **Sprint Final → `/external-review`** (релиз в main).
 5. Triage findings → fix-cycle до APPROVED обоих ревьюеров (commit-bound). PM — единственный владелец публикации.
 6. **`/finalize-pr <N>`** — hard gate. Pre-merge landing inline (Memory-bank `activeContext`/`progress`, архивация плана, при необходимости Beads).
@@ -141,14 +141,14 @@
   - `git grep -n -i "D:[/\\\\]GitHub[/\\\\]u2"` → **пусто** (то же для `~/GitHub/u2`, `/path/to/u2`, bare-folder `` `u2` `` в operational-доках, `u2-pr-` → переименован в `og-pr-`).
   - `git grep -n "u2game"` → **пусто** (все вхождения заменены, включая комментарий `find-missing.py`).
   - `git grep -n "@u2/"` → **пусто**.
-  - `git grep -n "<SITE_HOST>"` → только **ожидаемые** места: **(a)** новые из де-догфудинга §1.3 — `AGENT_ROLES.md:295,323`, `sync-docs/SKILL.md:265,294`, `find-missing.py:6`; **(b) предсуществующие легитимные** (уже в tracked, остаются) — `.agents/INSTALL.md:325` (adaptation table) и `.claude/skills/sync-site-gdd/SKILL.md` (EXAMPLE-скилл, мн. строк: 3,7,11,178,192,203,210,221). Критерий: в найденных местах рядом нет `u2game`/`docs.u2game.space`. (Без этого allowlist'а предсуществующий `INSTALL.md:325` дал бы ложный fail.)
+  - `git grep -n "<SITE_HOST>"` → только **ожидаемые** места (без привязки к номерам строк — они дрейфуют при правках): роль Doc Sync `AGENT_ROLES.md`, EXAMPLE-скиллы `sync-docs`/`sync-site-gdd`, `find-missing.py`, adaptation-table `INSTALL.md`. **Критерий — adjacency:** в найденных местах рядом нет `u2game`/`docs.u2game.space`.
   - Provenance-строки (`AGENTS.md`, `README.md:5`, `INSTALL.md:22`, `REFERENCES.md`) **сохранены** (`git grep -n "komleff/u2"` → только они).
 - **LICENSE:** файл существует; `gh repo view --json licenseInfo` после merge показывает MIT; README ссылается.
 - **Гигиена:** `git ls-files | grep -E "pyc|pycache"` → пусто; `git check-ignore .review-responses/` → возвращает путь (`.gitignore`-правка в этом же PR, §3.2 — если оператор авторизовал Edit); `docs/plans/peppy-whistling-puppy.md` в `docs/archive/`.
 - **Onboarding-гейт (исполнимо, тестирует РЕАЛЬНЫЙ awk|grep конвейер гейта, не только grep; shipped-файл НЕ мутируется):**
   - Извлечь блоки как гейт: `BLK=$(awk 'BEGIN{b=sprintf("%c",96);F="^[[:space:]]*" b b b} $0~F{f=!f;next} f' .claude/skills/verify/SKILL.md)`.
   - Шаблон: `printf '%s\n' "$BLK" | grep -qE '<[A-Z][A-Z_]{2,}>'` → exit 0 (плейсхолдеры в fenced-блоках → гейт сработал бы).
-  - Игнор прозы: число `<…>` в `$BLK` < числа во всём файле (на shipped — 4 < 9) — прозу-легенду и блок «Пример» гейт не видит.
+  - Игнор прозы: число `<…>` в `$BLK` < числа во всём файле — прозу-легенду и блок «Пример (U2 reference)» гейт не видит (gate извлекает только bash-блоки).
   - После адаптации (заполнены командные блоки): `$BLK` без `<…>` → grep exit 1 → гейт пропускает.
   - Robustness (broadened): fixture с отступленным ```sh + плейсхолдером → toggle-awk ЛОВИТ (старый `^```bash` пропускал); прозовый токен вне fence в `$BLK` НЕ попадает.
   - `tests.md` — **advisory** (не fail-closed): `grep -qE '<…>' .claude/rules/tests.md` → есть → echo-предупреждение, установку не блокирует.
