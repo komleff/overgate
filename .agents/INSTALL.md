@@ -32,7 +32,7 @@ related:
 - Терминал или VS Code с Claude Code (Opus 4.7+)
 - Открыта папка нового проекта
 - Доступ к GitHub-репо нового проекта (для PR)
-- **Reference-репозиторий** установлен локально (откуда копируем) — например `~/GitHub/u2/`; reference должен уже содержать `.agents/INSTALL.md` и `.claude/settings.json`
+- **Reference-репозиторий** установлен локально (откуда копируем) — например `~/GitHub/overgate/`; reference должен уже содержать `.agents/INSTALL.md` и `.claude/settings.json`
 - **Runtime-инструменты в `PATH`** (проверь до старта — без них установка/спринт сломаются):
   - **Python 3.x** (`py` / `python3` / `python`) — hook `check-merge-ready.py` (без него блокируется `gh pr comment`) и EXAMPLE-скилл `/sync-site-gdd`.
   - **GitHub CLI** (`gh`), authenticated (`gh auth status`) — все PR-операции скиллов.
@@ -45,13 +45,13 @@ related:
 ```
 Ты — установщик OverGate-пайплайна. Прочитай .agents/INSTALL.md секцию B
 (полную инструкцию для AI-агента) в reference-репозитории
-[путь к reference, например ~/GitHub/u2/.agents/INSTALL.md].
+[путь к reference, например ~/GitHub/overgate/.agents/INSTALL.md].
 
 Контекст текущего проекта:
 - Имя проекта: [например, my-new-game]
 - GitHub-репо: [https://github.com/user/repo]
 - Стек: [например, Node.js + React, или .NET + Unity]
-- Reference-репозиторий: [например, ~/GitHub/u2/]
+- Reference-репозиторий: [например, ~/GitHub/overgate/]
 - Префикс Beads: [например, mng-* для my-new-game]
 
 Действуй автономно по шагам a-j. Останавливайся только на:
@@ -105,7 +105,7 @@ related:
 
 ```bash
 # Reference (откуда копируем)
-REFERENCE_REPO="${REFERENCE_REPO:-/path/to/u2}"   # передаёт оператор
+REFERENCE_REPO="${REFERENCE_REPO:-/path/to/overgate}"   # передаёт оператор
 
 # Sanity-check: $REFERENCE_REPO должен указывать на валидный pipeline reference
 if [[ ! -f "$REFERENCE_REPO/.agents/INSTALL.md" ]] || [[ ! -f "$REFERENCE_REPO/.claude/settings.json" ]]; then

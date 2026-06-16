@@ -52,13 +52,13 @@ related:
 ```
 Ты — установщик OverGate-пайплайна. Прочитай .agents/INSTALL.md секцию B
 (полную инструкцию для AI-агента) в reference-репозитории
-[путь к reference, например ~/GitHub/u2/.agents/INSTALL.md].
+[путь к reference, например ~/GitHub/overgate/.agents/INSTALL.md].
 
 Контекст текущего проекта:
 - Имя проекта: [например, my-new-game]
 - GitHub-репо: [https://github.com/user/repo]
 - Стек: [например, Node.js + React, или .NET + Unity]
-- Reference-репозиторий: [например, ~/GitHub/u2/]
+- Reference-репозиторий: [например, ~/GitHub/overgate/]
 - Префикс Beads: [например, mng-* для my-new-game]
 
 Действуй автономно по шагам a-j. Останавливайся только на:
