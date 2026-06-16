@@ -25,6 +25,7 @@ sub="$1"; shift || true
 case "$sub" in
   where) exit 0 ;;
   export)
+    [ -n "${FAKE_BD_EXPORT_FAIL:-}" ] && exit 1   # эмуляция сбоя bd export (lock/corruption)
     out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="${2:-}"; shift; done
     [ -n "$out" ] && { cp "${FAKE_BD_EXPORT:-/dev/null}" "$out" 2>/dev/null || : > "$out"; }
     exit 0 ;;
@@ -101,6 +102,13 @@ printf '{"id":"og-1"}\n{"id":"og-50","title":"local-only-C"}\n' > "$TMP/expC.jso
 if (cd "$TMP/cloneC" && FAKE_BD_EXPORT="$TMP/expC.jsonl" bash "$RESTORE" >/dev/null 2>&1); then
   no "restore empty-lastSeen conflict blocked"
 else ok "restore empty-lastSeen conflict blocked"; fi
+#    5h. Fail-closed: если локальный bd export падает — restore прерывается ДО bd import.
+: > "$FAKE_BD_IMPORT_LOG"
+if (cd "$TMP/cloneC" && FAKE_BD_EXPORT_FAIL=1 bash "$RESTORE" >/dev/null 2>&1); then
+  no "restore fail-closed on export error"
+else
+  [ ! -s "$FAKE_BD_IMPORT_LOG" ] && ok "restore fail-closed on export error" || no "restore fail-closed (import всё же вызван)"
+fi
 
 # 6. Branch whitelist: только beads-backup / beads-backup-* допустимы; всё прочее отвергается
 #    (whitelist, не blacklist — feature/x тоже схлопнул бы рабочую ветку до snapshot).

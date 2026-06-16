@@ -56,7 +56,15 @@ fi
 last_seen=$(git config --local --get beads-sync.lastSeen 2>/dev/null || true)
 if [ "${BD_SYNC_FORCE:-}" != "1" ]; then
   local_now="$WORK/local.jsonl"
-  bd export --all -o "$local_now" 2>/dev/null || : > "$local_now"; touch "$local_now"
+  # Fail-closed: если снять локальный снапшот не удалось (lock/corruption/version mismatch),
+  # НЕЛЬЗЯ считать локальную БД пустой — иначе conflict-guard пропустится и bd import затрёт
+  # локальные данные. Прерываем restore с понятной ошибкой.
+  if ! bd export --all -o "$local_now" 2>/dev/null; then
+    echo "ОШИБКА: не удалось снять локальный снапшот (bd export) для проверки конфликта." >&2
+    echo "restore прерван (fail-closed), чтобы не затереть локальные данные. Проверь состояние bd." >&2
+    exit 1
+  fi
+  touch "$local_now"
   # Проверяем риск потери ТОЛЬКО если в локальной БД есть данные.
   if [ -s "$local_now" ]; then
     # base — снапшот, с которым локальная БД синхронизирована. Если lastSeen нет (клон ни разу
