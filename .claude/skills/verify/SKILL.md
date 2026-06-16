@@ -8,7 +8,7 @@ user-invocable: true
 
 Запусти сборку и тесты для всех платформ проекта, выведи сводный результат.
 
-> **Шаблон.** Командные шаги ниже — `<PLACEHOLDER>`-конвенция. Подставь команды и baseline'ы своего стека (см. `.claude/rules/tests.md`). Имя скилла менять нельзя — `/verify` должен резолвиться. Если у проекта только одна платформа (например, нет отдельного клиента и сервера) — оставь один шаг, второй удали.
+> **Шаблон.** Командные шаги ниже — `<PLACEHOLDER>`-конвенция. Подставь команды и baseline'ы своего стека (см. `.claude/rules/tests.md`). Имя скилла менять нельзя — `/verify` должен резолвиться. Если у проекта только одна платформа (например, нет отдельного клиента и сервера) — оставь один шаг, второй удали. Если корень проекта — npm workspace, `npm ci` запускается из **корня** репо, а не из leaf-папки клиента (иначе `vite`/`vitest` не доустановятся), а build/test — через корневые root-скрипты, таргетящие workspace.
 
 ## Шаг 1 — Клиент / основная платформа
 
@@ -47,13 +47,15 @@ set -e
 Исходная U2-реализация скилла (TS-клиент Vite/Vitest + .NET сервер NUnit) — как ориентир при заполнении плейсхолдеров:
 
 ```bash
-# Шаг 1 — TS-клиент (testbed на Vite + Three.js)
+# Шаг 1 — TS-клиент (testbed на Vite, в корневом npm workspace)
 set -e
-cd src/clients/testbed/chatgpt-vite \
-  && npm ci \
+# ⚠️ Корень репо — npm workspace ("workspaces": ["src/clients/testbed/*"]):
+# npm ci ЗАПУСКАЕТСЯ ИЗ КОРНЯ. Из leaf-папки он ставит лишь её прямые deps —
+# vite/vitest не появятся (command not found). Root-скрипты build/test таргетят workspace.
+# `-- --run` пробрасывается в корневой test-скрипт и держит vitest в одноразовом (non-watch) режиме.
+npm ci \
   && npm run build \
   && npm test -- --run
-cd -
 
 # Шаг 2 — .NET solution (server entry-point + shared game logic + NUnit тесты)
 set -e
