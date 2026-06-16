@@ -52,9 +52,10 @@ set -e
 # ⚠️ Корень репо — npm workspace ("workspaces": ["src/clients/testbed/*"]):
 # npm ci ЗАПУСКАЕТСЯ ИЗ КОРНЯ. Из leaf-папки он ставит лишь её прямые deps —
 # vite/vitest не появятся (command not found). Root-скрипты build/test таргетят workspace.
+# `-- --run` пробрасывается в корневой test-скрипт и держит vitest в одноразовом (non-watch) режиме.
 npm ci \
   && npm run build \
-  && npm test
+  && npm test -- --run
 
 # Шаг 2 — .NET solution (server entry-point + shared game logic + NUnit тесты)
 set -e
