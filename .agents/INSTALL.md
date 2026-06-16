@@ -32,7 +32,12 @@ related:
 - Терминал или VS Code с Claude Code (Opus 4.7+)
 - Открыта папка нового проекта
 - Доступ к GitHub-репо нового проекта (для PR)
-- **Reference-репозиторий** установлен локально (откуда копируем) — например `~/GitHub/u2/`; reference должен уже содержать `.agents/INSTALL.md` и `.claude/settings.json`
+- **Reference-репозиторий** установлен локально (откуда копируем) — например `~/GitHub/overgate/`; reference должен уже содержать `.agents/INSTALL.md` и `.claude/settings.json`
+- **Runtime-инструменты в `PATH`** (проверь до старта — без них установка/спринт сломаются):
+  - **Python 3.x** (`py` / `python3` / `python`) — hook `check-merge-ready.py` (без него блокируется `gh pr comment`) и EXAMPLE-скилл `/sync-site-gdd`.
+  - **GitHub CLI** (`gh`), authenticated (`gh auth status`) — все PR-операции скиллов.
+  - **Node.js ≥ 18.17.0** — `openai-review.mjs` (Mode A-legacy внешнего ревью).
+  - **Beads `bd` ≥ 1.0.2** (`bd --version`) — трекер задач + helper-скрипты синхронизации завязаны на command surface 1.0.2.
 - **Сильно рекомендуется (любой из путей):** (a) **ChatGPT subscription** (Plus/Pro/Business) + Codex CLI logged in (`codex login` → "Logged in using ChatGPT") для Mode A primary (v3.9, ADR 3.27); ИЛИ (b) `OPENAI_API_KEY` для Mode A-legacy (v3.6 baseline через `openai-review.mjs` Platform API). Без обоих путей Bootstrap PR (executable infrastructure) не сможет пройти Sprint Final review-gate стандартным путём. Альтернатива — Mode D (ручное Copilot review) через явный operator risk acceptance, фиксируется в PR. См. §B.8 + §D.3 + ADR 3.20 + ADR 3.27.
 
 ### A.2 Промпт активации (копируй целиком)
@@ -40,13 +45,13 @@ related:
 ```
 Ты — установщик OverGate-пайплайна. Прочитай .agents/INSTALL.md секцию B
 (полную инструкцию для AI-агента) в reference-репозитории
-[путь к reference, например ~/GitHub/u2/.agents/INSTALL.md].
+[путь к reference, например ~/GitHub/overgate/.agents/INSTALL.md].
 
 Контекст текущего проекта:
 - Имя проекта: [например, my-new-game]
 - GitHub-репо: [https://github.com/user/repo]
 - Стек: [например, Node.js + React, или .NET + Unity]
-- Reference-репозиторий: [например, ~/GitHub/u2/]
+- Reference-репозиторий: [например, ~/GitHub/overgate/]
 - Префикс Beads: [например, mng-* для my-new-game]
 
 Действуй автономно по шагам a-j. Останавливайся только на:
@@ -71,6 +76,8 @@ related:
 | Шаг f (Bootstrap PR) | **Blocking** | Подтверди структуру PR (один большой / серия мелких) | По умолчанию: один большой PR |
 | Шаги g-i (review-cycle) | Report-only | НЕ вмешивайся, кроме случаев явного блокера | Доверяй вердиктам — в этом смысл пайплайна |
 | Шаг j (merge) | **Blocking** | **Только ты** мержишь после `## ✅ Готов к merge` без warning | См. `HOW_TO_USE.md §4` про dual-invocation |
+
+> **Fallback `INSTALL_ALLOW_NPM_DRIFT=1`:** если в reference-репо нет `.claude/tools/package-lock.json`, шаг c (копирование) остановится fail-closed. Осознанный fallback на `npm install` без lock — выставь env-переменную `INSTALL_ALLOW_NPM_DRIFT=1` перед запуском агента (детали и обоснование — §B.3).
 
 ### A.4 Когда установка завершена
 
@@ -98,7 +105,7 @@ related:
 
 ```bash
 # Reference (откуда копируем)
-REFERENCE_REPO="${REFERENCE_REPO:-/path/to/u2}"   # передаёт оператор
+REFERENCE_REPO="${REFERENCE_REPO:-/path/to/overgate}"   # передаёт оператор
 
 # Sanity-check: $REFERENCE_REPO должен указывать на валидный pipeline reference
 if [[ ! -f "$REFERENCE_REPO/.agents/INSTALL.md" ]] || [[ ! -f "$REFERENCE_REPO/.claude/settings.json" ]]; then
@@ -106,6 +113,23 @@ if [[ ! -f "$REFERENCE_REPO/.agents/INSTALL.md" ]] || [[ ! -f "$REFERENCE_REPO/.
   echo "(нужны .agents/INSTALL.md и .claude/settings.json). Проверь путь."
   exit 1
 fi
+
+# Sanity-check bd (обязательный пререквизит, §A.1): helper-скрипты синхронизации
+# (scripts/bd-sync-*.sh) завязаны на command surface bd 1.0.2 — fail-fast здесь, не на шаге e.
+# Реальный gate: stop при отсутствии bd; best-effort version-compare (portable awk) — stop при < 1.0.2.
+# Функциональный hard-gate совместимости — `bd ready --json` на шаге e (см. §A.3).
+if ! command -v bd >/dev/null 2>&1; then
+  echo "СТОП: bd не найден в PATH. Установи Beads (>= 1.0.2) до продолжения (§A.1)." >&2
+  exit 1
+fi
+BD_VER=$(bd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+# Portable semver-compare через awk (НЕ sort -V — он GNU-only, дефолтный BSD sort на
+# macOS/BSD не имеет -V → пустой вывод → ложная блокировка валидного окружения).
+if [ -n "$BD_VER" ] && ! awk -v v="$BD_VER" 'BEGIN{split(v,a,".");exit !((a[1]+0)>1||((a[1]+0)==1&&((a[2]+0)>0||((a[2]+0)==0&&(a[3]+0)>=2))))}'; then
+  echo "СТОП: bd $BD_VER < 1.0.2 — helper-скрипты синхронизации требуют command surface 1.0.2. Обнови Beads." >&2
+  exit 1
+fi
+echo "bd: ${BD_VER:-версия не распознана} (ожидается >= 1.0.2; функциональная проверка — bd ready на шаге e)"
 
 ls "$REFERENCE_REPO/.agents/"                      # должно быть: AGENTIC_PIPELINE.md, AGENT_ROLES.md, ..., INSTALL.md (10 файлов)
 ls "$REFERENCE_REPO/.claude/"                      # должно быть: settings.json, agents/, hooks/, skills/, rules/, tools/
@@ -322,7 +346,8 @@ AGENTS.md.overgate-template
 | `.agents/HOW_TO_USE.md` (frontmatter + контекстные упоминания) | `Universe Unlimited (U2)` если есть | Имя твоего проекта |
 | `.claude/rules/universal.md` (если есть упоминания проекта) | проектные упоминания | Адаптируй |
 | `.claude/skills/verify/SKILL.md`, `.claude/rules/tests.md` | `<PLACEHOLDER>`-команды и baseline-числа (стек-агностичный шаблон) | **Заполни** плейсхолдеры (`<CLIENT_DIR>`, `<CLIENT_BUILD_CMD>`, `<SERVER_BUILD_CMD>`, `<TEST_CMD>`, `<EXPECTED_CLIENT_TESTS>`, `<EXPECTED_SERVER_TESTS>`, `<WARNING_BASELINE>`) под свой стек. **Не удаляй** — скиллы поставляются как шаблон, а не как U2-хардкод. Имя скилла `/verify` менять нельзя. |
-| `.claude/skills/sync-docs/SKILL.md`, `.claude/skills/sync-site-gdd/SKILL.md` | EXAMPLE doc/site-навигация (U2-пути `docs/INDEX.md`, ADR-INDEX, memory-bank, manifest сайта) | **Не generic как прочие скиллы.** `sync-docs` — адаптируй doc-пути (`<DOC_INDEX>`, `<ADR_INDEX>`, `<MEMORY_BANK>`) под свою структуру. `sync-site-gdd` — если у проекта **нет публичного сайта документации, удали скилл целиком**; иначе адаптируй `<SITE_HOST>`/`<SITE_MANIFEST>` и `scripts/find-missing.py`. |
+| `.claude/skills/sync-docs/SKILL.md`, `.claude/skills/sync-site-gdd/SKILL.md` | EXAMPLE doc/site-навигация (U2-пути `docs/INDEX.md`, ADR-INDEX, memory-bank, manifest сайта) | **Не generic как прочие скиллы.** `sync-docs` — адаптируй doc-пути (`<DOC_INDEX>`, `<ADR_INDEX>`, `<MEMORY_BANK>`) под свою структуру. `sync-site-gdd` — если у проекта **нет публичного сайта документации, удали скилл целиком**; иначе адаптируй `<SITE_HOST>`/`<SITE_MANIFEST>` и `scripts/find-missing.py`. Те же `<SITE_HOST>`/`<SITE_MANIFEST>` есть в роли Doc Sync (`.agents/AGENT_ROLES.md §5`) — адаптируй/удали там же. |
+| `.claude/skills/README.md`, `architect/README.md`, `project-manager/README.md`, `sync-docs`/`sync-site-gdd` SKILL | плейсхолдер `<REPO_ROOT>` (абсолютный путь корня твоего репозитория) | **Заполни** своим путём — встречается в PowerShell install-командах README-скиллов и в worktree-путях sync-скиллов. |
 | `.claude/rules/client-*.md`, `server.md` (если присутствуют) | Стек-специфичные tactical-правила (в reference-репо U2 — TS+Three.js, .NET+Entitas) | U2-payload: в этом overgate-репозитории таких файлов **нет**. Если твой reference-репо их принёс и стек **не** совпадает — удали или замени на свои; совпадает — оставь. |
 
 **Shell-команда для автоматического определения owner/repo:**
@@ -467,6 +492,42 @@ fi
 # `git add` его не застейджит, утечь в коммит не может. Здесь — только напоминание удалить после merge.
 if [ -e AGENTS.md.overgate-template ]; then
   echo "ВНИМАНИЕ: найден AGENTS.md.overgate-template (gitignored merge-артефакт). Удали его после ручного merge."
+fi
+
+# Placeholder-leak guard для стек-шаблона /verify (§B.4). РАНТАЙМ-РИСК: незаполненный
+# <PLACEHOLDER> в ИСПОЛНЯЕМОМ блоке → /verify запустит литерал (напр. <TEST_CMD>) и упадёт в
+# первом же спринте. awk вырезает содержимое ЛЮБЫХ fenced code-блоков (toggle f на каждой
+# строке-fence `^\s*```...`; маркер строится через sprintf, чтобы не плодить тройные backticks
+# в доке). Покрывает ```bash, ```sh/```shell/```console и ОТСТУПЛЕННЫЕ fence — без привязки к
+# языку. Прозу-легенду под командами и блок «Пример (U2 reference)» НЕ трогаем: она вне fenced-
+# блоков либо без плейсхолдеров. Ограничение: незакрытый fence в malformed-доке захватит хвост
+# до EOF (ложная блокировка) — приемлемо, это баг самого дока адаптера. В reference-репо overgate
+# блоки намеренно остаются шаблоном; гейт применяется в target-проекте, не к overgate.
+VERIFY_BLOCKS=$(awk 'BEGIN{b=sprintf("%c",96);F="^[[:space:]]*" b b b} $0~F{f=!f;next} f' \
+     .claude/skills/verify/SKILL.md)
+if printf '%s\n' "$VERIFY_BLOCKS" | grep -qE '<[A-Z][A-Z_]{2,}>'; then
+  echo "СТОП: в исполняемых блоках .claude/skills/verify/SKILL.md остались незаполненные <PLACEHOLDER>. Подставь команды своего стека (§B.4) — иначе /verify запустит литерал и упадёт."
+  printf '%s\n' "$VERIFY_BLOCKS" | grep -nE '<[A-Z][A-Z_]{2,}>'
+  exit 1
+fi
+# Advisory (НЕ fail-closed): tests.md — документ baseline-чисел, не исполняемый код. Незаполненные
+# плейсхолдеры там не роняют спринт, но baseline стоит проставить под свой стек.
+if grep -qE '<[A-Z][A-Z_]{2,}>' .claude/rules/tests.md; then
+  echo "ВНИМАНИЕ: в .claude/rules/tests.md остались baseline-плейсхолдеры (<UPPER_SNAKE>) — проставь счётчики тестов / warning-baseline под свой стек (§B.4). Не блокирует установку."
+fi
+# Advisory (НЕ fail-closed): EXAMPLE-скиллы sync-docs/sync-site-gdd и install-команды в
+# .claude/skills/*/README.md содержат плейсхолдеры (<REPO_ROOT>/<SITE_HOST>/<SITE_MANIFEST>)
+# в ИСПОЛНЯЕМЫХ командах (worktree/PowerShell-install). Это EXAMPLE-артефакты (адаптируются
+# или удаляются целиком по §B.4) — fail-closed здесь неверен (скилл может быть удалён), но
+# предупреждаем: незаполненные плейсхолдеры → команда упадёт при первом запуске скилла.
+SYNC_PH=$(grep -lE '<(REPO_ROOT|SITE_HOST|SITE_MANIFEST)>' \
+  .claude/skills/sync-docs/SKILL.md .claude/skills/sync-site-gdd/SKILL.md \
+  .claude/skills/README.md .claude/skills/architect/README.md \
+  .claude/skills/project-manager/README.md 2>/dev/null || true)
+if [ -n "$SYNC_PH" ]; then
+  echo "ВНИМАНИЕ: EXAMPLE-скиллы/READMEs с незаполненными плейсхолдерами в исполняемых командах:"
+  echo "$SYNC_PH"
+  echo "  → перед использованием этих скиллов заполни <REPO_ROOT>/<SITE_HOST>/<SITE_MANIFEST> (или удали скиллы, §B.4). Установку не блокирует."
 fi
 
 # git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.

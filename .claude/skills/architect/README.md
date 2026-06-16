@@ -12,13 +12,13 @@
 ## Установка
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "D:\GitHub\u2\.claude\skills\architect\install.ps1"
+powershell -ExecutionPolicy Bypass -File "<REPO_ROOT>\.claude\skills\architect\install.ps1"
 ```
 
 Или одной командой для всех мастер-скиллов сразу:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "D:\GitHub\u2\.claude\skills\install-all.ps1"
+powershell -ExecutionPolicy Bypass -File "<REPO_ROOT>\.claude\skills\install-all.ps1"
 ```
 
 После установки перезапустить Cowork-сессию.

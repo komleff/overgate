@@ -292,7 +292,7 @@ Stateless модели **не помнят** предыдущие итераци
 ### Обязанности
 
 - Синхронизация навигационных индексов (`docs/INDEX.md`, `docs/architecture/ADR-INDEX.md`) и memory-bank (`.memory-bank/activeContext.md`, `.memory-bank/progress.md`) после merge документов или ADR в main.
-- Обновление `docs/gdd/site/content/manifest.json` для публикации новых ГД-релевантных документов на сайте `docs.u2game.space`. После merge GitHub Actions автоматически передеплоит сайт (SLA < 5 мин по `docs/gdd/gdd_site_maintenance_v0.1.md §12`).
+- Обновление `<SITE_MANIFEST>` для публикации новых ГД-релевантных документов на сайте `<SITE_HOST>`. После merge GitHub Actions автоматически передеплоит сайт (SLA < 5 мин по регламенту сайта проекта).
 - Подготовка отдельного PR в tier Light (только `.md` / `.json`, без логики кода).
 
 ### Когда запускать
@@ -320,7 +320,7 @@ Stateless модели **не помнят** предыдущие итераци
 
 - Не править содержимое самих ADR, доктрин, спек — только записи в индексах и manifest.
 - Не править «Текущий фокус» в `activeContext.md` — это зона активного PM.
-- Не делать SSH к VPS — деплой `docs.u2game.space` автоматический через GitHub Actions.
+- Не делать SSH к VPS — деплой `<SITE_HOST>` автоматический через GitHub Actions.
 - Не запускать без worktree от свежего `origin/main` — иначе классификация неполная и часть документов будет пропущена.
 - Не объединять синхронизацию индексов и manifest в один PR — это разные tier (Light для обоих, но границы scope чётче в раздельных).
 

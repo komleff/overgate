@@ -46,7 +46,7 @@ user-invocable: true
 ### Шаг 1 — Определить окно синхронизации
 
 ```bash
-cd D:/GitHub/u2
+cd <REPO_ROOT>
 git fetch origin
 
 # База: коммит последней правки INDEX.md в main
@@ -91,14 +91,14 @@ done
 ### Шаг 3 — Создать worktree
 
 ```powershell
-git worktree add D:\GitHub\u2-sync-docs-<YYYY-MM-DD> -B docs/sync-indexes-<YYYY-MM-DD> origin/main
-cd D:\GitHub\u2-sync-docs-<YYYY-MM-DD>
+git worktree add <REPO_ROOT>-sync-docs-<YYYY-MM-DD> -B docs/sync-indexes-<YYYY-MM-DD> origin/main
+cd <REPO_ROOT>-sync-docs-<YYYY-MM-DD>
 ```
 
-Worktree обязателен — основной репо `D:\GitHub\u2` может содержать незакоммиченную работу оператора.
+Worktree обязателен — основной репо `<REPO_ROOT>` может содержать незакоммиченную работу оператора.
 
 > **Не делай `git worktree add` из WSL / Linux-mount** — может обнулить `.git/config` основного репо. Только нативный Windows git.
-> **Не делай worktree в корне `D:\`** — рабочие папки агентов держим внутри `D:\GitHub\` (общая гигиена воркспейсов).
+> **Не делай worktree в корне диска/ФС** — держи рабочие папки агентов рядом с репозиторием (sibling-каталог к `<REPO_ROOT>`, общая гигиена воркспейсов).
 
 ### Шаг 4 — Применить правки
 
@@ -251,8 +251,8 @@ Tier ревью: Light (только .md, без логики).
 ### Шаг 9 — После merge оператором
 
 ```powershell
-cd D:\GitHub\u2
-git worktree remove D:\GitHub\u2-sync-docs-<YYYY-MM-DD>
+cd <REPO_ROOT>
+git worktree remove <REPO_ROOT>-sync-docs-<YYYY-MM-DD>
 git branch -D docs/sync-indexes-<YYYY-MM-DD>
 ```
 
@@ -262,7 +262,7 @@ git branch -D docs/sync-indexes-<YYYY-MM-DD>
 
 Если среди добавленных в INDEX документов есть **ГД-релевантные** — ADR, доктрины бренда, GDD/PvE/Marketing/Audit/Gameplay-спеки — упомяни в финальном отчёте:
 
-> Среди добавленных документов есть ГД-релевантные (<список>). После merge этого PR запусти `/sync-site-gdd`, чтобы они появились на docs.u2game.space.
+> Среди добавленных документов есть ГД-релевантные (<список>). После merge этого PR запусти `/sync-site-gdd`, чтобы они появились на <SITE_HOST>.
 
 Технические спеки (`docs/specs/tech/`), research, infrastructure-документы — на сайт не идут, `/sync-site-gdd` не нужен.
 
@@ -280,8 +280,8 @@ git branch -D docs/sync-indexes-<YYYY-MM-DD>
 - Не удалять записи об устаревших документах — меняй статус на `superseded`/`reference`.
 - Не push в `main` напрямую.
 - Не делать `git worktree add` через WSL/bound-mount.
-- Не делать worktree в корне `D:\` — только внутри `D:\GitHub\`.
-- Не переключать ветку в основном `D:\GitHub\u2` — там может быть uncommitted работа оператора.
+- Не делать worktree в корне диска/ФС — держи рядом с репозиторием (sibling-каталог к `<REPO_ROOT>`).
+- Не переключать ветку в основном `<REPO_ROOT>` — там может быть uncommitted работа оператора.
 - Не «улучшать» структуру индексов без отдельной задачи. Цель — добавить актуальное, не переписывать существующее.
 
 ## Канонические ссылки
@@ -291,4 +291,4 @@ git branch -D docs/sync-indexes-<YYYY-MM-DD>
 - `.agents/AGENT_ROLES.md` §3 — tier ревью (Light для .md-only).
 - `docs/STYLE.md` — оформление frontmatter и snake_case имён.
 - `.claude/rules/universal.md` — git workflow, атомарность.
-- Связанный скилл — `/sync-site-gdd` для `docs.u2game.space`.
+- Связанный скилл — `/sync-site-gdd` для `<SITE_HOST>`.

@@ -405,7 +405,7 @@ function resolveAllowlistEntry(modelId) {
 
 // Основной флоу --model.
 // headRef — опциональный git ref для ревью (default 'HEAD'). При trust boundary fix
-// (Шаг 7.6 Plan A): SKILL.md передаёт PR head как fetched ref (например 'u2-pr-185'),
+// (Шаг 7.6 Plan A): SKILL.md передаёт PR head как fetched ref (например 'og-pr-185'),
 // что позволяет НЕ делать gh pr checkout в untrusted ветку — tool запускается из
 // trusted base (main) с доступом к $OPENAI_API_KEY, PR код только читается через diff.
 async function runReview(modelId, baseRef, headRef = 'HEAD') {

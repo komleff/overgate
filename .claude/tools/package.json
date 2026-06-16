@@ -1,5 +1,5 @@
 {
-  "name": "@u2/openai-review",
+  "name": "@overgate/openai-review",
   "version": "1.0.0",
   "private": true,
   "type": "module",
