@@ -137,8 +137,8 @@
 
 ## Verification
 
-- **Де-догфудинг (ключевой гейт, однозначные критерии):**
-  - `git grep -n -i "D:[/\\\\]GitHub[/\\\\]u2"` → **пусто**.
+- **Де-догфудинг (ключевой гейт — operational-артефакты; RECORDS исключены).** Все греп-гейты ниже выполняются с pathspec-исключением record-локаций: `-- . ':(exclude)docs/plans' ':(exclude)docs/archive' ':(exclude).review-responses'`. RECORDS (этот контракт §1.3-спека, планы, `.review-responses`) ЛЕГИТИМНО содержат литералы де-догфудинга для описания работы — это не операционные утечки; без исключения греп нашёл бы их в самом контракте (ложный self-fail, что и поймал ревьюер iter-4). Критерии (греп с указанным исключением):
+  - `git grep -n -i "D:[/\\\\]GitHub[/\\\\]u2"` → **пусто** (то же для `~/GitHub/u2`, `/path/to/u2`, bare-folder `` `u2` `` в operational-доках, `u2-pr-` → переименован в `og-pr-`).
   - `git grep -n "u2game"` → **пусто** (все вхождения заменены, включая комментарий `find-missing.py`).
   - `git grep -n "@u2/"` → **пусто**.
   - `git grep -n "<SITE_HOST>"` → только **ожидаемые** места: **(a)** новые из де-догфудинга §1.3 — `AGENT_ROLES.md:295,323`, `sync-docs/SKILL.md:265,294`, `find-missing.py:6`; **(b) предсуществующие легитимные** (уже в tracked, остаются) — `.agents/INSTALL.md:325` (adaptation table) и `.claude/skills/sync-site-gdd/SKILL.md` (EXAMPLE-скилл, мн. строк: 3,7,11,178,192,203,210,221). Критерий: в найденных местах рядом нет `u2game`/`docs.u2game.space`. (Без этого allowlist'а предсуществующий `INSTALL.md:325` дал бы ложный fail.)
@@ -153,7 +153,7 @@
   - Robustness (broadened): fixture с отступленным ```sh + плейсхолдером → toggle-awk ЛОВИТ (старый `^```bash` пропускал); прозовый токен вне fence в `$BLK` НЕ попадает.
   - `tests.md` — **advisory** (не fail-closed): `grep -qE '<…>' .claude/rules/tests.md` → есть → echo-предупреждение, установку не блокирует.
   - Пререквизиты — INSTALL §A.1 + README-таблица; `INSTALL_ALLOW_NPM_DRIFT` в §A; `bd --version` surface в §B.1. Shipped `verify/SKILL.md`/`tests.md` остаётся с плейсхолдерами (не редактируется).
-- **Регрессии пайплайна:** `bash scripts/test-bd-sync.sh` зелёный; `bd doctor` зелёный; `/pipeline-audit` без drift (затронуты нормативные артефакты — проверить инварианты имён ролей/команд).
+- **Регрессии пайплайна:** `bash scripts/test-bd-sync.sh` 23/23; `bd ready --json` валиден (основной acceptance-gate; **`bd doctor` в embedded-mode НЕ поддерживается** — красный там не считать провалом, см. INSTALL §A.3); `/pipeline-audit` без drift (затронуты нормативные артефакты — инварианты имён ролей/команд).
 - **Release:** `gh release list` показывает `v3.9.0-beta.1` (prerelease); `git tag -l` содержит новый тег; ноты соответствуют CHANGELOG.
 
 ## Риски / заметки
