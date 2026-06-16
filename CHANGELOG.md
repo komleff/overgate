@@ -15,7 +15,7 @@
 - Helper-скрипты синхронизации Beads: `scripts/bd-sync-export.sh`, `bd-sync-restore.sh`, `bd-sync-common.sh` (PR #3).
 
 ### Changed
-- **Де-догфудинг** generic-артефактов: убраны операционные U2-утечки — пути `D:\GitHub\u2` → `<REPO_ROOT>`, хост `docs.u2game.space` → `<SITE_HOST>`, npm-скоп `@u2/openai-review` → `@overgate/openai-review`. Provenance-упоминания U2 (родословная, reference baseline) сохранены намеренно.
+- **Де-догфудинг** generic-артефактов: убраны операционные U2-утечки — hardcoded Windows-пути dogfood-репо → `<REPO_ROOT>`, хост публичного сайта → `<SITE_HOST>`, npm-скоп tooling → `@overgate/openai-review`. Provenance-упоминания U2 (родословная, reference baseline) сохранены намеренно.
 - Правила Beads и `AGENTS.md` приведены к **bd 1.0.2**: синхронизация через служебную ветку `beads-backup` (`bd export`/`bd import`), Dolt-remote и `bd dolt push/pull` отключены (PR #1, #3).
 - Cost-warning для Mode A-legacy внешнего ревью (Platform API дорогой; предпочтителен Codex CLI + ChatGPT subscription).
 - Канон heredoc-делимитеров для безопасной публикации больших payload'ов в PR (PR #2).
