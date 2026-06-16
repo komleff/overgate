@@ -123,7 +123,9 @@ if ! command -v bd >/dev/null 2>&1; then
   exit 1
 fi
 BD_VER=$(bd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-if [ -n "$BD_VER" ] && [ "$(printf '%s\n%s\n' "1.0.2" "$BD_VER" | sort -V | head -1)" != "1.0.2" ]; then
+# Portable semver-compare через awk (НЕ sort -V — он GNU-only, дефолтный BSD sort на
+# macOS/BSD не имеет -V → пустой вывод → ложная блокировка валидного окружения).
+if [ -n "$BD_VER" ] && ! awk -v v="$BD_VER" 'BEGIN{split(v,a,".");exit !((a[1]+0)>1||((a[1]+0)==1&&((a[2]+0)>0||((a[2]+0)==0&&(a[3]+0)>=2))))}'; then
   echo "СТОП: bd $BD_VER < 1.0.2 — helper-скрипты синхронизации требуют command surface 1.0.2. Обнови Beads." >&2
   exit 1
 fi
