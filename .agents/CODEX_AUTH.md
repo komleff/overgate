@@ -11,6 +11,9 @@ related:
   - .claude/tools/codex-account-switch.ps1
 ---
 
+> HISTORICAL / reference only. Не active lifecycle или setup instruction. Current: `.agents/PIPELINE.md`, ADR §3.29–3.31.
+
+
 # Codex CLI authentication paths
 
 > 🔄 **Sprint Pipeline v3.8 (2026-05-05): два пути аутентификации, primary поменялся.**

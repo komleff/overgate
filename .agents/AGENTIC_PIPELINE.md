@@ -11,6 +11,9 @@ related:
   - .agents/PIPELINE_ADR.md
 ---
 
+> HISTORICAL / reference only. Не active lifecycle или setup instruction. Current: `.agents/PIPELINE.md`, ADR §3.29–3.31.
+
+
 # Универсальный агентный пайплайн разработки ПО
 
 **Статус:** explanatory source of truth

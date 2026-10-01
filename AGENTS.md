@@ -1,125 +1,38 @@
 ---
-title: "OverGate — правила для ИИ-агентов"
+title: "OverGate — agent bootstrap"
 status: primary
-version: "1.0"
-tags: [agents, conventions, navigation, pipeline]
+version: "4.0.0-rc.1"
+date: 2026-10-01
+tags: [agents, bootstrap, delivery-first]
 ---
+# OverGate — agent bootstrap
 
-# OverGate — правила для ИИ-агентов
+OverGate — generic reference Delivery First. Product/game data сюда не переносится.
+Первое чтение: `.memory-bank/activeContext.md` + `.memory-bank/progress.md`, `README.md`,
+один owner из `.agents/AGENT_ROLES.md`; для architecture/process — `.agents/PIPELINE_ADR.md`
+§§3.28–3.31 и `docs/architecture/ADR-INDEX.md`. Archive/history читать только по необходимости.
+Search находит candidate, не authority. Конфликт current owners эскалируется оператору.
 
-Этот файл — короткая инструкция первого касания для любого ИИ-агента, который начинает работу в репозитории. Прочитай его целиком, потом переходи к `README.md` и `.agents/`.
+**Product authority: оператор.** PM/Planner/Developer не выбирают missing WHAT.
+Implementation-ready source принимается без новой spec. Роли и пять core skills:
+`.agents/AGENT_ROLES.md`, `.agents/SKILLS.md`; adapters не владеют policy.
 
-> Шаблон этого файла для установки в новые проекты — `.agents/templates/AGENTS.template.md` (копируется установщиком, см. `.agents/INSTALL.md` §B.3). Этот корневой `AGENTS.md` — рабочий документ самого OverGate, без плейсхолдеров.
+- Работа в рабочей ветке; ИИ не merge/auto-merge и не обновляет main/master напрямую.
+- Не обходить hooks/permissions, не читать/публиковать `.env*`, credentials, secrets.
+- Verifier только с AC / FAIL / named risk. Значимое evidence в PR с role/model.
+- Одна финализация на final HEAD после landing, fresh checks и необходимого affected recheck.
+- Не принимать за оператора missing product decisions и реальные Important/Critical risks.
+- User interrupt приоритетен. Временные файлы вне repo; в Git только durable result.
 
-## О проекте
+Reference проверяется `bash scripts/verify-reference.sh`; установленный проект задаёт свои
+команды в `.agents/project/verify.sh`. Язык — русский; пути/идентификаторы — английские.
 
-**OverGate** — переносимый AI-пайплайн разработки: PM-оркестрация, разделение ролей, кросс-модельное adversarial-ревью, hard-гейты перед merge (v3.9). Это **reference-репозиторий эталона пайплайна**, а не продуктовый проект: здесь живёт generic-ядро (доктрина + исполнение), которое устанавливается в другие проекты через `.agents/INSTALL.md`. Dogfood-инстанс, где пайплайн обкатывается на живом продукте, — `komleff/u2`.
+Beads — task state; Git/PR — code/evidence. `bd --help`, `.claude/rules/beads.md`, штатные
+`scripts/bd-sync-*` определяют текущий route. Не писать Dolt напрямую, не mutating bd из
+worktree, не считать local `.beads/issues.jsonl` авторитетным. Triage lookup использует
+`scripts/beads-evidence.py` и frozen snapshot `origin/beads-backup` текущего проекта.
+Не откатывать Beads/Memory Bank вслепую. Личный runtime state не коммитится.
 
-## Текущий фокус разработки
-
-Поддержка и эволюция эталона: перенос проверенных в dogfood (U2) generic-улучшений, синхронизация доктрины и исполнения, развитие установщика. Продуктовый/игровой контент сюда не попадает — он остаётся в проектах-инстансах.
-
-## Memory Bank
-
-Проект использует **Cline-style Memory Bank** в папке `.memory-bank/` — структурированный контекст для AI-агентов:
-
-| Файл | Содержимое |
-|------|-----------|
-| `.memory-bank/projectbrief.md` | Цели, ограничения, milestone-история |
-| `.memory-bank/productContext.md` | Зачем проект, пользовательский опыт |
-| `.memory-bank/systemPatterns.md` | Архитектура, паттерны, тайминги |
-| `.memory-bank/techContext.md` | Стек, команды, структура |
-| `.memory-bank/activeContext.md` | Текущая работа, последние изменения, блокеры |
-| `.memory-bank/progress.md` | Что готово, что в процессе, метрики |
-
-**Читай `.memory-bank/` перед началом любой задачи.** Обновляй `activeContext.md` и `progress.md` при смене фокуса или завершении задач.
-
-## Первое, что делать перед задачей
-
-1. `.memory-bank/activeContext.md` + `.memory-bank/progress.md` — текущее состояние.
-2. `README.md` — обзор пайплайна и карта `.agents/` / `.claude/`.
-3. Если задача затрагивает архитектуру/процесс пайплайна — `.agents/PIPELINE_ADR.md` (реестр решений) и `docs/architecture/ADR-INDEX.md`. Противоречишь записи — стоп, нужен ADR-пересмотр, а не «улучшение по ходу».
-4. Релевантная доктрина из `.agents/` (`AGENT_ROLES.md`, `PM_ROLE.md`, `PIPELINE.md`, `INSTALL.md`).
-
-## Карта кода
-
-| Папка | Что там |
-|---|---|
-| `.agents/` | Доктрина пайплайна: роли, ADR, INSTALL, философия (10 файлов) |
-| `.claude/` | Исполнение: `agents/` (нативные субагенты), `hooks/`, `skills/`, `rules/`, `tools/`, `settings.json` |
-| `docs/architecture/` | ADR-процесс (шаблон + индекс) |
-| `.memory-bank/` | Контекст между сессиями |
-
-## Язык и стиль
-
-Язык работы: русский. Технические термины (имена переменных, классов, файлов, флагов) — английские. Полный свод — `.claude/rules/universal.md` (загружается Claude Code автоматически); здесь не дублируется.
-
-## Имена и сокращения
-
-- `OverGate` / `overgate` = этот репозиторий — эталон пайплайна.
-- `U2` = `komleff/u2`, dogfood-инстанс, на котором пайплайн обкатывается; в доктрине часто фигурирует как reference baseline (например, U2 PR #185).
-
-## Многомашинная работа
-
-Проект разрабатывается с нескольких компьютеров. Весь контекст для агентов передаётся через репозиторий. Личные настройки IDE не должны попадать в коммит.
-
-## Beads — трекер задач
-
-Проект использует **bd (beads)** для трекинга задач. Полный канон — `.claude/rules/beads.md`. Краткий справочник:
-
-```bash
-bd ready                 # найти доступную работу
-bd show <id>             # детали задачи
-bd update <id> --claim   # взять в работу
-bd close <id>            # завершить
-bd prime                 # справочник команд
-```
-
-Три «не», на которых агенты чаще всего спотыкаются:
-
-- **Не работать через Dolt напрямую.** Backend — локальный Dolt, но это деталь реализации, а не интерфейс. Синхронизация — только через ветку `origin/beads-backup` (`scripts/bd-sync-export.sh` / `scripts/bd-sync-restore.sh`), **НЕ** `bd dolt push/pull`. Команды `bd prime` / `bd onboard` могут предлагать `bd dolt push` (upstream-дефолт) — он **переопределён**: используется только `beads-backup`. (Старых команд `export-git` / `fetch-git` в bd 1.0.2 нет.)
-- **Не запускать `bd`-мутации из git-worktree.** Dolt runtime привязан к checkout: в worktree `bd` создаёт пустую базу и рвёт синхронизацию. Выполнять из основного checkout либо делегировать оператору.
-- **`.beads/issues.jsonl` не источник истины.** Auto-export отключён (`export.auto=false`), файл в `main` не трекается. Полный набор задач — снапшот в ветке `beads-backup`; руками JSONL не править.
-
-> ℹ️ В этом пайплайне `AGENTS.md` не содержит авто-генерируемого блока `BEADS INTEGRATION` — установка идёт через `bd init --skip-agents` (см. `.agents/INSTALL.md` §B.5), чтобы upstream `bd dolt push`-guidance не попал сюда. Источник правды по работе с bd — секция выше + `.claude/rules/beads.md`.
-
-## Session Completion
-
-**Завершая рабочую сессию, выполни ВСЕ шаги. Работа не завершена, пока `git push` не прошёл.**
-
-1. **Заведи issues** на остаток работы (`bd create`).
-2. **Прогон quality gates** (если менялся код) — тесты, линтеры, сборка (`/verify`).
-3. **Обнови статусы задач** — закрой завершённое, обнови in-progress.
-4. **PUSH:**
-   ```bash
-   scripts/bd-sync-export.sh      # синхронизация трекера через ветку beads-backup (НЕ bd dolt push)
-   git pull --rebase
-   git push
-   git status                      # должно быть "up to date with origin"
-   ```
-5. **Cleanup** — стэши, prune веток.
-6. **Verify** — всё закоммичено И запушено.
-7. **Hand off** — контекст для следующей сессии.
-
-## Подпись AI-агентов в комментариях GitHub
-
-Все AI-агенты (кроме GitHub Copilot bot) пишут комментарии в PR/issues из-под одного аккаунта. Чтобы различать авторов — **всегда подписывайся названием своей модели**: например, `Claude Opus 4.8`, `GPT-5.5`, `Codex`, `Gemini 2.5 Pro`. Касается line-level review comments, general PR comments, issue comments, replies в discussions. Подпись в начале или конце — на твой выбор, но она обязательна.
-
-## Что делать в неоднозначной ситуации
-
-Сначала задать уточняющий вопрос оператору, а не идти угадывать. Если несколько источников правды противоречат — это повод спросить, какой считать актуальным, а не выбирать самостоятельно.
-
-## Куда сохранять временные файлы
-
-Не сохранять временные файлы в репозиторий. Промежуточные результаты — в рабочую директорию агента. В репозиторий идёт только то, что должно быть закоммичено.
-
-## Публикация ревью в PR
-
-Если задача включает ревью PR (указан номер PR, ссылка, или «проверь PR» / «отревьюй PR»), **deliverable — опубликованный комментарий в PR, а не сообщение в чате**.
-
-- Каждый завершённый review-pass ОБЯЗАН быть опубликован в PR через `gh pr comment` ДО того как агент рапортует вердикт оператору.
-- Агент НЕ ждёт подтверждения оператора перед публикацией ревью-отчёта.
-- Если публикация не удалась — повторить или немедленно сообщить о блокере; нельзя заявлять, что review-pass завершён.
-- **Подпись модели обязательна** в каждом комментарии (см. «Подпись AI-агентов» выше).
-- НЕ использовать `gh pr review` (GitHub запрещает автору ревьюить свой PR под тем же аккаунтом) — только `gh pr comment`.
-- `--body-file` / `-F` для `gh pr comment` вне skill `/finalize-pr` блокируется hook'ом. Для тела ревью используй **single-quoted heredoc с уникальным high-entropy делимитером**: `--body "$(cat <<'GH_BODY_<RAND>' ... GH_BODY_<RAND>)"`. Кавычки в делимитере (`<<'...'`) обязательны: тело ревью содержит цитаты кода из diff (недоверенный input), и без них shell раскроет `$(...)`, backticks, `$VAR` до вызова `gh` (инъекция). `GH_BODY_<RAND>` — плейсхолдер, не копируй буквально: сгенерируй fresh suffix (`openssl rand -hex 8`), вставь его в обе строки делимитера и до запуска команды проверь, что тело не содержит выбранный делимитер как отдельную строку. Inline `--body "..."` (double-quoted) — только для коротких рукописных строк БЕЗ кода/цитат из PR.
+Большие PR reports публикуются `.claude/tools/run-python.sh .claude/tools/publish-pr-comment.py`;
+readiness — только trusted `/finalize-pr`. Полномочия публикации определяет задача;
+subagent возвращает report PM. Merge всегда выполняет оператор.
