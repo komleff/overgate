@@ -102,6 +102,9 @@ class InstallTests(unittest.TestCase):
         overrides=self.upgrade_fixture();before=snapshot(self.target)
         self.make_plan();self.approve();self.apply()
         for path,data in overrides.items():self.assertEqual((self.target/path).read_text(),data)
+        rule='.claude/rules/large-payloads.md'
+        self.assertNotEqual(hashlib.sha256(before[rule]).hexdigest(),hashlib.sha256((self.target/rule).read_bytes()).hexdigest())
+        self.assertEqual((self.target/rule).read_bytes(),(self.source/rule).read_bytes())
         settings=json.loads((self.target/'.claude/settings.json').read_text());self.assertEqual(settings['env']['PROJECT'],'preserve')
         self.assertIn('echo project-session',json.dumps(settings))
         state=json.loads((self.target/'.overgate/install-state.json').read_text())
@@ -112,6 +115,15 @@ class InstallTests(unittest.TestCase):
         self.upgrade_fixture();(self.target/'.agents/PM_ROLE.md').write_text('custom project role')
         before=snapshot(self.target);self.make_plan();self.approve();result=self.apply(ok=False)
         self.assertIn('conflict',result.stderr);self.assertEqual(before,snapshot(self.target))
+        self.assertFalse((self.target/'.overgate-backups').exists())
+
+    def test_custom_publication_rule_conflict_preserves_target(self):
+        self.upgrade_fixture()
+        rule=self.target/'.claude/rules/large-payloads.md'
+        rule.write_text(rule.read_text()+'\nProject publication override\n')
+        before=snapshot(self.target);self.make_plan();self.approve();result=self.apply(ok=False)
+        self.assertIn('.claude/rules/large-payloads.md',result.stderr)
+        self.assertEqual(snapshot(self.target),before)
         self.assertFalse((self.target/'.overgate-backups').exists())
 
     def test_target_drift_is_rejected(self):
@@ -132,6 +144,45 @@ class InstallTests(unittest.TestCase):
         run=self.call('plan','--source',src,'--source-sha',git(src,'rev-parse','HEAD'),'--target',self.target,
                       '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan,ok=False)
         self.assertIn('missing',run.stderr)
+
+    def source_without_entry(self,path):
+        src=self.root/'broken';shutil.copytree(self.source,src)
+        manifest=src/'.agents/distribution-manifest.json';data=json.loads(manifest.read_text())
+        data['files']=[item for item in data['files'] if item['target']!=path]
+        manifest.write_text(json.dumps(data));git(src,'add','-u');git(src,'commit','-qm','omitted required inventory entry')
+        self.assertTrue((src/path).is_file(),'source file remains: only manifest inventory is broken')
+        return src,git(src,'rev-parse','HEAD')
+
+    def test_missing_dependency_inventory_refused_before_plan_or_write(self):
+        src,sha=self.source_without_entry('.claude/hooks/shell_grammar.py');before=snapshot(self.target)
+        run=self.call('plan','--source',src,'--source-sha',sha,'--target',self.target,
+                      '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan,ok=False)
+        self.assertIn('CLOSURE-001',run.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertFalse(self.plan.exists())
+        self.assertFalse((self.target/'.overgate-backups').exists())
+
+    def test_approved_incomplete_inventory_refused_before_apply_write(self):
+        self.make_plan();plan=json.loads(self.plan.read_text())
+        missing='.claude/hooks/shell_grammar.py';src,sha=self.source_without_entry(missing)
+        # Simulate a plan emitted by the old installer; approval does not replace payload validation.
+        plan['source']=str(src.resolve());plan['source_sha']=sha
+        plan['operations']=[op for op in plan['operations'] if op['target']!=missing]
+        for op in plan['operations']:
+            if op['target']=='.agents/distribution-manifest.json':
+                op['after']['sha256']=hashlib.sha256((src/op['source']).read_bytes()).hexdigest()
+        self.plan.write_text(json.dumps(plan));self.approve();before=snapshot(self.target)
+        result=self.apply(ok=False);self.assertIn('CLOSURE-001',result.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertFalse((self.target/'.overgate-backups').exists())
+
+    def test_missing_checker_inventory_refused_before_write(self):
+        src,sha=self.source_without_entry('scripts/check-reference.py');before=snapshot(self.target)
+        run=self.call('plan','--source',src,'--source-sha',sha,'--target',self.target,
+                      '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan,ok=False)
+        self.assertIn('missing',run.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertFalse((self.target/'.overgate-backups').exists())
 
     def test_source_dirty_or_moved_rejected(self):
         src=self.root/'changed';shutil.copytree(self.source,src)

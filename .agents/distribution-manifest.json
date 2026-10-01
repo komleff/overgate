@@ -316,7 +316,7 @@
     {
       "source": ".claude/rules/large-payloads.md",
       "target": ".claude/rules/large-payloads.md",
-      "policy": "preserve"
+      "policy": "managed"
     },
     {
       "source": ".agents/templates/AGENTS.template.md",

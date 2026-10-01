@@ -43,6 +43,21 @@ def current(root,path):
     if not p.exists(): return None
     return {'sha256':digest(p.read_bytes()),'mode':p.stat().st_mode & 0o777}
 
+def validate_payload(manifest,payload):
+    # Validate the projected install from frozen bytes, not the source tree where an
+    # omitted manifest dependency may still exist. No target/backup writes here.
+    with tempfile.TemporaryDirectory(prefix='overgate-preflight-') as directory:
+        root=Path(directory)
+        for entry in manifest['files']:
+            path=safe(root,entry['target']);data,mode=payload[entry['source']]
+            path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data);path.chmod(mode)
+        checker=root/'scripts/check-reference.py'
+        if not checker.is_file():raise InstallError('missing payload checker: scripts/check-reference.py')
+        result=subprocess.run([sys.executable,'-I','-B',str(checker),'--root',str(root)],
+                              cwd=root,capture_output=True,text=True)
+        if result.returncode:
+            raise InstallError('payload preflight failed: '+(result.stdout+result.stderr).strip())
+
 def load_manifest(source,sha):
     if not re.fullmatch('[0-9a-f]{40}',sha): raise InstallError('source SHA must be exact 40 hex')
     if git(source,'rev-parse','HEAD').decode().strip()!=sha: raise InstallError('source movement: HEAD differs from frozen SHA')
@@ -65,6 +80,7 @@ def load_manifest(source,sha):
     actual=set(git(source,'ls-tree','-r','--name-only',sha,'--','.agents/skills').decode().splitlines())
     if skills!=expected or {x for x in actual if x.endswith('SKILL.md')}!=expected:
         raise InstallError('missing/nested/orphan skill payload')
+    validate_payload(m,payload)
     return m,payload
 
 def merge_settings(existing,new,legacy):

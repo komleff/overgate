@@ -22,7 +22,10 @@ Windows и live Claude/Codex activation требуют отдельного smok
 1. Создай рабочую ветку target проекта. Прочитай project authority/context и legacy overrides.
 2. Открой **один target Draft PR** с plan и Verification Contract до записи managed payload.
 3. Выбери trusted clean source checkout, зафиксируй полный source SHA. Installer отказывает при
-   source movement/dirty copied surfaces, missing helper, nested/orphan core skill.
+   source movement/dirty copied surfaces, missing helper, nested/orphan core skill. До создания
+   плана и повторно до apply он собирает payload из frozen bytes во временном каталоге и запускает
+   его structural/closure checker. Отсутствие обязательного manifest entry тоже даёт stop до
+   записи в target и создания backup; наличие helper в source checkout не заменяет inventory.
 4. Сгенерируй inventory plan (пути ниже — пример; подставь реальные):
 
 ```bash
@@ -65,7 +68,10 @@ Explicit inventory — `.agents/distribution-manifest.json`. Копируютс�
 Beads readers и необходимые instructions. Не копируются каталоги U2, game data, credentials,
 Memory Bank, personal runtime state или весь `.claude/skills/`.
 
-AGENTS.md, `.agents/project/verify.sh` и существующие project rules сохраняются. Settings merge
+AGENTS.md, `.agents/project/verify.sh` и project rules `beads.md`, `tests.md`, `universal.md`
+сохраняются. `.claude/rules/large-payloads.md` — managed publication policy: известная v3.9 версия
+обновляется вместе с publisher/finalize, а project modification даёт conflict без записи.
+Остальные project-owned rules вне inventory не затрагиваются. Settings merge
 сохраняет project env/permissions/custom hooks, заменяет только известные old managed hooks и
 добавляет required guards; изменённый managed hook даёт conflict. `.gitignore` сохраняет
 project entries и делает исключение для tracked `.codex/hooks.json`; прочий Codex state ignored.
