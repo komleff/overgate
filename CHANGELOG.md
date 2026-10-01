@@ -3,6 +3,30 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
+## [v4.0.0-rc.1] — candidate, 2026-10-01
+
+### Changed
+- Delivery First: FAST/PRODUCT/CRITICAL, budget 2/5/6, Plan Review до реализации, независимая QA,
+  один scoped Code Review, affected rechecks и одна финализация после landing.
+- Mandatory four-aspect/second/external/Copilot/dual-finalize routes superseded в active instructions;
+  historical ADR сохранены. Product authority задаётся проектом, fallback — оператор.
+- Reference `/verify` исполняет реальный единый suite; project verification template отделён.
+
+### Added
+- Шесть delivery owners и пять generic skills с conditional triggers, без обязательной designer-роли.
+- Shared Claude/Codex mutation, commit, readiness guards; source parser/policy/timeout/publisher closure.
+- Explicit inventory, frozen-source plan/apply, preserved overrides, pre-write backup и byte-restoring rollback.
+- Read-only `verify-reference` CI job, structural negatives, static positive/non-trigger scenarios,
+  behavioural runtime tests и fresh/v3.9 upgrade/rollback fixtures.
+- File-level provenance из frozen U2 `fb8ebfa5133c13726bd7960a1a075ab7a7089191`.
+
+### Limits and migration
+- [INSTALL.md](.agents/INSTALL.md) — единственный RC installation/upgrade/rollback путь.
+- Stable Dreadnought и прежние beta/v3.9 refs не меняются; RC release остаётся prerelease/not Latest.
+- Windows/live runtime activation не подтверждаются static fixtures; окончательное platform evidence — в PR.
+- Local hooks не защищают remote writes; ручные accepted-risk checks и shared-account trust limit сохранены.
+- U2 Almanac/domain content исключён. Полная лицензия на U2 этим переносом не заявляется.
+
 ## [v3.9.0-beta.1] — 2026-06-16
 
 **Первый публичный beta-релиз.** OverGate — переносимый AI-пайплайн разработки для solo-оператора, управляющего флотом ИИ-агентов (PM-оркестрация, разделение ролей, hard-гейты перед merge, кросс-модельное adversarial-ревью). Релиз рассчитан на ранних адаптеров, которые устанавливают пайплайн в свои проекты через [`.agents/INSTALL.md`](.agents/INSTALL.md) и присылают фидбек.

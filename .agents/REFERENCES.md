@@ -9,6 +9,23 @@ tags: [pipeline, references, sources, frameworks]
 
 # Референсы и источники
 
+## v4 RC: transferred materials и original integration
+
+Frozen source: [U2 fb8ebfa5133c13726bd7960a1a075ab7a7089191](https://github.com/komleff/u2/tree/fb8ebfa5133c13726bd7960a1a075ab7a7089191).
+Источник — Delivery First ADR §3.29–3.31, role/skill contracts и tested executable closure.
+[File-level manifest](../docs/baselines/2026-10-01-delivery-first-provenance.json) фиксирует source path/blob,
+target и адаптацию; новые integration files отмечены отдельно. Все шесть source skills
+классифицированы: пять generic перенесены, Almanac остаётся project adapter.
+
+Superpowers (Jesse Vincent / Prime Radiant), GSD, Spec-Kit, BMAD, OpenSpec и статьи ниже —
+inspiration/context. Их наличие в credits не означает copying кода или объединение лицензий.
+Переносимые source files происходят из U2/OverGate автора Dmitriy Komlev; MIT notice OverGate
+сохранён в [LICENSE](../LICENSE) и входит в package. Attribution в source comments сохранён.
+Frozen U2 tree не содержит root LICENSE: provenance не является обещанием универсальной лицензии
+на весь U2, его игровые материалы, ассеты или сторонние зависимости. RC scope ограничен generic pipeline.
+
+## История inspiration и эволюции (reference only)
+
 Материалы, на основе которых построен AI-пайплайн проекта.
 
 ---

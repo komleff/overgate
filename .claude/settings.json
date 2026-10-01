@@ -72,40 +72,51 @@
       "Edit(.gitignore)",
       "Write(.gitignore)",
       "Edit(.gitattributes)",
-      "Write(.gitattributes)"
+      "Write(.gitattributes)",
+      "Bash(gh -R * pr merge *)",
+      "Bash(gh --repo * pr merge *)",
+      "Bash(gh --repo=* pr merge *)",
+      "Bash(gh -R * api *merge*)",
+      "Bash(gh --repo * api *merge*)",
+      "Bash(gh --repo=* api *merge*)",
+      "Bash(gh pr -R * merge *)",
+      "Bash(gh pr --repo * merge *)",
+      "Bash(gh pr --repo=* merge *)",
+      "Bash(gh api -R * *merge*)",
+      "Bash(gh api --repo * *merge*)",
+      "Bash(gh api --repo=* *merge*)"
     ],
     "defaultMode": "bypassPermissions"
   },
   "enableAllProjectMcpServers": false,
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/codex-login.sh",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
-        "matcher": "Bash(git commit*)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -f package.json ]; then npm run test --if-present || (echo \"{\\\"decision\\\": \\\"block\\\", \\\"reason\\\": \\\"Тесты падают. Исправь перед коммитом.\\\"}\" && exit 2); fi'",
-            "timeout": 120
+            "command": "bash -c 'ROOT=\"${CLAUDE_PROJECT_DIR-}\"; if [ -z \"$ROOT\" ]; then ROOT=$(git rev-parse --show-toplevel) || ROOT=\"\"; fi; ROOT=\"${ROOT//\\\\//}\"; if [ -z \"$ROOT\" ] || [ ! -d \"$ROOT\" ]; then echo \"БЛОКИРОВКА: корень репозитория для mutation guard не определён.\" >&2; exit 2; fi; LAUNCHER=\"$ROOT/.claude/tools/run-python.sh\"; HOOK=\"$ROOT/.claude/hooks/check-repository-mutation.py\"; if [ ! -x \"$LAUNCHER\" ] || [ ! -f \"$HOOK\" ]; then echo \"БЛОКИРОВКА: shared repository mutation guard недоступен.\" >&2; exit 2; fi; \"$LAUNCHER\" \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
+            "timeout": 5
           }
         ]
       },
       {
-        "matcher": "Bash(*gh pr comment*)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'HOOK=.claude/hooks/check-merge-ready.py; for cmd in py python3 python; do if command -v \"$cmd\" >/dev/null 2>&1; then if [ \"$cmd\" = \"py\" ]; then \"$cmd\" -3 \"$HOOK\"; else \"$cmd\" \"$HOOK\"; fi; exit $?; fi; done; echo \"БЛОКИРОВКА: Python-интерпретатор не найден (py/python3/python). Hook не может выполниться fail-secure.\" >&2; exit 1'",
+            "command": "bash -c 'ROOT=\"${CLAUDE_PROJECT_DIR-}\"; if [ -z \"$ROOT\" ]; then ROOT=$(git rev-parse --show-toplevel) || ROOT=\"\"; fi; ROOT=\"${ROOT//\\\\//}\"; if [ -z \"$ROOT\" ] || [ ! -d \"$ROOT\" ]; then echo \"БЛОКИРОВКА: корень проекта для гейта тестов не определён. Команда не пропускается fail-secure.\" >&2; exit 2; fi; HOOK=\"$ROOT/.claude/hooks/check-tests-before-commit.sh\"; if [ ! -f \"$HOOK\" ]; then echo \"БЛОКИРОВКА: гейт тестов перед коммитом отсутствует. Команда не пропускается fail-secure.\" >&2; exit 2; fi; bash \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
+            "timeout": 600
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"${CLAUDE_PROJECT_DIR-}\"; if [ -z \"$ROOT\" ]; then ROOT=$(git rev-parse --show-toplevel) || ROOT=\"\"; fi; ROOT=\"${ROOT//\\\\//}\"; if [ -z \"$ROOT\" ] || [ ! -d \"$ROOT\" ]; then echo \"БЛОКИРОВКА: корень проекта для merge-ready hook не определён. Hook не может выполниться fail-secure.\" >&2; exit 2; fi; LAUNCHER=\"$ROOT/.claude/tools/run-python.sh\"; HOOK=\"$ROOT/.claude/hooks/check-merge-ready.py\"; if [ ! -x \"$LAUNCHER\" ]; then echo \"БЛОКИРОВКА: переносимый Python launcher отсутствует или не исполним. Hook не может выполниться fail-secure.\" >&2; exit 2; fi; \"$LAUNCHER\" \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
             "timeout": 5
           }
         ]

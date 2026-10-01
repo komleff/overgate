@@ -109,6 +109,65 @@ finding: `fix now`, `defer to Beads` (существующий ID в автор�
 operator `ACCEPTED_RISK`, привязанного к final candidate fingerprint. Неизвестное product
 решение и известный серьёзный риск агент не принимает за оператора.
 
+#### Д. Blocker formula и contract limits
+
+Finding блокирует, если находится IN scope, нарушает объявленный AC/invariant, имеет
+конкретный достижимый failure scenario и не является заранее валидно заявленным DECLARED_LIMIT.
+Severity CRITICAL/IMPORTANT/MINOR сама по себе не определяет verdict. DECLARED_LIMIT называет
+проверяемую границу, последствия и держателя риска; missing WHAT, расплывчатая отговорка или
+заниженный severity не делают contract валидным. Known Critical/Important limit может допустить
+scoped APPROVED, но до реального ACCEPTED_RISK всё равно блокирует finalize.
+
+#### Ж/И. Risk binding и запись решения
+
+ACCEPTED_RISK живёт отдельным комментарием того же PR. Он содержит номер PR, content fingerprint,
+точные Beads-ID рисков, дословную цитату решения product authority с датой и источником,
+base/head и envelope fingerprint для аудита, подпись агента как оформителя. Автор решения —
+человек, агент не сочиняет и не перефразирует цитату. Молчание/решение соседней задачи не принятие.
+Изменение content fingerprint, PR, списка risks или цитаты делает запись невалидной; изменение
+только base/head/envelope не делает. Опубликованную запись не редактируют: новая запись при новом решении.
+
+```text
+## ACCEPTED_RISK
+PR: #<N>
+Content-Fingerprint: <SHA-256>
+Beads-ID: <project-123>
+base: <full SHA>
+head: <full SHA>
+Envelope-Fingerprint: <SHA-256>
+Команда Product Owner (дословно, YYYY-MM-DD):
+> <точные слова>
+Источник цитаты: <PR comment URL или dated session>
+— оформил: <роль/модель>; автор решения — Product Owner
+```
+
+Это организационное подтверждение, не криптографическое доказательство человеческого авторства
+при общем GitHub аккаунте. Manual validation не выдаётся за автоматический gate.
+
+#### З. Воспроизводимость fingerprints
+
+Для полного PR package используют трёхточечный BASE...HEAD список paths (не BASE..HEAD),
+отсортированный LC_ALL=C. Для удалённых файлов blob — literal DELETED. Contract в PR body
+ограничен ровно одной парой отдельных строк CONTRACT-BEGIN/CONTRACT-END в правильном порядке;
+пустой/отсутствующий/дублированный блок — fail-closed. CRLF → LF, остальные bytes значимы.
+Content fingerprint — SHA-256 от строк `path SP blob LF`, затем bytes contract без marker lines.
+Scoped report публикует свой explicit path set и contract; эквивалентность полного acceptance
+не доказывается совпадением только узкого поднабора при новой runtime surface.
+
+Envelope fingerprint — SHA-256 от `base LF head LF`, затем того же package + contract,
+затем bytes реально переданного задания reviewer; если задания нет, literal
+`NO_TASK_BLOCK:<mode> LF`. Пустой task input недопустим. Report публикует input bytes/paths,
+чтобы hash можно было независимо пересчитать. Envelope — audit binding; согласно §3.29
+base-only movement не запускает новое LLM reasoning при доказанном content equivalence.
+
+#### К. Acceptance passport
+
+PM публикует 10–15 строк: польза, согласованность с current canon, качество (AC/QA/review/current
+checks), base/head/оба fingerprints/CI-run, рекомендация оператору. При known Important/Critical
+без валидного ACCEPTED_RISK — только условный паспорт, явно требующий human decision и не readiness.
+Readiness относится к final HEAD; перед публикацией race recheck. После движения final state
+нужны fresh checks/binding и актуальный паспорт, но не автоматическое повторное LLM review.
+
 ### 3.29 Delivery First cut-over (2026-10-01)
 
 **Статус:** принято для v4 RC, по frozen U2 §3.29–3.31 и одобренному extraction plan.

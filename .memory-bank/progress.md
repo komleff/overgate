@@ -1,5 +1,12 @@
 # Progress
 
+В работе: Delivery First v4 RC, PR #7. A–C — одна линия по принятому plan/VC.
+Проверка: `bash scripts/verify-reference.sh`; результаты публикуются в PR с frozen candidate SHA.
+QA/Review/finalize и release-related AC остаются pending до evidence.
+Stable/beta tag identities не изменяются; installer сохраняет project overrides и rollback snapshot.
+
+## История до v4 RC (reference only)
+
 **Сделано:** канонический reference OverGate (отчуждён из dogfood-проекта U2) + **первый публичный beta `v3.9.0-beta.1`** (PR #5).
 **Дальше:** GitHub release `v3.9.0-beta.1` (prerelease) после merge оператором; публичная beta-обкатка адаптерами через `.agents/INSTALL.md`.
 

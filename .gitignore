@@ -12,7 +12,8 @@ node_modules/
 .beads/issues.jsonl
 
 # Codex / external-review runtime
-.codex/
+.codex/*
+!.codex/hooks.json
 .claude/skills/external-review/.runtime/
 
 # Personal overrides
@@ -28,3 +29,7 @@ __pycache__/
 
 # External-review артефакты (исторические записи ревью, в дистрибутив не идут)
 .review-responses/
+
+# Temporary publication/install state, never distribution payload
+.overgate-runtime/
+.overgate-backups/

@@ -1,0 +1,19 @@
+name: Reference verification
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify-reference:
+    name: verify-reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify generic reference
+        run: bash scripts/verify-reference.sh

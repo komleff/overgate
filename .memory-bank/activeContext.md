@@ -1,5 +1,10 @@
 # Active Context
 
-**Текущий фокус:** релиз `v3.9.0-beta.1` (первый публичный beta) — release-prep **COMPLETE 2026-06-16** (PR #5: де-догфудинг операционных U2-утечек + MIT LICENSE + CHANGELOG + onboarding-hardening). Ожидает merge оператором → тег `v3.9.0-beta.1` + GitHub release (prerelease).
+Текущий фокус: v4.0.0-rc.1 Delivery First candidate, ветка `codex/delivery-first-rc`, PR #7.
+Принятый plan/Verification Contract — `docs/plans/2026-10-01-delivery-first-rc.md`.
+Frozen U2 source: `fb8ebfa5133c13726bd7960a1a075ab7a7089191`; independent PLAN_READY получен.
+Implementation добавляет generic owners/skills, shared guards и distribution.
+Candidate требует независимой QA, одного scoped Review и trusted finalize по prior bootstrap.
+Operator merge/RC publication ещё не завершены. Старый Dreadnought остаётся stable/Latest.
 
-> При установке в проект — заменить на текущий фокус проекта (`Bootstrap pipeline установка через PR #N`).
+Этот context — состояние reference; installer не переносит Memory Bank в проекты.

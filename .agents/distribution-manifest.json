@@ -1,0 +1,508 @@
+{
+  "format": 1,
+  "version": "4.0.0-rc.1",
+  "legacy_source": "466ad2020b8c46e6c14b4bbe67b5335017726542",
+  "files": [
+    {
+      "source": ".agents/PIPELINE_ADR.md",
+      "target": ".agents/PIPELINE_ADR.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/PIPELINE.md",
+      "target": ".agents/PIPELINE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/AGENT_ROLES.md",
+      "target": ".agents/AGENT_ROLES.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/PM_ROLE.md",
+      "target": ".agents/PM_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/SV_ROLE.md",
+      "target": ".agents/SV_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/PL_ROLE.md",
+      "target": ".agents/PL_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/DEV_ROLE.md",
+      "target": ".agents/DEV_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/QA_ROLE.md",
+      "target": ".agents/QA_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/RV_ROLE.md",
+      "target": ".agents/RV_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/SKILLS.md",
+      "target": ".agents/SKILLS.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/HOW_TO_USE.md",
+      "target": ".agents/HOW_TO_USE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/REFERENCES.md",
+      "target": ".agents/REFERENCES.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/INSTALL.md",
+      "target": ".agents/INSTALL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/HOW_TO_INSTALL.md",
+      "target": ".agents/HOW_TO_INSTALL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/distribution-manifest.json",
+      "target": ".agents/distribution-manifest.json",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/canon-router/SKILL.md",
+      "target": ".agents/skills/canon-router/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/product-gap/SKILL.md",
+      "target": ".agents/skills/product-gap/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/product-handoff/SKILL.md",
+      "target": ".agents/skills/product-handoff/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/diagnose/SKILL.md",
+      "target": ".agents/skills/diagnose/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/handoff/SKILL.md",
+      "target": ".agents/skills/handoff/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/AGENTS.template.md",
+      "target": ".agents/templates/AGENTS.template.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/project-verify.sh",
+      "target": ".agents/templates/project-verify.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/project-authority.md",
+      "target": ".agents/templates/project-authority.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/gitignore.fragment",
+      "target": ".agents/templates/gitignore.fragment",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/agents/developer.md",
+      "target": ".claude/agents/developer.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/agents/planner.md",
+      "target": ".claude/agents/planner.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/agents/reviewer.md",
+      "target": ".claude/agents/reviewer.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/agents/tester.md",
+      "target": ".claude/agents/tester.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/verify/SKILL.md",
+      "target": ".claude/skills/verify/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/sprint-pr-cycle/SKILL.md",
+      "target": ".claude/skills/sprint-pr-cycle/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/external-review/SKILL.md",
+      "target": ".claude/skills/external-review/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/finalize-pr/SKILL.md",
+      "target": ".claude/skills/finalize-pr/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/pipeline-audit/SKILL.md",
+      "target": ".claude/skills/pipeline-audit/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/project-manager/SKILL.md",
+      "target": ".claude/skills/project-manager/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/architect/SKILL.md",
+      "target": ".claude/skills/architect/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/finalize-pr/validators/strip_code_spans.sh",
+      "target": ".claude/skills/finalize-pr/validators/strip_code_spans.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/finalize-pr/validators/test_validate_review_pass.sh",
+      "target": ".claude/skills/finalize-pr/validators/test_validate_review_pass.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/check-repository-mutation.py",
+      "target": ".claude/hooks/check-repository-mutation.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/check-tests-before-commit.sh",
+      "target": ".claude/hooks/check-tests-before-commit.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/check-merge-ready.py",
+      "target": ".claude/hooks/check-merge-ready.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/commit_command_classifier.py",
+      "target": ".claude/hooks/commit_command_classifier.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/shell_grammar.py",
+      "target": ".claude/hooks/shell_grammar.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/shell_comment_parser.py",
+      "target": ".claude/hooks/shell_comment_parser.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/hooks/readiness_policy.py",
+      "target": ".claude/hooks/readiness_policy.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/tools/run-python.sh",
+      "target": ".claude/tools/run-python.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/tools/with-timeout.sh",
+      "target": ".claude/tools/with-timeout.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/tools/publish-pr-comment.py",
+      "target": ".claude/tools/publish-pr-comment.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/settings.json",
+      "target": ".claude/settings.json",
+      "policy": "settings"
+    },
+    {
+      "source": ".codex/hooks.json",
+      "target": ".codex/hooks.json",
+      "policy": "settings"
+    },
+    {
+      "source": "scripts/check-reference.py",
+      "target": "scripts/check-reference.py",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/install-overgate.py",
+      "target": "scripts/install-overgate.py",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/bd-read.sh",
+      "target": "scripts/bd-read.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/bd-wt.sh",
+      "target": "scripts/bd-wt.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/lib/bd-env.sh",
+      "target": "scripts/lib/bd-env.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/lib/bd-read-engine.mjs",
+      "target": "scripts/lib/bd-read-engine.mjs",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/bd-sync-common.sh",
+      "target": "scripts/bd-sync-common.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/bd-sync-export.sh",
+      "target": "scripts/bd-sync-export.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/bd-sync-restore.sh",
+      "target": "scripts/bd-sync-restore.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "LICENSE",
+      "target": "LICENSE",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/rules/beads.md",
+      "target": ".claude/rules/beads.md",
+      "policy": "preserve"
+    },
+    {
+      "source": ".claude/rules/tests.md",
+      "target": ".claude/rules/tests.md",
+      "policy": "preserve"
+    },
+    {
+      "source": ".claude/rules/universal.md",
+      "target": ".claude/rules/universal.md",
+      "policy": "preserve"
+    },
+    {
+      "source": ".claude/rules/large-payloads.md",
+      "target": ".claude/rules/large-payloads.md",
+      "policy": "preserve"
+    },
+    {
+      "source": ".agents/templates/AGENTS.template.md",
+      "target": "AGENTS.md",
+      "policy": "preserve"
+    },
+    {
+      "source": ".agents/templates/project-verify.sh",
+      "target": ".agents/project/verify.sh",
+      "policy": "preserve"
+    },
+    {
+      "source": ".agents/templates/gitignore.fragment",
+      "target": ".gitignore",
+      "policy": "ignore"
+    },
+    {
+      "source": "docs/baselines/2026-10-01-delivery-first-provenance.json",
+      "target": "docs/baselines/2026-10-01-delivery-first-provenance.json",
+      "policy": "managed"
+    }
+  ],
+  "legacy_blobs": {
+    ".agents/PIPELINE_ADR.md": "df1edbfff6e7054e8f921b9eb4109f3a3a37b022",
+    ".agents/PIPELINE.md": "60d6f95e67b4f0bfcc674324a182a606ac10bb87",
+    ".agents/AGENT_ROLES.md": "2d22ab97eb6d4330475cdb41ed379ca12e538d6a",
+    ".agents/PM_ROLE.md": "1d0d9148574ab585c6128a4b376c236cb5cc8d67",
+    ".agents/HOW_TO_USE.md": "305158b674d81673fda7eb8defe46defc732ed63",
+    ".agents/REFERENCES.md": "81c1d499a4a27492aac122dcb77a5ccfc887d5f1",
+    ".agents/INSTALL.md": "c7146471bcd25e7e07e3aeb4156d324b7097abb5",
+    ".agents/templates/AGENTS.template.md": "9bf1675e6ccda135aabadc7a8c2ac66192bf4f4a",
+    ".claude/agents/developer.md": "52f253118be6425802832aee06a137d678310d84",
+    ".claude/agents/planner.md": "96a2eb3452d722f6412a3438455055cb2db687c4",
+    ".claude/agents/reviewer.md": "fefe4fca4b03c469b0c79304da6e1335866077a0",
+    ".claude/agents/tester.md": "d5d7f45218be8d16779523dff85e66e4121a3795",
+    ".claude/skills/verify/SKILL.md": "e693b940418719b78dd30076d6232d521eb824a6",
+    ".claude/skills/sprint-pr-cycle/SKILL.md": "26ebc045e1e70596ef429ad3f06215d624db82c1",
+    ".claude/skills/external-review/SKILL.md": "e844754a4b9053aa2619b09809e8dd33aecd539c",
+    ".claude/skills/finalize-pr/SKILL.md": "426a08798db330851d734c438cf2c42493078de8",
+    ".claude/skills/pipeline-audit/SKILL.md": "9114166192258d6367f7e08459907ebd8be051c9",
+    ".claude/skills/project-manager/SKILL.md": "ddb59e1688fd8dba4398d2ef1302aac2e91c0748",
+    ".claude/skills/architect/SKILL.md": "3056659c92744422828d6e5bdd0325df32321a84",
+    ".claude/skills/finalize-pr/validators/strip_code_spans.sh": "45b5ed30d097dfccc79f5d72c25b40afb6d542fc",
+    ".claude/skills/finalize-pr/validators/test_validate_review_pass.sh": "afdde01cce56ff4d654be5d22127a828470ae5cc",
+    ".claude/skills/finalize-pr/validators/regression_pr183.sh": "f710fb37a7ebfbc31f4f3cdfda57c96579c80c0e",
+    ".claude/hooks/check-merge-ready.py": "5c5f5ba23b5d5542455ee9d57cdf5e3a9526ea37",
+    ".claude/settings.json": "441b8ad79e2efc2a7bceb6212c8d80d06a906862",
+    "scripts/bd-sync-common.sh": "9ea9ded9eeb810cc3ce2cee035f997059857d970",
+    "scripts/bd-sync-export.sh": "0eb9eaaacd77ffcfdb1d7d682bc05d550cf1dc85",
+    "scripts/bd-sync-restore.sh": "d088d5e8566ee1e5c6f963466e956e0eef3a6f4e",
+    "LICENSE": "eecac747717f530b74cea9a9d64e8d4ad724e426",
+    ".claude/rules/beads.md": "5fecd9695535bfd6e6e37ffda09b6a7953571087",
+    ".claude/rules/tests.md": "b60caf7b6a94f16e174e5fe56d3ec7013e66f991",
+    ".claude/rules/universal.md": "9866de5011308e74965c7f477a8ff670e19e08c0",
+    ".claude/rules/large-payloads.md": "af718f9683d94ada9509d16674cccba478a6967f",
+    "AGENTS.md": "34cebbd096ad4c1fae62782b1eda3a0219f7ce69",
+    ".gitignore": "69bd335c2f5cc2488253f5b99393d41975f9ab08"
+  },
+  "legacy_settings": {
+    "env": {
+      "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "permissions": {
+      "allow": [
+        "Bash(*)",
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "WebFetch",
+        "WebSearch",
+        "TodoWrite",
+        "Task",
+        "NotebookEdit"
+      ],
+      "deny": [
+        "Read(.env*)",
+        "Read(**/credentials*)",
+        "Read(**/secrets*)",
+        "Bash(rm -rf *)",
+        "Bash(rm -r *)",
+        "Bash(rm -fr *)",
+        "Bash(rmdir *)",
+        "Bash(Remove-Item -Recurse *)",
+        "Bash(git push --force *)",
+        "Bash(git push -f *)",
+        "Bash(git push origin main)",
+        "Bash(git push * main)",
+        "Bash(git push origin HEAD:main)",
+        "Bash(git push * HEAD:main)",
+        "Bash(git push origin master)",
+        "Bash(git push * master)",
+        "Bash(git push origin HEAD:master)",
+        "Bash(git push * HEAD:master)",
+        "Bash(gh pr merge *)",
+        "Bash(gh api *merge*)",
+        "Bash(gh repo delete *)",
+        "Bash(gh api -X DELETE *)",
+        "Bash(docker compose -f docker-compose.prod.yml*)",
+        "Bash(docker compose * down*)",
+        "Bash(gh repo edit*)",
+        "Bash(gh secret set*)",
+        "Bash(gh secret delete*)",
+        "Bash(gh secret remove*)",
+        "Bash(bd delete*)",
+        "Bash(bd dolt push*)",
+        "Bash(bd dolt pull*)",
+        "Bash(*BD_SYNC_FORCE*)",
+        "Bash(git push * --delete*)",
+        "Bash(git reset --hard*)",
+        "Bash(git clean -fd*)",
+        "Bash(git clean -fdx*)",
+        "Bash(git checkout -- *)",
+        "Bash(git checkout .)",
+        "Bash(cat .env*)",
+        "Bash(cat **/credentials*)",
+        "Bash(cat **/secrets*)",
+        "Bash(printf*.env*)",
+        "Bash(head .env*)",
+        "Bash(tail .env*)",
+        "Bash(less .env*)",
+        "Bash(more .env*)",
+        "Bash(python -c *open*.env*)",
+        "Bash(python3 -c *open*.env*)",
+        "Bash(node -e *readFile*.env*)",
+        "Edit(.git/**)",
+        "Write(.git/**)",
+        "Edit(.gitignore)",
+        "Write(.gitignore)",
+        "Edit(.gitattributes)",
+        "Write(.gitattributes)"
+      ],
+      "defaultMode": "bypassPermissions"
+    },
+    "enableAllProjectMcpServers": false,
+    "hooks": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash .claude/hooks/codex-login.sh",
+              "timeout": 30
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Bash(git commit*)",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash -c 'if [ -f package.json ]; then npm run test --if-present || (echo \"{\\\"decision\\\": \\\"block\\\", \\\"reason\\\": \\\"Тесты падают. Исправь перед коммитом.\\\"}\" && exit 2); fi'",
+              "timeout": 120
+            }
+          ]
+        },
+        {
+          "matcher": "Bash(*gh pr comment*)",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash -c 'HOOK=.claude/hooks/check-merge-ready.py; for cmd in py python3 python; do if command -v \"$cmd\" >/dev/null 2>&1; then if [ \"$cmd\" = \"py\" ]; then \"$cmd\" -3 \"$HOOK\"; else \"$cmd\" \"$HOOK\"; fi; exit $?; fi; done; echo \"БЛОКИРОВКА: Python-интерпретатор не найден (py/python3/python). Hook не может выполниться fail-secure.\" >&2; exit 1'",
+              "timeout": 5
+            }
+          ]
+        }
+      ],
+      "PostToolUse": [
+        {
+          "matcher": "Write|Edit",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "echo 'Файл изменён. Убедись, что тесты проходят перед коммитом.'"
+            }
+          ]
+        }
+      ]
+    },
+    "language": "russian",
+    "skipDangerousModePermissionPrompt": true,
+    "skipAutoPermissionPrompt": true,
+    "plansDirectory": "./docs/plans"
+  }
+}

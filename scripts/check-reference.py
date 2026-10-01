@@ -2,12 +2,21 @@
 """Проверка generic owner/skill closure; U2 product checks сюда не входят."""
 import argparse
 from collections import Counter
+import json
 import re
 from pathlib import Path
 
 SKILLS = {'canon-router', 'product-gap', 'product-handoff', 'diagnose', 'handoff'}
 ROLES = {'PM', 'SV', 'PL', 'DEV', 'QA', 'RV'}
 ADAPTERS = {'developer': 'DEV', 'planner': 'PL', 'reviewer': 'RV', 'tester': 'QA'}
+RUNTIME = {
+    '.claude/hooks/' + name for name in (
+        'check-repository-mutation.py', 'check-tests-before-commit.sh', 'check-merge-ready.py',
+        'commit_command_classifier.py', 'shell_grammar.py', 'shell_comment_parser.py', 'readiness_policy.py')
+} | {'.claude/tools/' + name for name in ('run-python.sh', 'with-timeout.sh', 'publish-pr-comment.py')} | {
+    '.claude/settings.json', '.codex/hooks.json', 'scripts/bd-read.sh', 'scripts/bd-wt.sh',
+    'scripts/lib/bd-env.sh', 'scripts/lib/bd-read-engine.mjs', '.agents/project/verify.sh',
+    'scripts/install-overgate.py', 'scripts/check-reference.py'}
 
 
 def check(root):
@@ -26,6 +35,8 @@ def check(root):
         read(path, 'ROLE-001')
         if path not in registry:
             fail('ROLE-002', f'unregistered role: {path}')
+    if {p.name for p in (root / '.agents').glob('*_ROLE.md')} != {r + '_ROLE.md' for r in ROLES}:
+        fail('ROLE-002', 'delivery owner set must be exactly PM/SV/PL/DEV/QA/RV')
     for adapter, role in ADAPTERS.items():
         body = read(f'.claude/agents/{adapter}.md', 'ROLE-003')
         pointers = re.findall(r'\.agents/[A-Z]+_ROLE\.md', body)
@@ -51,12 +62,39 @@ def check(root):
     return errors
 
 
+def closure(root):
+    errors = []
+    try:
+        manifest = json.loads((root / '.agents/distribution-manifest.json').read_text())
+        entries = manifest['files']
+        targets = [x['target'] for x in entries]
+        if len(targets) != len(set(targets)) or not RUNTIME <= set(targets):
+            errors.append('CLOSURE-001: missing/duplicate runtime inventory')
+        for entry in entries:
+            path = root / entry['target']
+            if not path.is_file() or path.is_symlink():
+                errors.append('CLOSURE-002: missing dependency: ' + entry['target'])
+            elif entry['target'].endswith('.sh') and entry['policy'] != 'preserve' and not path.stat().st_mode & 0o111:
+                errors.append('CLOSURE-003: helper is not executable: ' + entry['target'])
+        for config in ('.claude/settings.json', '.codex/hooks.json'):
+            settings = json.loads((root / config).read_text())
+            entries = settings['hooks']['PreToolUse']
+            for handler in ('check-repository-mutation.py', 'check-tests-before-commit.sh', 'check-merge-ready.py'):
+                if not any(re.fullmatch(e['matcher'], 'Bash') and handler in json.dumps(e['hooks']) for e in entries):
+                    errors.append(f'CLOSURE-004: missing whole-Bash adapter: {config}: {handler}')
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        errors.append('CLOSURE-001: invalid/missing manifest or adapter: ' + str(error))
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--structure-only', action='store_true')
     args = parser.parse_args()
     errors = check(args.root.resolve())
+    if not args.structure_only:
+        errors += closure(args.root.resolve())
     for error in errors:
         print(error)
     print(f'reference structure: {"FAIL" if errors else "PASS"}')

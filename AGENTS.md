@@ -30,7 +30,7 @@ Reference проверяется `bash scripts/verify-reference.sh`; устан�
 Beads — task state; Git/PR — code/evidence. `bd --help`, `.claude/rules/beads.md`, штатные
 `scripts/bd-sync-*` определяют текущий route. Не писать Dolt напрямую, не mutating bd из
 worktree, не считать local `.beads/issues.jsonl` авторитетным. Triage lookup использует
-`scripts/beads-evidence.py` и frozen snapshot `origin/beads-backup` текущего проекта.
+`scripts/bd-wt.sh` / `scripts/bd-read.sh` и frozen snapshot `origin/beads-backup` текущего проекта.
 Не откатывать Beads/Memory Bank вслепую. Личный runtime state не коммитится.
 
 Большие PR reports публикуются `.claude/tools/run-python.sh .claude/tools/publish-pr-comment.py`;

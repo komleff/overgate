@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# HISTORICAL U2 PR #183 corpus utility; not part of generic RC verification/install.
 # Regression prove для VC-5: проверяет, что новый stripper + grep
 # не даёт ложных результатов на реальной истории comments PR #183.
 #
