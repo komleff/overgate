@@ -193,13 +193,15 @@ class SessionDirectory(unittest.TestCase):
     def test_unsupported_recovery_paths_require_root_restart(self):
         for name in ('space path','кириллица','path(parentheses)'):
             with self.subTest(name=name):
-                tree=make_tree();holder=Path(tempfile.mkdtemp(prefix="overgate-path-case-"));target=holder/name
-                shutil.move(str(tree),target)
-                code,err=run(ENTRY,'cd '+target.as_posix(),OUTSIDE,str(target))
-                self.assertEqual(code,2,err)
-                code,err=run(ENTRY,'git log -1 --oneline',target,str(target))
-                self.assertEqual(code,0,err)
-                shutil.rmtree(holder)
+                # TemporaryDirectory снимает readonly с Git objects на NTFS;
+                # ошибки очистки не игнорируются и остаются провалом fixture.
+                with tempfile.TemporaryDirectory(prefix="overgate-path-case-", ignore_cleanup_errors=False) as directory:
+                    tree=make_tree();holder=Path(directory);target=holder/name
+                    shutil.move(str(tree),target)
+                    code,err=run(ENTRY,'cd '+target.as_posix(),OUTSIDE,str(target))
+                    self.assertEqual(code,2,err)
+                    code,err=run(ENTRY,'git log -1 --oneline',target,str(target))
+                    self.assertEqual(code,0,err)
 
     def test_relative_cd_into_checkout_is_blocked(self):
         """Из родителя checkout `cd <имя каталога>` — относительный путь, не форма восстановления."""
@@ -359,8 +361,15 @@ class Mutations(unittest.TestCase):
     def test_entry_without_cd_target_check_is_caught(self):
         mutated = ENTRY.replace('[ -f "$T/.claude/hooks/pre-bash.sh" ]; then exit 0', "true; then exit 0", 1)
         self.assertNotEqual(mutated, ENTRY)
-        code, _ = run(mutated, f"cd {OUTSIDE.as_posix()}", OUTSIDE, None)
-        self.assertEqual(code, 0, "снятая проверка цели cd не ловится сценарием cd наружу")
+        # Windows TEMP может содержать short-name RUNNER~1: такая форма
+        # не различает наличие проверки цели в принятом recovery parser.
+        target=ROOT / "missing-dispatcher-target"
+        self.assertFalse((target / ".claude/hooks/pre-bash.sh").exists())
+        command=f"cd {target.as_posix()}"
+        real,err=run(ENTRY,command,OUTSIDE,None)
+        self.assertEqual(real,2,err)
+        code, err = run(mutated, command, OUTSIDE, None)
+        self.assertEqual(code, 0, "снятая проверка цели cd не ловится сценарием cd наружу: "+err)
 
     def test_entry_without_dispatcher_exec_is_caught(self):
         """Без exec диспетчера запись всегда в деградации, где проходит только cd; через

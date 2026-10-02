@@ -55,9 +55,18 @@ runtime. Windows и live Claude/Codex activation требуют отдельно
 Лицензия OverGate — [MIT](LICENSE), copyright Dmitriy Komlev. [Credits и provenance](.agents/REFERENCES.md)
 отделяют источники идей от перенесённых файлов и не распространяют MIT автоматически на весь U2.
 
-Для полного Claude Bash dispatcher запускайте сессию из корня checkout. Новая сессия
-в подкаталоге, включая пакет монорепо, работает в режиме восстановления: остальные Bash
-команды блокируются до возврата в root. В rc.1 допускается только одна unquoted команда
+Для автоматической загрузки project hooks запускайте Claude из корня checkout и
+подтвердите загрузку settings/hooks. Shared `.claude/settings.json` не наследуется
+из родительских каталогов: новый запуск в подкаталоге без дополнительной настройки
+не включает root hooks. Если hooks уже загружены, Bash cwd в подкаталоге, включая
+пакет монорепо, включает режим восстановления до возврата в root.
+Для нового native CLI запуска из подкаталога явно загрузите неизменённый installed
+root файл через `--settings <ROOT>/.claude/settings.json`, разрешите root как workspace
+через `--add-dir <ROOT>` и используйте `--permission-mode manual`. Без разрешения root
+runtime может принять `cd`, затем вернуть cwd в стартовый подкаталог; это не успешное
+восстановление. Такой startup проверяется отдельно от автоматического root startup.
+Семантика загрузки: [Claude settings](https://code.claude.com/docs/en/settings) и
+[CLI options](https://code.claude.com/docs/en/cli-reference). В rc.1 допускается только одна unquoted команда
 `cd <absolute-checkout-path>`; допустимые символы пути — латиница, цифры, `_ : / . -`.
 Пробелы, кириллица, скобки и кавычки в этой форме не поддерживаются. Для такого пути
 завершите сессию и откройте новую непосредственно в корне checkout через интерфейс

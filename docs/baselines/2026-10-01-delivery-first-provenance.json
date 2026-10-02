@@ -94,8 +94,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".agents/HOW_TO_USE.md",
       "source_blob": "e2c614a398c8cfc28fcc597763e759314abe2baa",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
-      "refresh_delta": "unchanged source blob"
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign.",
+      "refresh_delta": "unchanged source blob",
+      "target_sha256": "28ba43c3478becc6049d23b10aa3e58ac565cb967c0c22a069cd259280c56fb5"
     },
     {
       "target": ".agents/INSTALL.md",
@@ -104,8 +105,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".agents/INSTALL.md",
       "source_blob": "38fcca0f1abbaee9bdc6a86fbb788d036dbf9f64",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
-      "refresh_delta": "updated source blob; generic adaptation retained"
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign.",
+      "refresh_delta": "updated source blob; generic adaptation retained",
+      "target_sha256": "1a8252a0216142b78777baa0949af790802e5e773c41c49069de31df953a8317"
     },
     {
       "target": ".agents/PIPELINE.md",
@@ -658,7 +660,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign.",
+      "target_sha256": "c2b46ef1c7a026f7e185368e61bf1d2bf898a44144640d82354c79481079a557"
     },
     {
       "target": "docs/architecture/ADR-INDEX.md",
@@ -1030,8 +1033,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": "scripts/tests/pre-bash-dispatch.test.py",
       "source_blob": "641a5f1929de51e197131ce671c0d218f7dbc7b2",
-      "adaptation": "Source native Git Bash/settings/cwd/budget mutations; real .agents/project/verify.sh red/green instead of npm; OVERGATE override; unsupported recovery paths blocked and root restart exercised.",
-      "refresh_delta": "new source transfer"
+      "adaptation": "Source native Git Bash/settings/cwd/budget mutations; real .agents/project/verify.sh red/green instead of npm; OVERGATE override; unsupported recovery paths blocked and root restart exercised. Native Windows CI on3402c772 exposed TEMP short-name tilde invalidating mutation discriminator and readonly Git-object cleanup. Mutation now uses native source-root absolute missing target and checks baseline block; TemporaryDirectory cleanup reports errors and handles owned readonly temp files. Runtime bytes unchanged.",
+      "refresh_delta": "new source transfer",
+      "target_sha256": "af1a3c985d5c3df8207c0ce22030b24381a1ed2103c084325955a5be8a07ad21"
     },
     {
       "target": "scripts/tests/lib/claude_hooks.py",
