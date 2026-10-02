@@ -124,12 +124,18 @@ assert_not_contains "$HOOK_STDERR" "разбор команды не завер�
 
 # --- 3. Тестовый крючок предела: только сужает ---------------------------------
 
-run_hook "gh pr comment 1 --body 'обычный отчёт'" OVERGATE_MERGE_GATE_TEST_MAX_PARSE_SECONDS=0.000001
+# Короткий вход мог завершиться до следующей периодической сверки с часами:
+# тест зависел от того, истечёт ли микросекунда ещё при создании бюджета.
+# Пробелы МЕЖДУ словами заставляют лексер дойти до сверки; начальные пробелы
+# пропускаются отдельно. Вход остаётся обычной публикацией и помещается в
+# предел одного аргумента Linux, без изменения рабочего бюджета парсера.
+TIMED_PARSE_COMMAND="$("$PYTHON_RUNNER" -c 'print("gh " + " " * 8192 + "pr comment 1 --body '\''обычный отчёт'\''")')"
+run_hook "$TIMED_PARSE_COMMAND" OVERGATE_MERGE_GATE_TEST_MAX_PARSE_SECONDS=0.000001
 assert_eq "$HOOK_RC" "2" "сужённый крючком предел разбора блокирует"
 assert_contains "$HOOK_STDERR" "не уложился в предел времени" \
   "блокировка по времени разбора названа своей причиной"
 
-run_hook "gh pr comment 1 --body 'обычный отчёт'" OVERGATE_MERGE_GATE_TEST_MAX_PARSE_SECONDS=99999
+run_hook "$TIMED_PARSE_COMMAND" OVERGATE_MERGE_GATE_TEST_MAX_PARSE_SECONDS=99999
 assert_eq "$HOOK_RC" "0" "крючком нельзя расширить окно разбора: рабочий предел сохраняется"
 
 for bad_override in 0 -5 abc; do

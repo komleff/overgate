@@ -879,8 +879,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": "scripts/tests/merge-gate-parse-budget.test.sh",
       "source_blob": "fc2dbf68a5775d837e6d2f05e8a9f2029e8bb4ea",
-      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
-      "refresh_delta": "updated source blob; generic adaptation retained"
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable. Linux portable budget fixture:8192 interword spaces force a real timed lexer checkpoint; same input wide-limit positive retained. No runtime timing/parser change.",
+      "refresh_delta": "updated source blob; generic adaptation retained",
+      "target_sha256": "86e8d208f247e469e4d3a05b7cfa2e66c1be6958ee1d805e3298b6b2d8f66cfb"
     },
     {
       "target": "scripts/tests/merge-gate-parse-completeness.test.sh",
