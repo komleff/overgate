@@ -850,7 +850,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained.",
+      "target_sha256": "4a2722128600c83d21a4486729bc8e911601c5713e01e68ddaa33f25c7703876"
     },
     {
       "target": "scripts/tests/lib/assert.sh",

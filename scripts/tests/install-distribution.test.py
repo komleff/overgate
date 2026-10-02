@@ -5,7 +5,7 @@ from unittest import mock
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
 import sys
@@ -28,8 +28,24 @@ def init(root):
     git(root,'config','user.name','Fixture')
 
 def snapshot(root):
-    return {str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*')
+    return {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*')
             if p.is_file() and '.git' not in p.parts and '.overgate-backups' not in p.parts}
+
+class SnapshotTests(unittest.TestCase):
+    def test_snapshot_manifest_keys_preserve_bytes_on_both_path_flavors(self):
+        # Ключи snapshot сверяются с POSIX-путями manifest даже на Windows;
+        # содержимое остаётся исходными байтами, включая CRLF и non-UTF-8.
+        relative='.claude/rules/large-payloads.md'
+        content=b'legacy policy\r\n\xff\n'
+        with tempfile.TemporaryDirectory() as holder:
+            root=Path(holder);path=root/relative
+            path.parent.mkdir(parents=True);path.write_bytes(content)
+            for flavor in (PurePosixPath, PureWindowsPath):
+                with self.subTest(flavor=flavor.__name__):
+                    node=mock.Mock(wraps=path);node.parts=path.parts
+                    node.relative_to.return_value=flavor(relative)
+                    tree=mock.Mock();tree.rglob.return_value=[node]
+                    self.assertEqual(snapshot(tree),{relative:content})
 
 class InstallTests(unittest.TestCase):
     @classmethod
