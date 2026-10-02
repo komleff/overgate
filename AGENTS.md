@@ -10,7 +10,7 @@ tags: [agents, bootstrap, delivery-first]
 OverGate — generic reference Delivery First. Product/game data сюда не переносится.
 Первое чтение: `.memory-bank/activeContext.md` + `.memory-bank/progress.md`, `README.md`,
 один owner из `.agents/AGENT_ROLES.md`; для architecture/process — `.agents/PIPELINE_ADR.md`
-§§3.28–3.31 и `docs/architecture/ADR-INDEX.md`. Archive/history читать только по необходимости.
+§§3.28–3.32 и `docs/architecture/ADR-INDEX.md`. Archive/history читать только по необходимости.
 Search находит candidate, не authority. Конфликт current owners эскалируется оператору.
 
 **Product authority: оператор.** PM/Planner/Developer не выбирают missing WHAT.

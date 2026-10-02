@@ -12,3 +12,11 @@ Known limits фиксируй как NOT RUN/DECLARED_LIMIT. Не добавля
 
 Публикация: `.claude/tools/run-python.sh .claude/tools/publish-pr-comment.py <PR_NUMBER> <BODY_FILE>`.
 Без readiness/token; report подписывается фактическими role/model.
+
+Claude closure: одна managed Bash entry без backslashes, timeout 600 → `pre-bash.sh` →
+mutation/readiness/commit guards + launcher/timeout helpers. Installed custom Bash entries
+не входят в managed count. Codex проверяется по existing `.codex/hooks.json` contract.
+Проверь apply order helpers/guards/dispatcher до settings и обратный rollback order;
+missing dependency в staged manifest обязана блокировать до записи. Native Windows использует
+Python + настоящий Git Bash; WSL и U2 smoke не заменяют installed platform evidence.
+Recovery limits rc.1 перечислены в `.agents/INSTALL.md`; не объявляй произвольный path support.

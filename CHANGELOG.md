@@ -3,7 +3,7 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
-## [v4.0.0-rc.1] — candidate, 2026-10-01
+## [v4.0.0-rc.1] — candidate refresh, 2026-10-03
 
 ### Changed
 - Delivery First: FAST/PRODUCT/CRITICAL, budget 2/5/6, Plan Review до реализации, независимая QA,
@@ -18,11 +18,20 @@
 - Explicit inventory, frozen-source plan/apply, preserved overrides, pre-write backup и byte-restoring rollback.
 - Read-only `verify-reference` CI job, structural negatives, static positive/non-trigger scenarios,
   behavioural runtime tests и fresh/v3.9 upgrade/rollback fixtures.
-- File-level provenance из frozen U2 `fb8ebfa5133c13726bd7960a1a075ab7a7089191`.
+- File-level provenance из frozen U2 `c450fa7b0d90fecf970f9931011255ea836da258`.
+
+- Portable Claude Bash dispatcher из U2 #829: одна managed запись, root по расположению файла,
+  последовательные guards, сужение реального project test budget; macOS Bash 3.2 interpolation fix.
+- Нативный read-only Windows CI для dispatcher и installed fresh/previous-RC/v3.9/rollback.
 
 ### Limits and migration
 - [INSTALL.md](.agents/INSTALL.md) — единственный RC installation/upgrade/rollback путь.
 - Stable Dreadnought и прежние beta/v3.9 refs не меняются; RC release остаётся prerelease/not Latest.
+- Claude сессия для полного dispatcher запускается из checkout root; subdirectory/package
+  монорепо работает в recovery режиме. Только одна unquoted absolute `cd`, путь из
+  латиницы/цифр/`_ : / . -`. Пробелы/кириллица/скобки/кавычки требуют новой сессии в root;
+  расширение recovery и косметические внутренние U2 prefixes отложены в `og-7sr`.
+- Source installer требует чистый Git checkout с exact SHA; release ZIP без `.git` не подходит.
 - Windows/live runtime activation не подтверждаются static fixtures; окончательное platform evidence — в PR.
 - Local hooks не защищают remote writes; ручные accepted-risk checks и shared-account trust limit сохранены.
 - U2 Almanac/domain content исключён. Полная лицензия на U2 этим переносом не заявляется.

@@ -17,3 +17,34 @@ jobs:
           persist-credentials: false
       - name: Verify generic reference
         run: bash scripts/verify-reference.sh
+  windows-native:
+    name: windows-native
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native Git Bash and Python versions
+        shell: pwsh
+        run: |
+          python --version
+          git config --show-origin --get core.autocrlf
+          git check-attr eol -- .claude/hooks/pre-bash.sh
+          & 'C:/Program Files/Git/bin/bash.exe' --version
+      - name: Native dispatcher and installed upgrade rollback
+        shell: pwsh
+        run: |
+          python scripts/tests/pre-bash-dispatch.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/tests/reference-closure.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/tests/install-distribution.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

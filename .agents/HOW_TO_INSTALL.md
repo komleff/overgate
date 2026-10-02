@@ -8,6 +8,6 @@ tags: [installation]
 # Установка
 
 Единственный актуальный путь fresh/upgrade/rollback: [INSTALL.md](INSTALL.md).
-Trusted source SHA → target Draft PR + plan/Verification Contract → PLAN_READY → backup/apply
+Чистый source Git checkout с `.git` (не release ZIP) и exact source SHA → target Draft PR + plan/Verification Contract → PLAN_READY → backup/apply
 → project verify + QA/scoped review → одна финализация → operator merge.
 Нельзя копировать дерево поверх project overrides или использовать legacy install scripts для RC.

@@ -64,18 +64,15 @@ spec = importlib.util.spec_from_file_location(
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-with open(root / ".claude" / "settings.json", encoding="utf-8") as stream:
-    settings = json.load(stream)
+# Запись одна и ведёт в диспетчер pre-bash.sh: гейт публикации подключён там и
+# исполняется под пределом быстрой проверки QUICK_LIMIT диспетчера — он и есть
+# объявленный предел для арифметики ниже (scripts/tests/lib/claude_hooks.py).
+sys.path.insert(0, str(root / "scripts" / "tests" / "lib"))
+import claude_hooks
 
-handlers = [
-    handler
-    for entry in settings.get("hooks", {}).get("PreToolUse", [])
-    for handler in entry.get("hooks", [])
-    if "check-merge-ready" in handler.get("command", "")
-]
-if len(handlers) != 1:
-    raise SystemExit("ожидалась ровно одна запись гейта публикации в PreToolUse")
-print(handlers[0]["timeout"])
+if not claude_hooks.guard_wired(root, "check-merge-ready.py"):
+    raise SystemExit("гейт публикации не подключён в диспетчере pre-bash.sh")
+print(claude_hooks.quick_limit(root))
 print(module.PARSE_TIME_LIMIT_SECONDS)
 print(module.PARSE_MAX_DEPTH)
 print(module.READINESS_TIME_LIMIT_SECONDS)

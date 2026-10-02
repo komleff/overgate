@@ -12,7 +12,7 @@ related:
 
 # OverGate Delivery First Pipeline
 
-Текущая операционная карта. Канон норм — `PIPELINE_ADR.md §3.29–3.31`.
+Текущая операционная карта. Канон норм — `PIPELINE_ADR.md §3.29–3.32`.
 Условные role triggers skills см. в [реестре ролей](AGENT_ROLES.md) и
 [реестре skills](SKILLS.md); исторические источники — в [REFERENCES.md](REFERENCES.md).
 

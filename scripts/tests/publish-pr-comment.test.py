@@ -50,14 +50,18 @@ def extract_bash_block(path: Path, heading: str, *, index: int = 0) -> str:
 
 
 def merge_ready_wrapper() -> str:
-    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    return next(
-        hook["command"]
-        for entry in settings["hooks"]["PreToolUse"]
-        for hook in entry.get("hooks", [])
-        if "check-merge-ready" in hook.get("command", "")
-    )
+    """Команда гейта публикации в той форме, в какой его зовёт диспетчер pre-bash.sh.
 
+    Единственная запись settings.json ведёт в диспетчер, где гейт обязан быть
+    подключён (scripts/tests/lib/claude_hooks.py); сам гейт здесь вызывается прямо,
+    без остальных трёх проверок — предмет теста только политика публикации.
+    """
+    sys.path.insert(0, str(ROOT / "scripts" / "tests" / "lib"))
+    import claude_hooks
+
+    if not claude_hooks.guard_wired(ROOT, "check-merge-ready.py"):
+        raise AssertionError("гейт публикации не подключён в диспетчере pre-bash.sh")
+    return 'sh ".claude/tools/run-python.sh" ".claude/hooks/check-merge-ready.py"'
 
 # Номер PR, который этот тест подаёт публикатору.
 TEST_PR = "645"

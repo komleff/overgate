@@ -397,12 +397,15 @@ else
 fi
 rm -rf "$GUARD_MUT_DIR"
 
-"$RUNNER" - "$SETTINGS" "$CODEX_HOOKS" <<'PY'
+"$RUNNER" - "$ROOT" "$CODEX_HOOKS" <<'PY'
 import json, sys
-settings=json.load(open(sys.argv[1],encoding="utf-8"))
+sys.path.insert(0, sys.argv[1] + "/scripts/tests/lib")
+import claude_hooks
 codex=json.load(open(sys.argv[2],encoding="utf-8"))
 needle="check-repository-mutation.py"
-claude=sum(needle in h.get("command","") for g in settings["hooks"]["PreToolUse"] for h in g["hooks"])
+# Claude: единственная запись → диспетчер, в котором guard подключён ровно один раз.
+claude_hooks.dispatcher_entry(sys.argv[1])
+claude=claude_hooks.dispatcher_text(sys.argv[1]).count('"$HOOK_DIR/' + needle + '"')
 codex_count=sum(needle in h.get("command","") or needle in h.get("commandWindows","") for g in codex["hooks"]["PreToolUse"] for h in g["hooks"])
 if claude != 1 or codex_count < 1:
     raise SystemExit(f"adapter mismatch: claude={claude}, codex={codex_count}")

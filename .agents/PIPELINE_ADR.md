@@ -13,7 +13,7 @@ related:
 
 # ADR: Архитектура AI-пайплайна разработки
 
-> Current: §§3.28–3.31. Более ранние нормы сохраняются как история и superseded в конфликтующей части.
+> Current: §§3.28–3.32. Более ранние нормы сохраняются как история и superseded в конфликтующей части.
 
 **Статус:** Принято
 **Дата принятия:** 2026-04-05
@@ -221,6 +221,34 @@ Product authority задаёт проект в AGENTS; fallback — операт
 не требует тяжёлого diagnosis. QA ambiguity → Result: NOT RUN. Завершённая работа не требует handoff.
 Skill не добавляет stage/verifier и не расширяет budget. U2 Almanac owner исключён из generic core;
 классификация всех шести source skills и file provenance находятся в release manifest.
+
+### 3.32 Portable Claude Bash dispatcher (2026-10-03)
+
+**Статус:** принято для rc.1 по frozen U2 `c450fa7b0d90fecf970f9931011255ea836da258`,
+#829; operator decision 2026-10-03 сохраняет backward-compatible исходную версию.
+Одна managed `PreToolUse(Bash)` command entry без backslashes, timeout 600 с,
+ищет `.claude/hooks/pre-bash.sh` только в cwd. Dispatcher определяет root по своему
+расположению и последовательно вызывает mutation/readiness/commit guards. Быстрые guards
+ограничены 10 с каждый; запрос бюджета и наружный timeout тяжёлого gate сохраняются.
+Окно project tests сужается на elapsed quick phase через
+`OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS`, согласованное с existing consumer.
+
+Вне root, включая subdirectory/package монорепо, разрешена только одна unquoted absolute
+`cd` в checkout с dispatcher. Допустимые символы пути: латиница/цифры/`_ : / . -`.
+Пробелы, кириллица, скобки и кавычки не входят в recovery форму rc.1; новый root session
+— документированный выход. Allowlist чтения и поиск dispatcher по `CLAUDE_PROJECT_DIR`
+не возвращаются. Recovery redesign и косметическая нормализация внутренних prefixes — `og-7sr`.
+Codex не мигрирует на dispatcher в этой линии; проверяется existing adapter closure.
+
+Manifest ставит guards/helpers/dispatcher до settings; rollback восстанавливает settings
+до удаления dispatcher. Это проверяемый порядок, не обещание atomic multi-file transaction.
+Known v3.9/previous-RC identities заменяются; custom hooks/authority/verifier сохраняются,
+custom managed variant вызывает conflict до target writes. Staged payload closure обязательна.
+Native Windows Python + Git Bash test и installed live smoke имеют отдельное evidence;
+U2 dogfood и POSIX fixtures не объявляются OverGate Windows/live PASS.
+
+**Отклонено:** новые read allowlists, root redesign, глобальный rename внутренних U2 prefixes
+в rc.1 и новый Codex dispatcher route: меняют принятую точку совместимости.
 
 ## 4. Ключевые решения
 

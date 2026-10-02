@@ -2,20 +2,41 @@
 title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
 version: "4.0.0-rc.1"
-date: 2026-10-01
+date: 2026-10-03
 tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
 
 Единый путь — `scripts/install-overgate.py plan → apply → rollback` из чистого trusted
-OverGate checkout. Скрипт ничего не скачивает, не настраивает аккаунты и не публикует GitHub.
+OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
+не является trusted source этого установщика. Получите source через `git clone`, затем
+выберите RC tag или полный commit SHA в source checkout. Скрипт ничего не скачивает, не настраивает аккаунты и не публикует GitHub.
 Legacy `install-all.ps1`/per-skill scripts не использовать для RC. Stable Dreadnought остаётся
 прежним snapshot; RC выбирается явно по release/tag и exact commit SHA. Старые refs не двигать.
 
-Пререквизиты: Git, Bash, Python 3; jq для finalize, Node.js для Beads snapshot reader и reference
+Пререквизиты: Git, Bash, Python 3 (3.10+ для reference/native fixtures); jq для finalize, Node.js для Beads snapshot reader и reference
 tests, gh для PR evidence. `bd` нужен только проекту, использующему local Beads. Проверяйте
 текущий `bd --help`. macOS/Linux deterministic fixtures — граница reference evidence;
-Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
+На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
+не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
+
+## Каталог Claude-сессии
+
+Installer читает canonical Git blobs и записывает Bash scripts с LF. Для последующих
+checkout сохраните LF этих project-owned путей через политику `.gitattributes` проекта
+(например, `*.sh text eol=lf`); чужой `.gitattributes` автоматически не перезаписывается.
+
+Для полного Claude Bash dispatcher запускайте сессию из корня checkout. Новая сессия
+в подкаталоге, включая пакет монорепо, работает в режиме восстановления: остальные Bash
+команды блокируются до возврата в root. В rc.1 допускается только одна unquoted команда
+`cd <absolute-checkout-path>`; допустимые символы пути — латиница, цифры, `_ : / . -`.
+Пробелы, кириллица, скобки и кавычки в этой форме не поддерживаются. Для такого пути
+завершите сессию и откройте новую непосредственно в корне checkout через интерфейс
+runtime/терминала. Root-запуск не зависит от `CLAUDE_PROJECT_DIR`, даже если переменная
+указывает на соседний checkout. Исправление recovery paths и внутренних U2-префиксов
+отложено в `og-7sr`; rc.1 сохраняет исходную семантику U2 #829.
+
+Codex сохраняет прежний adapter contract; Claude dispatcher evidence не является Codex PASS.
 
 ## До копирования
 
@@ -36,6 +57,7 @@ python3 /trusted/overgate/scripts/install-overgate.py plan \
 ```
 
 План содержит source SHA, managed operations, before/after hashes, runtime merge и конфликты.
+Порядок operations виден до approval: guards/helpers → dispatcher → settings.
 Он не меняет target. Опубликуй этот план и его SHA256 в том же PR, получи independent PLAN_READY
 до apply. Reviewer/PM сохраняет локальный approval JSON, привязанный к точным bytes плана:
 
@@ -73,7 +95,9 @@ AGENTS.md, `.agents/project/verify.sh` и project rules `beads.md`, `tests.md`, 
 обновляется вместе с publisher/finalize, а project modification даёт conflict без записи.
 Остальные project-owned rules вне inventory не затрагиваются. Settings merge
 сохраняет project env/permissions/custom hooks, заменяет только известные old managed hooks и
-добавляет required guards; изменённый managed hook даёт conflict. `.gitignore` сохраняет
+добавляет required guards; изменённый managed hook даёт conflict. Known v3.9 и previous-RC
+entries заменяются по точной JSON identity; custom Bash hooks сохраняются. Ровно одна
+managed entry с timeout 600 с вызывает `.claude/hooks/pre-bash.sh` и не содержит backslashes. `.gitignore` сохраняет
 project entries и делает исключение для tracked `.codex/hooks.json`; прочий Codex state ignored.
 Product authority берётся из project AGENTS; если не назначен — оператор.
 
@@ -102,7 +126,9 @@ python3 /trusted/overgate/scripts/install-overgate.py rollback \
 
 Rollback сравнивает current managed hashes с installed state: последующая правка даёт stop,
 чтобы не потерять работу. Затем восстанавливает исходные bytes/modes или удаляет только созданные
-managed files. Project overrides, Beads и Memory Bank не откатываются вслепую. Backup содержит
+managed files. Обратный порядок сначала возвращает settings, затем удаляет новый
+dispatcher. Apply не является multi-file atomic update; при ошибке используется сохранённый
+journal и тот же обратный порядок. Project overrides, Beads и Memory Bank не откатываются вслепую. Backup содержит
 только managed pipeline files, не secrets. После commit — revert upgrade PR и адресно восстанови
 saved overrides; команды rollback применимы только к соответствующему snapshot.
 

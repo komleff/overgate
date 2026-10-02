@@ -1,9 +1,13 @@
 # Progress
 
-В работе: Delivery First v4 RC, PR #7. A–C — одна линия по принятому plan/VC.
-Проверка: `bash scripts/verify-reference.sh`; результаты публикуются в PR с frozen candidate SHA.
-QA/Review/finalize и release-related AC остаются pending до evidence.
-Stable/beta tag identities не изменяются; installer сохраняет project overrides и rollback snapshot.
+В работе: PR #7 / `og-uw7`, approved refresh frozen source `c450fa7b`.
+Generic шесть owners и пять skills сохранены; добавлен Claude dispatcher и точные previous-RC
+managed identities, native Windows CI, real installed project verifier/budget fixtures.
+QA-F1/F2 fixes сохранены. Verification: `bash scripts/verify-reference.sh`; exact tested SHA/logs
+публикуются в PR. Platform/live results остаются pending до фактического evidence.
+Budget 4/6; affected QA 5/6 и scoped Review 6/6 управляет PM. Finalize/merge/release pending.
+Windows recovery для spaces/Cyrillic/parentheses + косметический prefix cleanup — следующий `og-7sr`.
+Stable/beta identities не изменяются; installer сохраняет overrides и rollback snapshot.
 
 ## История до v4 RC (reference only)
 

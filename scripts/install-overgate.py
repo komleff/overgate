@@ -83,12 +83,12 @@ def load_manifest(source,sha):
     validate_payload(m,payload)
     return m,payload
 
-def merge_settings(existing,new,legacy):
+def merge_settings(existing,new,legacy,previous_rc=None):
     if existing is None:return new
     try:before=json.loads(existing);after=json.loads(new)
     except ValueError as e:raise InstallError('conflict: runtime settings must be valid JSON') from e
-    old_entries=legacy.get('hooks',{}).get('PreToolUse',[])
-    managed_names=('check-repository-mutation.py','check-tests-before-commit.sh','check-merge-ready.py')
+    old_entries=legacy.get('hooks',{}).get('PreToolUse',[])+(previous_rc or {}).get('hooks',{}).get('PreToolUse',[])
+    managed_names=('pre-bash.sh','check-repository-mutation.py','check-tests-before-commit.sh','check-merge-ready.py')
     kept=[]
     for entry in before.get('hooks',{}).get('PreToolUse',[]):
         if entry in old_entries or entry in after['hooks']['PreToolUse']:continue
@@ -114,18 +114,18 @@ def make_plan(source,sha,target,contract,target_pr):
     m,payload=load_manifest(source,sha)
     previous={}
     if safe(target,STATE).exists():
-        previous=json.loads((target/STATE).read_text()).get('installed',{})
+        previous=json.loads((target/STATE).read_text(encoding='utf-8')).get('installed',{})
     operations=[];conflicts=[]
     for entry in m['files']:
         path=entry['target'];p=safe(target,path);old=current(target,path);data,mode=payload[entry['source']]
         policy=entry.get('policy','managed')
         if policy=='preserve' and old is not None:continue
         if policy=='ignore':
-            old_text=p.read_text() if old else ''
+            old_text=p.read_text(encoding='utf-8') if old else ''
             old_text='\n'.join(x for x in old_text.splitlines() if x.strip()!='.codex/')
             data=(old_text.rstrip()+'\n\n'+data.decode()).encode()
         elif policy=='settings':
-            try:data=merge_settings(p.read_bytes() if old else None,data,m.get('legacy_settings',{}))
+            try:data=merge_settings(p.read_bytes() if old else None,data,m.get('legacy_settings',{}),m.get('previous_rc_settings',{}))
             except InstallError as e:conflicts.append(f'{path}: {e}');continue
         elif old is not None and old['sha256']!=digest(data):
             prior=previous.get(path,{}).get('sha256')

@@ -1,9 +1,10 @@
 ---
 name: sync-site-gdd
 description: (EXAMPLE, U2-специфичный) Обновление manifest публичного сайта <SITE_HOST> — добавление новых ГД-релевантных документов в <SITE_MANIFEST>, локальная сборка сайта, PR. Используй когда в main появились новые ADR, доктрины бренда, GDD/PvE/Marketing/Audit/Gameplay-спеки, и нужно, чтобы они появились на публичном сайте. Триггеры: «обнови сайт», «sync site», «синхронизируй сайт», «добавь ADR-NNNN на сайт», «новые доктрины не показаны на сайте». Нет публичного сайта — удали этот скилл. Не трогает VPS напрямую — после merge PR GitHub Actions сам передеплоит сайт за < 5 минут. Не правит навигацию проекта — для этого есть /sync-docs.
-user-invocable: true
+user-invocable: false
 ---
 
+> LEGACY / EXAMPLE: не входит в RC distribution, не является active installation route.
 > ⚙️ EXAMPLE site-навигация (специфично для U2; хост `<SITE_HOST>`). Нет публичного сайта — удали скилл; иначе адаптируй пути/манифест. Плейсхолдеры: `<SITE_HOST>` (хост публичного сайта), `<SITE_MANIFEST>` (путь к manifest сайта).
 
 # Sync Site GDD — обновление manifest публичного сайта

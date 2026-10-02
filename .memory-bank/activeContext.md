@@ -1,10 +1,15 @@
 # Active Context
 
 Текущий фокус: v4.0.0-rc.1 Delivery First candidate, ветка `codex/delivery-first-rc`, PR #7.
-Принятый plan/Verification Contract — `docs/plans/2026-10-01-delivery-first-rc.md`.
-Frozen U2 source: `fb8ebfa5133c13726bd7960a1a075ab7a7089191`; independent PLAN_READY получен.
-Implementation добавляет generic owners/skills, shared guards и distribution.
-Candidate требует независимой QA, одного scoped Review и trusted finalize по prior bootstrap.
-Operator merge/RC publication ещё не завершены. Старый Dreadnought остаётся stable/Latest.
+Approved refresh: `docs/plans/2026-10-03-delivery-first-rc-refresh.md` и portability amendment.
+Frozen U2 source: `c450fa7b0d90fecf970f9931011255ea836da258`; старый source contract
+`fb8ebfa5` и bound reports сохранены как history. Independent PLAN_READY 3/6 + 4/6 получены;
+следующие verifier launches: affected QA 5/6, один scoped Code Review 6/6, свободного reserve нет.
 
-Этот context — состояние reference; installer не переносит Memory Bank в проекты.
+Реализация переносит #829 dispatcher, staged/installed closure и migration fixtures;
+installer QA-F1/F2 fixes `bdc92fac` сохраняются и требуют affected QA.
+Оператор выбрал source-compatible recovery rc.1: только unquoted absolute простой путь.
+Recovery spaces/Cyrillic/parentheses и внутренние U2-prefix cleanup deferred в `og-7sr`.
+Native Windows/live Claude/Codex smoke подтверждается отдельно; CI config не означает PASS.
+Prior trusted finalize, operator merge и RC prerelease publication ещё pending.
+Dreadnought остаётся stable/Latest. Installer не переносит Memory Bank в проекты.

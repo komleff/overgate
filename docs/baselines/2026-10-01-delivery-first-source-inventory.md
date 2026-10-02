@@ -1,15 +1,46 @@
 ---
 title: "OverGate RC — frozen source inventory и граница generic core"
 status: reference
-version: "0.1"
-date: 2026-10-01
+version: "0.2"
+date: 2026-10-03
 tags: [overgate, delivery-first, skill-layer, inventory, release-candidate]
 beads: [og-uw7, U2-0jfah]
 ---
 
 # OverGate RC — frozen source inventory и граница generic core
 
-**Read-only снимок:** U2 tree `fb8ebfa5133c13726bd7960a1a075ab7a7089191` (Foundation #820 + Activation #827), OverGate `main` tree `466ad2020b8c46e6c14b4bbe67b5335017726542`. Все наблюдения ниже получены из tracked blobs через `git show`/`git ls-tree`; локальные untracked `.agents/skills`, `docs/plans` и `docs/archive` OverGate не читались. Acceptance Activation: [финальный passport #827](https://github.com/komleff/u2/pull/827#issuecomment-5931647528). Это source inventory для реализации, не verifier и не evidence исполнения RC.
+**Исторический initial read-only снимок:** U2 tree `fb8ebfa5133c13726bd7960a1a075ab7a7089191` (Foundation #820 + Activation #827), OverGate `main` tree `466ad2020b8c46e6c14b4bbe67b5335017726542`. Все наблюдения ниже получены из tracked blobs через `git show`/`git ls-tree`; локальные untracked `.agents/skills`, `docs/plans` и `docs/archive` OverGate не читались. Acceptance Activation: [финальный passport #827](https://github.com/komleff/u2/pull/827#issuecomment-5931647528). Это source inventory для реализации, не verifier и не evidence исполнения RC.
+
+## Текущий frozen refresh 2026-10-03
+
+Current source — U2 `c450fa7b0d90fecf970f9931011255ea836da258`, #829 + выпуск 0.27.1 #830.
+Initial source/plan выше сохранён как история. Approved refresh и portability amendment
+зафиксированы в `docs/plans/2026-10-03-*`; bound plan bytes не меняются ради bookkeeping.
+Шесть source skills и шесть generic delivery owners сохраняют прежние source blobs и границы.
+File-level current provenance — [JSON](2026-10-01-delivery-first-provenance.json): source path,
+полный blob, target, adaptation и классификация source delta каждого затронутого файла.
+Новый source не зависит от локального checkout состояния: все reads — `git show` frozen SHA.
+
+- Existing transfer delta: `INSTALL.md`, `PIPELINE_ADR.md`, `settings.json`, три consumers
+  `merge-gate-parse-budget`, `publish-pr-comment`, `repository-mutation-guard`.
+- Новые transfers: `pre-bash.sh`, native dispatcher unit, `claude_hooks.py`,
+  `seed-claude-hooks.sh`; current credits адаптированы из source `REFERENCES.md`.
+- Обязательный rename producer/consumer: `U2_COMMIT_GATE_TEST_MAX_SECONDS` →
+  `OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS`. Real installed gate test доказывает остаточный
+  бюджет и ловит ошибочное имя; project verifier вместо U2 `npm`.
+- Две `${label}` delimiters исправляют fail-closed диагностику на macOS Bash 3.2;
+  source unit сначала дал RED на crash/timeout, затем GREEN. Timing/guards/recovery сохранены.
+- `check-bash-cwd.py` удалён upstream, old wrappers отсутствуют в active payload.
+  U2 native install/inventory/cwd/commit fixture consumers покрываются generic suites;
+  raw `run-all.sh`, game/CDP (`cdp-touch.test.py`), project rules и Almanac исключены.
+- Recovery rc.1 — одна unquoted absolute `cd` для простой формы пути; spaces/Cyrillic/
+  parentheses и внутренние prefix cleanup deferred `og-7sr`. Codex adapter не мигрирует.
+- Original integration: staged closure/order checker, installer known previous-RC identity,
+  NTFS native explicit Git Bash tests, UTF-8 metadata и source LF `.gitattributes`, read-only Windows CI, migration/platform notes.
+  Test helpers не являются installed runtime dependencies; dispatcher/launcher/timeout/
+  parsers/guards перечислены в manifest до settings. Installed checker не требует U2 checkout.
+
+Ниже сохранена initial extraction-карта `fb8ebfa5`; current blobs и delta — в JSON выше.
 
 ## Решения по границе
 

@@ -5,7 +5,7 @@ Project first-read route: текущий project context и один authoritati
 Если current owners конфликтуют — эскалация оператору; search result не authority.
 
 Pipeline: `.agents/PIPELINE.md`; role owners: `.agents/AGENT_ROLES.md`;
-core skills: `.agents/SKILLS.md`. Общая policy — ADR §§3.28–3.31.
+core skills: `.agents/SKILLS.md`. Общая policy — ADR §§3.28–3.32.
 PM/Planner/Developer не выбирают missing WHAT. Ready source → PASS_THROUGH.
 ИИ не merge/auto-merge и не обновляет main/master. Не обходить hooks/permissions,
 не читать `.env*`, credentials, secrets. Evidence публиковать с фактической ролью/моделью.

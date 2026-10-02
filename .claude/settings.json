@@ -96,28 +96,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'ROOT=\"${CLAUDE_PROJECT_DIR-}\"; if [ -z \"$ROOT\" ]; then ROOT=$(git rev-parse --show-toplevel) || ROOT=\"\"; fi; ROOT=\"${ROOT//\\\\//}\"; if [ -z \"$ROOT\" ] || [ ! -d \"$ROOT\" ]; then echo \"БЛОКИРОВКА: корень репозитория для mutation guard не определён.\" >&2; exit 2; fi; LAUNCHER=\"$ROOT/.claude/tools/run-python.sh\"; HOOK=\"$ROOT/.claude/hooks/check-repository-mutation.py\"; if [ ! -x \"$LAUNCHER\" ] || [ ! -f \"$HOOK\" ]; then echo \"БЛОКИРОВКА: shared repository mutation guard недоступен.\" >&2; exit 2; fi; \"$LAUNCHER\" \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'ROOT=\"${CLAUDE_PROJECT_DIR-}\"; if [ -z \"$ROOT\" ]; then ROOT=$(git rev-parse --show-toplevel) || ROOT=\"\"; fi; ROOT=\"${ROOT//\\\\//}\"; if [ -z \"$ROOT\" ] || [ ! -d \"$ROOT\" ]; then echo \"БЛОКИРОВКА: корень проекта для гейта тестов не определён. Команда не пропускается fail-secure.\" >&2; exit 2; fi; HOOK=\"$ROOT/.claude/hooks/check-tests-before-commit.sh\"; if [ ! -f \"$HOOK\" ]; then echo \"БЛОКИРОВКА: гейт тестов перед коммитом отсутствует. Команда не пропускается fail-secure.\" >&2; exit 2; fi; bash \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
+            "command": "bash -c 'H=./.claude/hooks/pre-bash.sh; if [ -f \"$H\" ]; then exec bash \"$H\"; fi; P=$(cat); Q=$(printf %s \"$P\" | tr -d \"{[:space:]\" | cut -c1); T=$(printf %s \"$P\" | grep -oE \"[$Q]command[$Q]: *[$Q]cd (/|[A-Za-z]:/)[A-Za-z0-9_:/.-]*[$Q]\" | head -n1); T=${T#*cd }; T=${T%?}; if [ -n \"$T\" ] && [ -f \"$T/.claude/hooks/pre-bash.sh\" ]; then exit 0; fi; R=$(git rev-parse --show-toplevel 2>/dev/null); echo \"БЛОКИРОВКА: каталог сессии не корень репозитория, диспетчер хуков .claude/hooks/pre-bash.sh здесь не найден (PWD=[$PWD], CLAUDE_PROJECT_DIR=[${CLAUDE_PROJECT_DIR-}]). Проходит только одна команда: cd с абсолютным путём к корню репозитория (прямые слэши, без кавычек). Восстановление: cd ${R:-<корень репозитория>}\" >&2; exit 2'",
             "timeout": 600
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'ROOT=\"${CLAUDE_PROJECT_DIR-}\"; if [ -z \"$ROOT\" ]; then ROOT=$(git rev-parse --show-toplevel) || ROOT=\"\"; fi; ROOT=\"${ROOT//\\\\//}\"; if [ -z \"$ROOT\" ] || [ ! -d \"$ROOT\" ]; then echo \"БЛОКИРОВКА: корень проекта для merge-ready hook не определён. Hook не может выполниться fail-secure.\" >&2; exit 2; fi; LAUNCHER=\"$ROOT/.claude/tools/run-python.sh\"; HOOK=\"$ROOT/.claude/hooks/check-merge-ready.py\"; if [ ! -x \"$LAUNCHER\" ]; then echo \"БЛОКИРОВКА: переносимый Python launcher отсутствует или не исполним. Hook не может выполниться fail-secure.\" >&2; exit 2; fi; \"$LAUNCHER\" \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
-            "timeout": 5
           }
         ]
       }

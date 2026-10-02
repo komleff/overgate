@@ -8,7 +8,7 @@
 | ADR | Тема | Статус |
 |-----|------|--------|
 | [ADR-0000](ADR-0000-ADR-Process.md) | Процесс ведения ADR | accepted |
-| [Pipeline ADR §§3.28–3.31](../../.agents/PIPELINE_ADR.md) | Delivery First generic binding, lifecycle, single finalize, пять skills | accepted for v4 RC |
+| [Pipeline ADR §§3.28–3.32](../../.agents/PIPELINE_ADR.md) | Delivery First generic binding, lifecycle, single finalize, пять skills | accepted for v4 RC |
 
 ## Решения проекта
 
