@@ -7,6 +7,11 @@ QA-F1/F2 fixes сохранены. Verification: `bash scripts/verify-reference.
 публикуются в PR. Platform/live results остаются pending до фактического evidence.
 Budget 4/6; affected QA 5/6 и scoped Review 6/6 управляет PM. Finalize/merge/release pending.
 Windows recovery для spaces/Cyrillic/parentheses + косметический prefix cleanup — следующий `og-7sr`.
+Outside-Git placeholder принят оператором 2026-10-03 как `DECLARED_LIMIT` rc.1, block2
+обязателен, root restart ожидаем; literal hint также `og-7sr`. Own-subdirectory literal recovery сохраняется.
+Адресные native fixtures: cleanup readonly Git objects, snapshot POSIX keys и LF frozenblob
+эталон при clean CRLF checkout. Полный native Windows PASS требует нового exact-SHA CI.
+Required main check включает оператор; protection/finalization/publication остаются pending.
 Stable/beta identities не изменяются; installer сохраняет overrides и rollback snapshot.
 
 ## История до v4 RC (reference only)

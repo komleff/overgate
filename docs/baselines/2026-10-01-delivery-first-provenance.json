@@ -94,9 +94,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".agents/HOW_TO_USE.md",
       "source_blob": "e2c614a398c8cfc28fcc597763e759314abe2baa",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign.",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.",
       "refresh_delta": "unchanged source blob",
-      "target_sha256": "28ba43c3478becc6049d23b10aa3e58ac565cb967c0c22a069cd259280c56fb5"
+      "target_sha256": "062712dabcf141428cc3e32137593bccec6c53d9546b953f75f9e9f1501a0e9a"
     },
     {
       "target": ".agents/INSTALL.md",
@@ -105,9 +105,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".agents/INSTALL.md",
       "source_blob": "38fcca0f1abbaee9bdc6a86fbb788d036dbf9f64",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign.",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.",
       "refresh_delta": "updated source blob; generic adaptation retained",
-      "target_sha256": "1a8252a0216142b78777baa0949af790802e5e773c41c49069de31df953a8317"
+      "target_sha256": "a26808ac110bdbef911dc787aa38f62cbc525f955d09133b19ac5af075606ddb"
     },
     {
       "target": ".agents/PIPELINE.md",
@@ -632,14 +632,16 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native Windows fixture evidence and operator-owned main protection state; immutable bound plans unchanged.",
+      "target_sha256": "dcd0b4d6326ad7b3f66bcb91a05bb45540d496feaa9f274050198a8ac0f9d34d"
     },
     {
       "target": ".memory-bank/progress.md",
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native fixture corrections and pending exact-SHA qualification; immutable bound plans unchanged.",
+      "target_sha256": "ca6d5804e95bf76931298c9d4c77f11ce8df0c0dbf10b6e8a5a47d8ff14fc9b8"
     },
     {
       "target": "AGENTS.md",
@@ -653,7 +655,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. RC limits/migration documents accepted outside-Git placeholder DECLARED_LIMIT, mandatory block2, root restart and own-subdirectory literal recovery; improvement deferred og-7sr.",
+      "target_sha256": "6f8c5243e99fc878d0212246c2e4afb31572d3adc6d787c657c168ffa690f2a2"
     },
     {
       "target": "README.md",
@@ -850,8 +853,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained.",
-      "target_sha256": "4a2722128600c83d21a4486729bc8e911601c5713e01e68ddaa33f25c7703876"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained. Frozen-byte assertion reads binary git show exactSHA:path, not CRLF source worktree; real clean core.autocrlf=true checkout regression exercises full v3.9 upgrade/rollback and preserves QA-F1, overrides and byte assertions.",
+      "target_sha256": "9cc11f07f84836379b34eebb4fc20c3b439f09cbd6214704ab831e0cf7e4a475"
     },
     {
       "target": "scripts/tests/lib/assert.sh",

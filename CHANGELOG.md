@@ -31,6 +31,10 @@
   монорепо работает в recovery режиме. Только одна unquoted absolute `cd`, путь из
   латиницы/цифр/`_ : / . -`. Пробелы/кириллица/скобки/кавычки требуют новой сессии в root;
   расширение recovery и косметические внутренние U2 prefixes отложены в `og-7sr`.
+- Вне любого Git-репозитория Claude Bash hook блокирует кодом 2, но выводит заглушку
+  `cd <корень репозитория>`. Это принятый оператором `DECLARED_LIMIT` rc.1 для совместимости
+  с U2; ожидаемый путь — новая сессия из root. Literal hint вне Git отложен в `og-7sr`.
+  Для собственного subdirectory напечатанная literal absolute recovery остаётся обязательной.
 - Source installer требует чистый Git checkout с exact SHA; release ZIP без `.git` не подходит.
 - Windows/live runtime activation не подтверждаются static fixtures; окончательное platform evidence — в PR.
 - Local hooks не защищают remote writes; ручные accepted-risk checks и shared-account trust limit сохранены.

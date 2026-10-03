@@ -125,12 +125,29 @@ class InstallTests(unittest.TestCase):
         for path,data in overrides.items():self.assertEqual((self.target/path).read_text(encoding='utf-8'),data)
         rule='.claude/rules/large-payloads.md'
         self.assertNotEqual(hashlib.sha256(before[rule]).hexdigest(),hashlib.sha256((self.target/rule).read_bytes()).hexdigest())
-        self.assertEqual((self.target/rule).read_bytes(),(self.source/rule).read_bytes())
+        frozen=subprocess.check_output(['git','-C',str(self.source),'show',self.sha+':'+rule])
+        self.assertEqual((self.target/rule).read_bytes(),frozen)
         settings=json.loads((self.target/'.claude/settings.json').read_text(encoding='utf-8'));self.assertEqual(settings['env']['PROJECT'],'preserve')
         self.assertIn('echo project-session',json.dumps(settings))
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
         self.call('rollback','--target',self.target,'--backup',state['backup'])
         self.assertEqual(snapshot(self.target),before)
+
+    def test_v39_upgrade_and_rollback_with_crlf_source_checkout(self):
+        # Чистый checkout может иметь CRLF, хотя frozen Git blob хранит LF.
+        # Эталон установки — committed bytes; shell LF policy остаётся явной.
+        clone=self.root/'source-crlf'
+        subprocess.check_call(['git','clone','-q','--no-checkout',str(self.source),str(clone)])
+        git(clone,'config','core.autocrlf','true')
+        (clone/'.git/info/attributes').write_bytes((ROOT/'.gitattributes').read_bytes())
+        git(clone,'checkout','-q','--detach',self.sha)
+        self.source=clone
+        rule='.claude/rules/large-payloads.md'
+        frozen=subprocess.check_output(['git','-C',str(self.source),'show',self.sha+':'+rule])
+        self.assertNotIn(b'\r\n',frozen)
+        self.assertIn(b'\r\n',(self.source/rule).read_bytes())
+        self.assertEqual(git(self.source,'status','--porcelain'),'')
+        self.test_v39_upgrade_and_rollback_preserve_original_bytes()
 
     def test_previous_rc_upgrade_custom_hooks_and_rollback(self):
         manifest=json.loads((ROOT/'.agents/distribution-manifest.json').read_text(encoding='utf-8'))

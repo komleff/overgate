@@ -45,6 +45,12 @@ runtime/терминала. Root-запуск не зависит от `CLAUDE_P
 указывает на соседний checkout. Исправление recovery paths и внутренних U2-префиксов
 отложено в `og-7sr`; rc.1 сохраняет исходную семантику U2 #829.
 
+Вне любого Git-репозитория Bash-команда блокируется кодом 2, но recovery hint остаётся
+заглушкой `cd <корень репозитория>`. Оператор принял это как `DECLARED_LIMIT` rc.1:
+завершите сессию и откройте новую из root нужного checkout. Literal-подсказка вне Git
+отложена в `og-7sr`; для собственного подкаталога literal absolute recovery по-прежнему
+обязательна. Не записывайте outside-Git placeholder как успешное восстановление.
+
 Codex сохраняет прежний adapter contract; Claude dispatcher evidence не является Codex PASS.
 
 ## До копирования
