@@ -29,6 +29,7 @@ from typing import Optional
 
 
 HOOK = os.path.join(os.path.dirname(__file__), "check-merge-ready.py")
+EXIT_BLOCK = 2
 
 
 def run(cmd: Optional[str], with_token: bool = False) -> int:
@@ -53,6 +54,21 @@ def run(cmd: Optional[str], with_token: bool = False) -> int:
 
 
 TESTS = [
+    # Task 0 regression: matcher вызывает hook для любой Bash-команды, но
+    # readiness проверяется только в body доказанной публикации.
+    ("printf '%s' 'PR ready to merge: final'", 0, "не-gh readiness-текст проходит"),
+    # Инцидент передачи #645 §5: с матчером по имени инструмента is_forbidden
+    # не должен судить произвольные Bash-команды с фразой — только body публикации.
+    (
+        'git commit -m "PR готов к merge"',
+        0,
+        "git commit с readiness-фразой в сообщении не блокируется",
+    ),
+    (
+        "printf '%s' \"gh pr comment 1 --body 'PR ready to merge: final'\"",
+        0,
+        "цитируемый пример gh pr comment не является публикацией",
+    ),
     # === Блокировка: точный маркер `## ✅ Готов к merge` ===
     ("gh pr comment 1 --body '## ✅ Готов к merge\n\nCommit: abc'", 1, "final marker RU"),
     ("gh pr comment 1 --body '## Готов к merge'", 1, "без ✅"),
@@ -156,7 +172,7 @@ TESTS = [
     ("gh pr comment 1 --body 'ready to merge\u00a0:landing'", 1, "CP-1: NBSP + colon terminator"),
     ("gh pr comment 1 --body 'готов к merge\u00a0：next'", 1, "CP-1: NBSP + fullwidth colon"),
     ("gh pr comment 1 --body 'ready to merge\u2003:next'", 1, "CP-1: em space + colon"),
-    ("gh pr comment 1 --body 'ready to merge\u00a0after X'", 0, "CP-1 sanity: NBSP + narrative не блокирует"),
+    ("gh pr comment 1 --body 'ready to merge\u00a0after X'", 1, "CP-1: NBSP + продолжение направлением — декларация"),
     # === Copilot round 28: zero-width char / HTML entity bypass ===
     ("gh pr comment 1 --body 'ready\u200bto merge'", 1, "zero-width space bypass"),
     ("gh pr comment 1 --body '## ✅ Готов\u200b к merge'", 1, "ZWSP in RU marker"),
@@ -165,7 +181,97 @@ TESTS = [
     # === Пропуск: обсуждения и цитаты ===
     ("gh pr comment 1 --body 'не готов к merge — тесты красные'", 0, "отрицание"),
     ("gh pr comment 1 --body 'почти готов к merge, жду review'", 0, "«почти готов» — negation wins"),
-    ("gh pr comment 1 --body '## Готов к merge после исправлений'", 0, "## + продолжение без terminator"),
+    (
+        "gh pr comment 1 --body 'Not ready to merge; ready to merge.'",
+        1,
+        "отрицание действует только внутри своей клаузы",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge but ready to merge.'",
+        1,
+        "EN: adversative conjunction starts a new readiness clause",
+    ),
+    (
+        "gh pr comment 1 --body 'NOT ready to merge\tBUT   READY to merge.'",
+        1,
+        "EN: conjunction boundary is case/whitespace insensitive",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge however ready to merge.'",
+        1,
+        "EN: conjunctive adverb starts a new readiness clause",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge and ready to merge.'",
+        1,
+        "EN: coordinating conjunction starts a new readiness clause",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge or ready to merge.'",
+        1,
+        "EN: alternative conjunction starts a new readiness clause",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge yet ready to merge.'",
+        1,
+        "EN: repeated readiness candidate bounds negation without conjunction allowlist",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge though ready to merge.'",
+        1,
+        "EN: unknown conjunction cannot extend negation across readiness candidates",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge — ready to merge.'",
+        1,
+        "EN: dash separates repeated readiness declarations",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge но готов к merge.'",
+        1,
+        "RU: противительный союз начинает новую клаузу readiness",
+    ),
+    (
+        "gh pr comment 1 --body 'НЕ готов к merge\tНО   ГОТОВ к merge.'",
+        1,
+        "RU: граница союза не зависит от регистра/пробелов",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge однако готов к merge.'",
+        1,
+        "RU: противительное наречие начинает новую клаузу",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge и готов к merge.'",
+        1,
+        "RU: сочинительный союз начинает новую клаузу",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge всё же готов к merge.'",
+        1,
+        "RU: repeated readiness candidate bounds negation without adverb allowlist",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge всё-таки готов к merge.'",
+        1,
+        "RU: hyphenated unknown adverb cannot extend negation",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge — готов к merge.'",
+        1,
+        "RU: dash separates repeated readiness declarations",
+    ),
+    (
+        "gh pr comment 1 --body 'Not ready to merge but almost ready to merge.'",
+        0,
+        "EN: отрицание внутри новой клаузы сохраняется",
+    ),
+    (
+        "gh pr comment 1 --body 'Не готов к merge но почти готов к merge.'",
+        0,
+        "RU: отрицание внутри новой клаузы сохраняется",
+    ),
+    ("gh pr comment 1 --body '## Готов к merge после исправлений'", 1, "## + продолжение направлением — декларация"),
     # big-heroes-ase (v3.5): запятая теперь terminator. Прежние кейсы с
     # «готов к merge, если X» (ранее expected 0 как «обсуждение») переведены
     # в block: фраза с запятой неотличима от декларации с продолжением.
@@ -174,8 +280,13 @@ TESTS = [
     ("gh pr comment 1 --body 'готов к merge, если X'", 1, "ase: запятая terminator (было 0)"),
     ("gh pr comment 1 --body '## Готов к merge, если X'", 1, "ase: ## + запятая terminator (было 0)"),
     # Narrative без terminator — не блокируется (позитивный sanity для task 3).
-    ("gh pr comment 1 --body 'готов к merge in the future'", 0, "narrative без terminator"),
+    ("gh pr comment 1 --body 'готов к merge in the future'", 1, "продолжение направлением — декларация (safe side)"),
     ("gh pr comment 1 --body 'PR будет готов к merge после CI'", 0, "narrative с negation «будет»"),
+    (
+        "gh pr comment 1 --body \"body='> ready to merge'\"",
+        1,
+        "raw body с shell-like prefix не является markdown blockquote",
+    ),
     # === Пропуск: markdown blockquote (GPT-5.4 round 15 WARNING) ===
     ("gh pr comment 1 --body '> ready to merge'", 0, "blockquote bare EN"),
     ("gh pr comment 1 --body '> готов к merge'", 0, "blockquote bare RU"),
@@ -197,6 +308,330 @@ TESTS = [
     ("gh pr comment 1 --body \"$(cat /tmp/x)\"", 1, "$(cat /path)"),
     ("gh pr comment 1 --body \"$(<file.md)\"", 1, "$(<file)"),
     ("gh pr comment 1 --body \"`cat /tmp/x`\"", 1, "backtick cat"),
+    (
+        "printf '%s' \"`gh pr comment 1 --body 'neutral text'`\"",
+        1,
+        "active backtick publication is ambiguous",
+    ),
+    (
+        "printf '%s' \"$(gh pr comment 1 --body 'neutral text')\"",
+        1,
+        "active nested publication is ambiguous",
+    ),
+    # Command words are compared after shell quote/escape removal.
+    (
+        "g''h p\"r\" c'omment' 1 --body 'ready to merge'",
+        1,
+        "adjacent quoted command segments reconstruct gh pr comment",
+    ),
+    (
+        r"g\h p\r com\ment 1 --body 'ready to merge'",
+        1,
+        "escaped command letters reconstruct gh pr comment",
+    ),
+    (
+        "g\\\nh pr comment 1 --body 'ready to merge'",
+        1,
+        "continued command word reconstructs gh pr comment",
+    ),
+    # Execution prefixes остаются частью того же stateful-разбора: parser
+    # должен найти фактически запускаемый executable, не сканируя обычные
+    # аргументы как независимые команды.
+    (
+        "command gh pr comment 1 --body 'ready to merge'",
+        1,
+        "command modifier preserves publication candidate",
+    ),
+    (
+        "command printf '%s' 'gh pr comment is documentation'",
+        0,
+        "neutral command modifier arguments do not become candidates",
+    ),
+    (
+        "command {output_fd}>/dev/null gh pr comment 1 --body 'ready to merge'",
+        1,
+        "brace-named FD redirect preserves execution after modifier",
+    ),
+    (
+        "command {output_fd}>/dev/null printf '%s' 'gh pr comment is documentation'",
+        0,
+        "neutral brace-named FD redirect remains allowed",
+    ),
+    (
+        "/usr/bin/gh pr comment 1 --body 'ready to merge'",
+        1,
+        "literal executable path preserves publication candidate",
+    ),
+    (
+        "gh.exe pr comment 1 --body 'ready to merge'",
+        1,
+        "Windows executable suffix preserves publication candidate",
+    ),
+    (
+        "/mingw64/bin/GH.EXE pr comment 1 --body 'ready to merge'",
+        1,
+        "Windows executable suffix is case-insensitive",
+    ),
+    (
+        "GH pr comment 1 --body 'ready to merge'",
+        1,
+        "Windows extensionless executable name is case-insensitive",
+    ),
+    (
+        "gh.exe pr comment 1 --body-file report.md",
+        1,
+        "Windows executable suffix cannot bypass opaque body gate",
+    ),
+    (
+        "gh.exe pr comment 1 --body 'Neutral review report.'",
+        0,
+        "Windows executable suffix preserves neutral publication",
+    ),
+    (
+        "gh pr comment 1 --body 'Neutral review report.' || true",
+        1,
+        "masked publication status is not accepted as proven success",
+    ),
+    (
+        "gh --repo=owner/repo pr comment 645 --body 'PR is ready to merge.'",
+        1,
+        "attached --repo=value before pr cannot bypass readiness gate",
+    ),
+    (
+        "gh -Rowner/repo pr comment 645 --body 'PR is ready to merge.'",
+        1,
+        "attached -Rvalue before pr cannot bypass readiness gate",
+    ),
+    (
+        "gh -R=owner/repo pr --repo=owner/repo comment 645 --body 'PR is ready to merge.'",
+        1,
+        "repeated attached repo options around pr cannot bypass readiness gate",
+    ),
+    (
+        "gh --repo=owner/repo pr comment 645 --body 'Neutral review report.'",
+        0,
+        "attached repo option preserves neutral publication",
+    ),
+    (
+        "opaque-runner --payload \"gh --repo=owner/repo pr comment 645 --body 'ready to merge.'\"",
+        1,
+        "attached repo option remains visible inside literal carrier payload",
+    ),
+    (
+        "/usr/bin/printf '%s' 'gh pr comment is documentation'",
+        0,
+        "neutral executable path arguments do not become candidates",
+    ),
+    (
+        "</dev/null gh pr comment 1 --body 'ready to merge'",
+        1,
+        "leading redirect preserves publication candidate",
+    ),
+    (
+        "</dev/null printf '%s' 'gh pr comment is documentation'",
+        0,
+        "neutral leading redirect arguments do not become candidates",
+    ),
+    (
+        "<<'INPUT' gh pr comment 1 --body 'ready to merge'\n"
+        "neutral input\n"
+        "INPUT\n",
+        1,
+        "leading heredoc redirect preserves publication candidate",
+    ),
+    (
+        "bash -c \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "literal shell payload is analyzed recursively",
+    ),
+    (
+        "bash -c \"printf '%s' 'gh pr comment is documentation'\"",
+        0,
+        "neutral literal shell payload remains allowed",
+    ),
+    (
+        "bash --norc -c \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "literal shell payload survives known wrapper options",
+    ),
+    (
+        "bash --norc -c \"printf '%s' 'gh pr comment is documentation'\"",
+        0,
+        "neutral shell payload with wrapper options remains allowed",
+    ),
+    (
+        'bash -c "$SHELL_PAYLOAD"',
+        1,
+        "opaque shell payload is candidate-scoped ambiguous",
+    ),
+    (
+        "if true; then gh pr comment 1 --body 'ready to merge'; fi",
+        1,
+        "inline control segment preserves publication candidate",
+    ),
+    (
+        "if true; then printf '%s' 'gh pr comment is documentation'; fi",
+        0,
+        "neutral inline control segment remains allowed",
+    ),
+    (
+        "publish(){ gh pr comment 1 --body 'ready to merge'; }",
+        1,
+        "inline function group preserves publication candidate",
+    ),
+    (
+        "publish(){ printf '%s' 'gh pr comment is documentation'; }",
+        0,
+        "neutral inline function group remains allowed",
+    ),
+    (
+        "case x in x) gh pr comment 1 --body 'ready to merge';; esac",
+        1,
+        "inline case branch preserves publication candidate",
+    ),
+    (
+        "case x in x) printf '%s' 'gh pr comment is documentation';; esac",
+        0,
+        "neutral inline case branch remains allowed",
+    ),
+    (
+        "! gh pr comment 1 --body 'ready to merge'",
+        1,
+        "negated control prefix preserves publication candidate",
+    ),
+    (
+        "! gh pr comment 1 --body 'Neutral review report.'",
+        1,
+        "negated publication status is not accepted as proven success",
+    ),
+    (
+        "gh pr comment 1 --body 'Neutral review report.' &",
+        1,
+        "background publication status is not accepted as proven success",
+    ),
+    (
+        "! printf '%s' 'gh pr comment is documentation'",
+        0,
+        "neutral negated command remains allowed",
+    ),
+    (
+        "env -S \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "env literal split-string payload is analyzed recursively",
+    ),
+    (
+        "env -S \"printf '%s' 'gh pr comment is documentation'\"",
+        0,
+        "neutral env split-string payload remains allowed",
+    ),
+    (
+        'env -S "$ENV_SPLIT_PAYLOAD"',
+        1,
+        "opaque env split-string payload is candidate-scoped ambiguous",
+    ),
+    # === Уровень 1: остаток argv после env split-string разбирается ===
+    # env -S <строка> исполняет split(строка) + оставшиеся argv как команду
+    # целиком. Публикация в хвосте argv обязана распознаваться, а не теряться.
+    (
+        "env -S gh pr comment 645 --body 'ready to merge'",
+        1,
+        "публикация в хвосте argv после env -S распознаётся",
+    ),
+    (
+        "env --split-string=gh pr comment 645 --body 'ready to merge'",
+        1,
+        "публикация после --split-string=gh распознаётся",
+    ),
+    (
+        "env -S 'gh pr' comment 645 --body 'ready to merge'",
+        1,
+        "публикация из частичной split-string плюс хвост распознаётся",
+    ),
+    # Нейтральный split-string остаётся разрешённым (payload — data-команда).
+    (
+        "env -S 'printf %s' 'gh pr comment is documentation'",
+        0,
+        "нейтральный env split-string с хвостом-данными проходит",
+    ),
+    # === Уровень 1: доверенная привязка сведена к shell-грамматике ===
+    # `BODY =value` (с пробелом) в bash НЕ присваивание, прежнее значение
+    # остаётся; такая запись не даёт доверенной heredoc-привязки, и body
+    # переменной остаётся непрозрачным → блок.
+    (
+        "BODY='ready to merge'; BODY =$(cat <<'TOK'\nsafe\nTOK\n); "
+        "gh pr comment 645 --body \"$BODY\"",
+        1,
+        "пробел вокруг = не создаёт доверенную привязку",
+    ),
+    # Настоящее присваивание (без пробела) heredoc-привязку сохраняет.
+    (
+        "BODY=$(cat <<'TOK'\nОбычный безопасный отчёт\nTOK\n)\n"
+        "gh pr comment 645 --body \"$BODY\"",
+        0,
+        "смежное NAME=value сохраняет доверенную heredoc-привязку",
+    ),
+    # === Уровень 2: запасной вердикт по литералу в активном коде ===
+    # Литерал `gh … pr … comment` целиком в активном top-level коде, для
+    # которого структурный разбор не дал доказанной публикации, эскалируется в
+    # ambiguous (fail-closed блок) — страховка от будущих расхождений с shell.
+    # data-команда со своими argv структурной публикации не даёт (scan пропущен),
+    # поэтому здесь работает именно запасной вердикт по активному литералу.
+    (
+        "echo gh pr comment 645 --body 'ready to merge'",
+        1,
+        "активный литерал без доказанной публикации блокируется страховкой",
+    ),
+    (
+        "future-exec-runner gh pr comment 645 --body 'ready to merge'",
+        1,
+        "литерал в активном коде неизвестного carrier блокируется",
+    ),
+    # Цитаты литерала доказательно инертны и НЕ эскалируются.
+    (
+        "printf '%s' 'gh pr comment 1 --body ready to merge'",
+        0,
+        "литерал в одинарных кавычках инертен",
+    ),
+    (
+        "echo ok # gh pr comment 1 --body ready to merge",
+        0,
+        "литерал в комментарии инертен",
+    ),
+    (
+        "cat <<'EOF'\ngh pr comment 1 --body ready to merge\nEOF",
+        0,
+        "литерал в quoted heredoc инертен",
+    ),
+    (
+        "opaque-runner --payload \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "unknown execution carrier with literal publication is fail-closed",
+    ),
+    (
+        "eval \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "shell builtin carrier is covered by the generic ambiguity boundary",
+    ),
+    (
+        "xargs sh -c \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "multi-command carrier is covered by the generic ambiguity boundary",
+    ),
+    (
+        "bash -O extglob -c \"gh pr comment 1 --body 'ready to merge'\"",
+        1,
+        "shell option operand preserves following literal payload",
+    ),
+    (
+        "bash -O extglob -c \"printf '%s' 'gh pr comment is documentation'\"",
+        0,
+        "neutral shell option operand payload remains allowed",
+    ),
+    (
+        'bash "$SHELL_OPTION" -c "printf neutral"',
+        1,
+        "opaque shell wrapper option is candidate-scoped ambiguous",
+    ),
     # Bypass через непрозрачную переменную — запрещённая фраза в $BODY,
     # hook видит только имя переменной. Основной случай Copilot round 12.
     ("gh pr comment 1 --body \"$BODY\"", 1, "--body \"$BODY\" (opaque var)"),
@@ -213,6 +648,116 @@ TESTS = [
     ("gh pr comment 1 --body=prefix$BODY", 1, "concat: unquoted prefix$BODY"),
     # Single-quoted: $BODY — литерал, не раскрывается shell'ом, не блокируем.
     ("gh pr comment 1 --body 'Prefix: $BODY'", 0, "single-quoted $BODY — literal, pass"),
+    (
+        "gh pr comment 1 --body re'ady to 'merge",
+        1,
+        "compound shell word is outside the proven body subset",
+    ),
+    (
+        "gh pr comment 1 --body 'rea''dy to merge'",
+        1,
+        "adjacent single-quoted body segments use their shell value",
+    ),
+    (
+        'gh pr comment 1 --body "rea""dy to merge"',
+        1,
+        "adjacent double-quoted body segments use their shell value",
+    ),
+    (
+        'gh pr comment 1 --body "ready to \\\nmerge"',
+        1,
+        "continued double-quoted body uses its shell value",
+    ),
+    (
+        "gh pr comment 1 --body 'neutral' --body \"$BODY\"",
+        1,
+        "multiple body sources are ambiguous",
+    ),
+    (
+        "gh pr comment 1 --body neutral*pattern",
+        1,
+        "unquoted globbing is not a literal body",
+    ),
+    # Ambiguity is candidate-scoped: unrelated shell syntax is not a reason to
+    # block a Bash invocation that contains no real or suspected publication.
+    ("printf '%s' \"`date`\"", 0, "neutral active backticks pass"),
+    (
+        "helper() {\nprintf '%s' neutral\n}",
+        0,
+        "neutral function body passes",
+    ),
+    ("value=$((1 + 2))", 0, "neutral arithmetic expansion passes"),
+    # === Раскрываемое (unquoted) тело heredoc: подстановки исполняются ===
+    # Гейт распознаёт публикацию в $()/backtick/арифметике тела heredoc с
+    # unquoted-делимитером как opaque-контекст (candidate-ambiguous → блок).
+    (
+        "cat <<EOF\n$(gh pr comment 1 --body 'ready to merge')\nEOF",
+        1,
+        "публикация в теле unquoted heredoc распознаётся",
+    ),
+    (
+        "cat <<EOF\n`gh pr comment 1 --body 'ready to merge'`\nEOF",
+        1,
+        "backtick-публикация в теле unquoted heredoc распознаётся",
+    ),
+    (
+        "cat <<EOF\n$(( $(gh pr comment 1 --body 'ready to merge') ))\nEOF",
+        1,
+        "публикация в арифметике внутри тела unquoted heredoc распознаётся",
+    ),
+    # Тело heredoc с quoted-делимитером раскрытия не имеет и остаётся инертным.
+    (
+        "cat <<'EOF'\n$(gh pr comment 1 --body 'ready to merge')\nEOF",
+        0,
+        "quoted heredoc остаётся инертным (нет раскрытия)",
+    ),
+    # Обычный текст в теле unquoted heredoc публикацией не становится.
+    (
+        "cat <<EOF\nобычный текст без подстановок\nEOF",
+        0,
+        "нейтральное тело unquoted heredoc проходит",
+    ),
+    # === Записи, начинающиеся с `$((`, разбираются общей веткой `$(` ===
+    # `$((` начинается с тех же символов, что `$(`. Когда содержимое не является
+    # арифметическим выражением, shell исполняет запись как подстановку команды,
+    # поэтому её тело целиком идёт в opaque-контекст и осматривается fail-closed.
+    # Спец-маршрута у `$((` нет — иначе тело выпадало бы из анализа.
+    (
+        "echo \"$((gh pr comment 1 --body 'ready to merge') )\"",
+        1,
+        "кандидат в теле записи $((...) ) распознаётся",
+    ),
+    (
+        "echo \"$((cd /tmp) && gh pr comment 1 --body 'ready to merge')\"",
+        1,
+        "кандидат в теле записи $((...) && ...) распознаётся",
+    ),
+    (
+        "cat <<EOF\n$((gh pr comment 1 --body 'ready to merge') )\nEOF",
+        1,
+        "кандидат в записи $((...) ) внутри тела unquoted heredoc распознаётся",
+    ),
+    (
+        "cat <<EOF\n$((cd /tmp) && gh pr comment 1 --body 'ready to merge')\nEOF",
+        1,
+        "кандидат в записи $((...) && ...) внутри unquoted heredoc распознаётся",
+    ),
+    (
+        "echo \"$(( $(gh pr comment 1 --body 'ready to merge') ))\"",
+        1,
+        "вложенная подстановка внутри арифметики распознаётся",
+    ),
+    # Вложенная группа `( ... )` — часть тела подстановки, а не её конец: остаток
+    # тела за группой обязан оставаться под анализом.
+    (
+        "echo \"$( (cd /tmp) && gh pr comment 1 --body 'ready to merge' )\"",
+        1,
+        "кандидат за вложенной группой внутри подстановки распознаётся",
+    ),
+    # Настоящая арифметика без команды в теле публикацией не становится.
+    ("N=$(( (A + B) * 2 ))", 0, "арифметика со вложенными скобками проходит"),
+    ("echo \"$(( COUNT + 1 ))\"", 0, "нейтральная арифметика в аргументе проходит"),
+    ("echo \"$( (cd /tmp) && ls )\"", 0, "нейтральная группа в подстановке проходит"),
     # === Legitimate markdown ===
     ("gh pr comment 1 --body 'использует `bd show` для проверки'", 0, "inline backticks"),
     ("gh pr comment 1 --body 'regex `bd-[a-z]+` захардкожен'", 0, "markdown regex"),
@@ -329,6 +874,116 @@ TESTS = [
         0,
         "heredoc BODY= + --body $BODY — привязка корректна, pass",
     ),
+    # Доверие определяется последней привязкой до вызова, а не историей имени.
+    (
+        "BODY=$(cat <<'EOF'\n## Initial review\nEOF\n)\n"
+        "BODY='updated review'\n"
+        "gh pr comment 1 --body \"$BODY\"",
+        2,
+        "последняя привязка BODY не heredoc — переменная непрозрачна",
+    ),
+    (
+        "BODY=$(cat <<'FIRST'\n## First review\nFIRST\n)\n"
+        "gh pr comment 1 --body \"$BODY\"\n"
+        "BODY=$(cat <<'SECOND'\n## Second review\nSECOND\n)\n"
+        "gh pr comment 2 --body \"$BODY\"",
+        1,
+        "несколько публикаций не маскируют статус первой успешным хвостом",
+    ),
+    (
+        "BODY=$(cat <<'FIRST'\n## First review\nFIRST\n)\n"
+        "gh pr comment 1 --body \"$BODY\"\n"
+        "BODY='updated review'\n"
+        "gh pr comment 2 --body \"$BODY\"",
+        2,
+        "доверенная привязка первого вызова не разрешает непрозрачный второй",
+    ),
+    (
+        "BODY='initial review'\n"
+        "gh pr comment 1 --body \"$BODY\"\n"
+        "BODY=$(cat <<'SECOND'\n## Second review\nSECOND\n)\n"
+        "gh pr comment 2 --body \"$BODY\"",
+        2,
+        "поздняя доверенная привязка не разрешает непрозрачный первый вызов",
+    ),
+    # Доверенная привязка существует только в прямолинейной исполняемой
+    # последовательности. Литеральные области и неоднозначная достижимость не
+    # устанавливают доказуемого итогового значения переменной.
+    (
+        "NOTE='neutral literal\n"
+        "BODY=$(cat <<'INNER'\n## Literal example\nINNER\n)\n"
+        "'\n"
+        "gh pr comment 1 --body \"$BODY\"",
+        2,
+        "heredoc-привязка внутри литеральной области не получает доверия",
+    ),
+    (
+        "if test -n \"$OPTIONAL_INPUT\"; then\n"
+        "BODY=$(cat <<'TOK'\n## Conditional review\nTOK\n)\n"
+        "fi\n"
+        "gh pr comment 1 --body \"$BODY\"",
+        2,
+        "условная привязка не доказывает итоговое значение после ветвления",
+    ),
+    (
+        "if test -n \"$OPTIONAL_INPUT\"; then\n"
+        "gh pr comment 1 --body 'Neutral review'\n"
+        "fi",
+        2,
+        "условная публикация с literal body блокируется fail-closed",
+    ),
+    (
+        "BODY=$(cat <<'TOK'\n## Initial review\nTOK\n)\n"
+        "unset BODY\n"
+        "gh pr comment 1 --body \"$BODY\"",
+        2,
+        "изменение через shell-механизм отзывает доверие к привязке",
+    ),
+    # Текст тела не является shell-кодом: похожий на body-флаг маркер внутри
+    # literal heredoc не должен участвовать в анализе команды.
+    (
+        "gh pr comment 1 --body \"$(cat <<'TOK'\n"
+        "Neutral documentation marker: --body \\\"$PLACEHOLDER\\\"\n"
+        "TOK\n)\"",
+        0,
+        "body-флаг внутри literal heredoc не считается флагом команды",
+    ),
+    (
+        "gh pr comment 1\n"
+        "gh pr comment 2 --body 'Neutral review'",
+        2,
+        "каждая из нескольких публикаций обязана иметь доказуемое body",
+    ),
+    # Лексическое состояние переносится между физическими строками. Похожая
+    # на привязку последовательность внутри открытой double quote не является
+    # shell-присваиванием и не задаёт итоговое значение BODY.
+    (
+        "NOTE=\"neutral literal\n"
+        "BODY=$(cat <<'INNER'\n## Literal example\nINNER\n)\n"
+        "#\"\n"
+        "gh pr comment 1 --body \"$BODY\"",
+        2,
+        "многострочная quote не превращает текстовую привязку в top-level assignment",
+    ),
+    # Heredoc introducer распознаётся только в активном shell-контексте. Текст
+    # внутри quote не может скрыть следующую реальную публикацию.
+    (
+        "NOTE=\"neutral literal\n"
+        "<<'MASK'\n"
+        "\"\n"
+        "gh pr comment 1\n"
+        "MASK",
+        2,
+        "heredoc-подобный текст внутри quote не маскирует реальный вызов",
+    ),
+    # Завершённый direct heredoc остаётся распознаваемым, но несколько публикаций
+    # в одном Bash-вызове не дают PostToolUse доказать успех каждой отдельно.
+    (
+        "gh pr comment 1 --body \"$(cat <<'ONE'\n## First review\nONE\n)\"\n"
+        "gh pr comment 2 --body \"$(cat <<'TWO'\n## Second review\nTWO\n)\"",
+        1,
+        "два direct heredoc-вызова не скрывают статус первого",
+    ),
     # === Copilot round 31 CRITICAL: editor-mode bypass ===
     # `gh pr comment <N>` без --body / -b / --body-file / -F → gh открывает
     # интерактивный редактор, содержимое вводится вне строки команды и
@@ -342,6 +997,26 @@ TESTS = [
     # -b как короткий вариант --body — содержимое видно, пропуск.
     ("gh pr comment 1 -b 'normal comment'", 0, "-b короткая форма --body"),
     ("gh pr comment 1 -b '## ready to merge'", 1, "-b с запрещённой фразой блокируется"),
+    ("gh pr comment 1 -b'normal comment'", 0, "-bVALUE attached: безопасное body проходит"),
+    ("gh pr comment 1 -b'## ready to merge'", 1, "-bVALUE attached: запрещённое body блокируется"),
+    ("gh pr comment 1 -b='normal comment'", 0, "-b=VALUE attached: безопасное body проходит"),
+    ("gh pr comment 1 -b='## ready to merge'", 1, "-b=VALUE attached: запрещённое body блокируется"),
+    (
+        "gh pr comment 1 --body '## ready to merge' -b'normal comment'",
+        0,
+        "повторённый mixed body: фактическое последнее безопасное значение проходит",
+    ),
+    (
+        "gh pr comment 1 -b'normal comment' --body='## ready to merge'",
+        1,
+        "повторённый mixed body: фактическое последнее запрещённое значение блокируется",
+    ),
+    (
+        "gh -Rowner/repo pr -R=owner/repo comment 1 -b'normal comment'",
+        0,
+        "соседняя attached -RVALUE грамматика сохраняет attached body",
+    ),
+    ("gh pr comment 1 -Freport.md", 1, "соседняя -FVALUE форма остаётся fail-closed"),
     # Round 33 CRITICAL: -b с opaque-переменными и command substitution.
     # Раньше 4 regex хардкодили --body, -b проходила без проверки.
     ('gh pr comment 1 -b "$BODY"', 1, "-b с opaque var $BODY блокируется"),
@@ -349,18 +1024,25 @@ TESTS = [
     ('gh pr comment 1 -b "$(head /tmp/x)"', 1, "-b с cmd-subst $(head) блокируется"),
     ('gh pr comment 1 -b "$(echo $BODY)"', 1, "-b с cmd-subst $(echo $VAR) блокируется"),
     ('gh pr comment 1 -b "Prefix $BODY"', 1, "-b с concat prefix+$BODY блокируется"),
-    # === Pass 4 E-1 WARNING: opening punctuation false positive ===
-    # GPT-5.4 + GPT-5.3-Codex Pass 3: systemic startswith('P') блокировал
-    # Ps (Open) и Pi (Initial quote) — но `(`, `[`, `{`, «, ' — это
-    # openers clauses / subordinate, а не sentence terminators.
-    # Bypass workflow: `ready to merge (if CI passes)` ложно блок'ался.
-    # Fix: class = Po ∪ Pf (Other punct + Final quote) — минимальная
-    # семантически-корректная terminator-класс.
-    ("gh pr comment 1 --body 'ready to merge (if CI passes)'", 0, "E-1: open paren = narrative continuation"),
-    ("gh pr comment 1 --body 'ready to merge [tracking issue]'", 0, "E-1: open bracket = narrative"),
-    ("gh pr comment 1 --body 'ready to merge {if deps resolve}'", 0, "E-1: open brace = narrative"),
-    ("gh pr comment 1 --body 'готов к merge «после review»'", 0, "E-1: initial quote « = narrative"),
-    ("gh pr comment 1 --body 'ready to merge \u2018after X\u2019'", 0, "E-1: initial single quote U+2018 = narrative"),
+    # === Граница декларации: пересмотр после находки «терминатор слишком узок» ===
+    # История: класс терминаторов сводили к Po ∪ Pf, чтобы «ready to merge
+    # (if CI passes)» читалось как повествование. Плата вскрылась состязательным
+    # внутренним ревью на 28face47: ЛЮБОЙ иной знак снимал срабатывание, и
+    # принятый в проекте стиль заголовка — с галочкой, тире, скобкой, эмодзи,
+    # вертикальной чертой таблицы — проходил гейт. На это напарывался честный
+    # агент, оформляя обычный отчёт, раньше недобросовестного.
+    #
+    # Разделить два множества нельзя: «(проход 3)» и «(if CI passes)» отличаются
+    # смыслом, а не знаком. Выбрана безопасная сторона: декларацию завершает
+    # всё, что не буква и не цифра; продолжение СЛОВОМ («ready to merge branch
+    # main») декларацией по-прежнему не считается. Лишняя блокировка дешевле
+    # пропуска: у формулировки есть штатный маршрут (/finalize-pr), у пропуска —
+    # нет.
+    ("gh pr comment 1 --body 'ready to merge (if CI passes)'", 1, "граница: открывающая круглая скобка завершает декларацию"),
+    ("gh pr comment 1 --body 'ready to merge [tracking issue]'", 1, "граница: открывающая квадратная скобка завершает"),
+    ("gh pr comment 1 --body 'ready to merge {if deps resolve}'", 1, "граница: открывающая фигурная скобка завершает"),
+    ("gh pr comment 1 --body 'готов к merge «после review»'", 1, "граница: открывающая кавычка завершает"),
+    ("gh pr comment 1 --body 'ready to merge \u2018after X\u2019'", 1, "граница: открывающая одинарная кавычка завершает"),
     # E-1 regression: real terminators продолжают block.
     ("gh pr comment 1 --body 'ready to merge.'", 1, "E-1 regression: period still block"),
     ("gh pr comment 1 --body 'ready to merge。'", 1, "E-1 regression: CJK period block"),
@@ -369,48 +1051,57 @@ TESTS = [
     # E-1 Pf sanity: closing quote — terminator (Final quote category Pf).
     ("gh pr comment 1 --body 'ready to merge\u201d next'", 1, "E-1: closing Pf quote U+201D = terminator"),
     ("gh pr comment 1 --body 'ready to merge» next'", 1, "E-1: closing Pf quillemet » = terminator"),
-    # === Pass 5 E-5 WARNING: backtick (Sk) в skip-loop — удалить Sk ===
-    # Developer Pass 2 добавил Sk/Lm в skip-set для G2 combining diacritic
-    # U+00B4 (ACUTE ACCENT, Sk). Но backtick U+0060 — тоже Sk: skip-loop
-    # проглатывал closing backtick после phrase в легитимных inline code
-    # span командах, затем встречал shell-quote и ложно считал её
-    # terminator-ом. Bypass legitimate workflow:
-    # `gh pr comment 1 --body 'Use \`ready to merge\`'` ложно блокировался.
-    # Fix: убрать Sk/Lm из skip-set. G2 остаётся закрытым через NFKD
-    # normalization — combining marks разносятся, Mn/Mc/Me strip'аются.
-    ("gh pr comment 1 --body 'Use `ready to merge`'", 0, "E-5: quoted inline code passes"),
-    ("gh pr comment 1 --body 'Example: `готов к merge` phrase'", 0, "E-5: RU quoted inline code"),
-    ("gh pr comment 1 --body 'Here is `merge ready` in docs'", 0, "E-5: bare phrase in inline code"),
+    # Обратная кавычка вокруг формулировки тем же правилом — не буква и не
+    # цифра, значит декларацию завершает. Цитировать формулировку в отчёте
+    # по-прежнему можно: достаточно не оставлять её самостоятельной фразой
+    # (продолжение словом ниже проверяется отдельно).
+    ("gh pr comment 1 --body 'Use `ready to merge`'", 1, "граница: обратная кавычка завершает декларацию"),
+    ("gh pr comment 1 --body 'Example: `готов к merge` phrase'", 1, "граница: обратная кавычка завершает по-русски"),
+    ("gh pr comment 1 --body 'Here is `merge ready` in docs'", 1, "граница: обратная кавычка вокруг merge ready"),
     # E-5 regression: G2 combining diacritic still blocks via NFKD decomposition
     # (не через Sk skip). U+00B4 acute accent под NFKD → U+0020 + U+0301 →
     # space+combining → strip Mn → clean phrase. Terminator-check видит `:`.
     ("gh pr comment 1 --body 'ready to merg\u00e9:landing'", 1, "E-5 regression: precomposed é NFKD decomposes"),
     ("gh pr comment 1 --body 'ready to merge\u0301:landing'", 1, "E-5 regression: combining acute U+0301 still block"),
     ("gh pr comment 1 --body 'ready to merge\u00b4:landing'", 1, "E-5 regression: acute accent Sk via NFKD path"),
-    # === v3.5 Option B revert: Pe (close) / Pd (dash) удалены из terminator class ===
-    # Pass 6 E-7 расширил terminator class до Po+Pf+Pe+Pd. Pe/Pd overmatch
-    # открыл surface overmatch: `/`/`.` в paths/branches (big-heroes-3ed, E-15)
-    # и `:` в backtick-quoted inline code (big-heroes-16e, E-14). Каждый
-    # tactical fix Pe/Pd overmatch вскрывал новые findings — overfitting cycle.
-    # Option B (big-heroes-nw5): вернули Po+Pf (Pass 4 E-1 baseline, proven
-    # minimum). Systemic Python rewrite — big-heroes-55m (v3.6 sprint-opener),
-    # big-heroes-ytx (Po overmatch).
-    #
-    # Sanity: после revert `(ready to merge)` и `ready to merge — landing`
-    # больше НЕ блокируются (narrative) — known limitation v3.5.
-    # Deferred coverage — big-heroes-ytx (v3.6 Python rewrite).
-    ("gh pr comment 1 --body '(ready to merge)'", 0, "Option B revert: Pe close paren — narrative (deferred big-heroes-ytx v3.6)"),
-    ("gh pr comment 1 --body 'ready to merge — landing'", 0, "Option B revert: Pd em-dash — narrative (deferred big-heroes-ytx v3.6)"),
-    # E-1 regression (Po+Pf baseline): open-punct (Ps) / initial quote (Pi)
-    # продолжают рассматриваться как narrative.
-    ("gh pr comment 1 --body 'ready to merge (if CI passes)'", 0, "E-1 baseline: narrative open paren (Ps)"),
-    ("gh pr comment 1 --body 'ready to merge [tracking]'", 0, "E-1 baseline: narrative open bracket (Ps)"),
+    # Закрывающая скобка и тире — тот же класс. Прежний цикл «расширили —
+    # получили новые находки — сузили обратно» кончился именно здесь: набор
+    # знаков подгонялся под примеры, поэтому каждый следующий пример его ломал.
+    # Правило теперь не перечисляет знаки, а спрашивает про границу слова.
+    ("gh pr comment 1 --body '(ready to merge)'", 1, "граница: закрывающая скобка завершает декларацию"),
+    ("gh pr comment 1 --body 'ready to merge — landing'", 1, "граница: тире завершает декларацию"),
+    # Повтор тех же форм — контроль, что правило одно, а не таблица исключений.
+    ("gh pr comment 1 --body 'ready to merge (if CI passes)'", 1, "граница: открывающая скобка (повтор формы) завершает"),
+    ("gh pr comment 1 --body 'ready to merge [tracking]'", 1, "граница: открывающая квадратная скобка (повтор формы) завершает"),
+    # «ready to merge» — декларация готовности PR НЕЗАВИСИМО от продолжения
+    # (into main / branch main / после CI). Ранний фикс F1 сделал продолжение
+    # словом снимающим декларацию — это была fail-open дыра, закрыта. Исключение
+    # ровно одно: слово-объект слияния сразу за фразой (обсуждение механики).
+    ("gh pr comment 1 --body 'ready to merge branch main'", 1, "продолжение направлением — декларация (F1-регресс закрыт)"),
+    ("gh pr comment 1 --body 'ready to merge into main'", 1, "продолжение into — декларация"),
+    ("gh pr comment 1 --body 'готов к merge после CI'", 1, "продолжение условием по-русски — декларация"),
+    # Исключение: обсуждение МЕХАНИКИ слияния (слово-объект сразу за «merge»).
+    ("gh pr comment 1 --body 'ready to merge conflicts manually'", 0, "механика слияния (conflicts) — не декларация"),
+    ("gh pr comment 1 --body 'готов к merge конфликтам не будет'", 0, "механика слияния (конфликтам) — не декларация"),
+    # Честные заголовки отчётов, которые прежний узкий класс пропускал.
+    ("gh pr comment 1 --body '## ✅ Готов к merge ✅'", 1, "заголовок с галочкой блокируется"),
+    ("gh pr comment 1 --body '## Готов к merge — сводка'", 1, "заголовок с тире блокируется"),
+    ("gh pr comment 1 --body '### Ready to merge 🎉'", 1, "заголовок с эмодзи блокируется"),
+    ("gh pr comment 1 --body '| Готов к merge | да |'", 1, "ячейка таблицы блокируется"),
+    ("gh pr comment 1 --body '- [x] Готов к merge'", 1, "пункт чеклиста блокируется"),
+    # Отрицание и цитата срабатывание снимают — это не изменилось.
+    ("gh pr comment 1 --body 'Не готов к merge'", 0, "отрицание снимает срабатывание"),
+    ("gh pr comment 1 --body '> Готов к merge — цитата чужого отчёта'", 0, "markdown-цитата снимает срабатывание"),
 ]
 
 
 def main() -> int:
     failures = []
     for cmd, expected, description in TESTS:
+        # Исторические записи использовали 1 как абстрактный признак block.
+        # Исполнимый контракт hook-а после восстановления — конкретный exit 2.
+        if expected == 1:
+            expected = EXIT_BLOCK
         actual = run(cmd)
         mark = "✓" if actual == expected else "✗"
         print(f"{mark} {description}: exit={actual} expected={expected}")

@@ -1,0 +1,19 @@
+{
+  "description": "OverGate repository guard: shared operator-only merge/main mutation policy.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel); root_rc=$?; if [ \"$root_rc\" -ne 0 ]; then exit 2; fi; LAUNCHER=\"$ROOT/.claude/tools/run-python.sh\"; HOOK=\"$ROOT/.claude/hooks/check-repository-mutation.py\"; if [ ! -x \"$LAUNCHER\" ] || [ ! -f \"$HOOK\" ]; then exit 2; fi; \"$LAUNCHER\" \"$HOOK\"; rc=$?; if [ \"$rc\" -ne 0 ]; then exit 2; fi; exit 0'",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel); if (-not $?) { exit 2 }; $hook=Join-Path $root '.claude/hooks/check-repository-mutation.py'; if (-not (Test-Path $hook)) { exit 2 }; $py=Get-Command py -ErrorAction SilentlyContinue; if (-not $py) { exit 2 }; & py -3 $hook; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0\"",
+            "timeout": 5,
+            "statusMessage": "Checking OverGate repository mutation policy"
+          }
+        ]
+      }
+    ]
+  }
+}

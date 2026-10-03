@@ -72,41 +72,32 @@
       "Edit(.gitignore)",
       "Write(.gitignore)",
       "Edit(.gitattributes)",
-      "Write(.gitattributes)"
+      "Write(.gitattributes)",
+      "Bash(gh -R * pr merge *)",
+      "Bash(gh --repo * pr merge *)",
+      "Bash(gh --repo=* pr merge *)",
+      "Bash(gh -R * api *merge*)",
+      "Bash(gh --repo * api *merge*)",
+      "Bash(gh --repo=* api *merge*)",
+      "Bash(gh pr -R * merge *)",
+      "Bash(gh pr --repo * merge *)",
+      "Bash(gh pr --repo=* merge *)",
+      "Bash(gh api -R * *merge*)",
+      "Bash(gh api --repo * *merge*)",
+      "Bash(gh api --repo=* *merge*)"
     ],
     "defaultMode": "bypassPermissions"
   },
   "enableAllProjectMcpServers": false,
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/codex-login.sh",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
-        "matcher": "Bash(git commit*)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -f package.json ]; then npm run test --if-present || (echo \"{\\\"decision\\\": \\\"block\\\", \\\"reason\\\": \\\"Тесты падают. Исправь перед коммитом.\\\"}\" && exit 2); fi'",
-            "timeout": 120
-          }
-        ]
-      },
-      {
-        "matcher": "Bash(*gh pr comment*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'HOOK=.claude/hooks/check-merge-ready.py; for cmd in py python3 python; do if command -v \"$cmd\" >/dev/null 2>&1; then if [ \"$cmd\" = \"py\" ]; then \"$cmd\" -3 \"$HOOK\"; else \"$cmd\" \"$HOOK\"; fi; exit $?; fi; done; echo \"БЛОКИРОВКА: Python-интерпретатор не найден (py/python3/python). Hook не может выполниться fail-secure.\" >&2; exit 1'",
-            "timeout": 5
+            "command": "bash -c 'H=./.claude/hooks/pre-bash.sh; if [ -f \"$H\" ]; then exec bash \"$H\"; fi; P=$(cat); Q=$(printf %s \"$P\" | tr -d \"{[:space:]\" | cut -c1); T=$(printf %s \"$P\" | grep -oE \"[$Q]command[$Q]: *[$Q]cd (/|[A-Za-z]:/)[A-Za-z0-9_:/.-]*[$Q]\" | head -n1); T=${T#*cd }; T=${T%?}; if [ -n \"$T\" ] && [ -f \"$T/.claude/hooks/pre-bash.sh\" ]; then exit 0; fi; R=$(git rev-parse --show-toplevel 2>/dev/null); echo \"БЛОКИРОВКА: каталог сессии не корень репозитория, диспетчер хуков .claude/hooks/pre-bash.sh здесь не найден (PWD=[$PWD], CLAUDE_PROJECT_DIR=[${CLAUDE_PROJECT_DIR-}]). Проходит только одна команда: cd с абсолютным путём к корню репозитория (прямые слэши, без кавычек). Восстановление: cd ${R:-<корень репозитория>}\" >&2; exit 2'",
+            "timeout": 600
           }
         ]
       }

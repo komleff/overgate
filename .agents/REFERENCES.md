@@ -1,13 +1,45 @@
 ---
 title: "References — pipeline sources and inspirations"
 status: reference
-version: "1.1"
-date: 2026-05-04
+version: "1.2"
+date: 2026-10-03
 source: "github.com/komleff/overgate/.agents/REFERENCES.md"
 tags: [pipeline, references, sources, frameworks]
 ---
 
 # Референсы и источники
+
+## v4 RC: transferred materials и original integration
+
+Frozen source: [U2 c450fa7b0d90fecf970f9931011255ea836da258](https://github.com/komleff/u2/tree/c450fa7b0d90fecf970f9931011255ea836da258).
+Источник — Delivery First ADR §3.29–3.32, role/skill contracts и tested executable closure.
+[File-level manifest](../docs/baselines/2026-10-01-delivery-first-provenance.json) фиксирует source path/blob,
+target и адаптацию; новые integration files отмечены отдельно. Все шесть source skills
+классифицированы: пять generic перенесены, Almanac остаётся project adapter.
+
+Superpowers (Jesse Vincent / Prime Radiant), GSD, Spec-Kit, BMAD, OpenSpec и статьи ниже —
+inspiration/context. Их наличие в credits не означает copying кода или объединение лицензий.
+Переносимые source files происходят из U2/OverGate автора Dmitriy Komlev; MIT notice OverGate
+сохранён в [LICENSE](../LICENSE) и входит в package. Attribution в source comments сохранён.
+Frozen U2 tree не содержит root LICENSE: provenance не является обещанием универсальной лицензии
+на весь U2, его игровые материалы, ассеты или сторонние зависимости. RC scope ограничен generic pipeline.
+
+## Источники Skill Layer
+
+- [Matt Pocock — skills](https://github.com/mattpocock/skills): компактные, адаптируемые,
+  компонуемые и независимые от модели инженерные процедуры. `grill-with-docs`, `to-spec`,
+  `diagnosing-bugs`, `handoff` и TDD послужили вдохновением для source U2 skills (пять generic перенесены в OverGate). Source U2 owner
+  contracts написаны для собственного Delivery First; прямое копирование файлов не утверждается.
+- [Superpowers](https://github.com/obra/superpowers): дисциплина навыков, TDD и маршрут
+  brainstorming → plan → implement были ранним источником практик. Дополнительные approval
+  или review rituals Superpowers не переопределяют OverGate Delivery First.
+- [Cline Memory Bank](https://docs.cline.bot/best-practices/memory-bank): официальный источник
+  подхода к персистентному проектному контексту; локальный маршрут чтения задаёт `AGENTS.md`.
+- [Beads](https://github.com/gastownhall/beads): upstream task tracker, исторический credit —
+  Steve Yegge. В установленном проекте действуют текущие `bd --help` и `scripts/bd-*`, не старый `bd sync`.
+
+
+## История inspiration и эволюции (reference only)
 
 Материалы, на основе которых построен AI-пайплайн проекта.
 
@@ -71,11 +103,11 @@ tags: [pipeline, references, sources, frameworks]
 - **Codex CLI** — OpenAI CLI для code review и разработки. Используется в `/external-review` для кросс-модельного ревью.
   https://github.com/openai/codex
 
-- **GitHub Copilot** — auto-reviewer в PR. Используется как дополнительный уровень ревью через `gh api` re-review request.
+- **GitHub Copilot** — auto-reviewer в PR. Историческая capability; Delivery First не требует Copilot review.
   https://docs.github.com/en/copilot
 
 - **Beads CLI** — Steve Yegge. AI-native issue tracker, интегрированный в файловую систему и git.
-  https://github.com/steveyegge/beads
+  https://github.com/gastownhall/beads
 
 ---
 

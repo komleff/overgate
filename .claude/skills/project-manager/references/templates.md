@@ -1,3 +1,5 @@
+> HISTORICAL templates only; current role owner and Verification Contract take precedence.
+
 # Шаблоны Project Manager
 
 ## Шаблон Sprint Report

@@ -1,0 +1,10 @@
+{"id":"U2-O1","status":"open","priority":1,"issue_type":"task","title":"Open, no deps","dependencies":[]}
+{"id":"U2-O2","status":"open","priority":2,"issue_type":"feature","title":"Open, blocker closed","dependencies":[{"issue_id":"U2-O2","depends_on_id":"U2-C1","type":"blocks"}]}
+{"id":"U2-O3","status":"open","priority":2,"issue_type":"task","title":"Open, blocker open","dependencies":[{"issue_id":"U2-O3","depends_on_id":"U2-O1","type":"blocks"}]}
+{"id":"U2-O4","status":"open","priority":3,"issue_type":"bug","title":"Open, blocker missing","dependencies":[{"issue_id":"U2-O4","depends_on_id":"U2-GONE","type":"blocks"}]}
+{"id":"U2-C1","status":"closed","priority":2,"issue_type":"task","title":"Closed blocker","dependencies":[]}
+{"id":"U2-P1","status":"open","priority":2,"issue_type":"task","title":"Open, parent-child only","dependencies":[{"issue_id":"U2-P1","depends_on_id":"U2-O1","type":"parent-child"}]}
+{"id":"U2-O5","status":"open","priority":2,"issue_type":"task","title":"Open, dep without type (conservative block)","dependencies":[{"issue_id":"U2-O5","depends_on_id":"U2-O1"}]}
+{"id":"U2-O6","status":"open","priority":2,"issue_type":"task","title":"Open, malformed dep entry","dependencies":[{"foo":1}]}
+{"id":"U2-O7","status":"open","priority":2,"issue_type":"task","title":"Open, parent-child edge without depends_on_id","dependencies":[{"type":"parent-child"}]}
+{"_type":"memory","id":"mem-1","content":"служебная строка — не задача"}

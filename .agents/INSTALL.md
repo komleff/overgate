@@ -1,804 +1,155 @@
 ---
-title: "OverGate pipeline installer — onboarding for new projects"
+title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
-version: "1.0"
-date: 2026-05-04
-source: "github.com/komleff/overgate/.agents/INSTALL.md"
-tags: [pipeline, install, onboarding, bootstrap, dogfood]
-related:
-  - .agents/PIPELINE.md
-  - .agents/PM_ROLE.md
-  - .agents/AGENT_ROLES.md
-  - .agents/HOW_TO_USE.md
-  - .agents/PIPELINE_ADR.md
+version: "4.0.0-rc.1"
+date: 2026-10-03
+tags: [installation, upgrade, rollback, delivery-first]
 ---
+# Установка и обновление
 
-# OverGate pipeline — установка в новый проект
+Единый путь — `scripts/install-overgate.py plan → apply → rollback` из чистого trusted
+OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
+не является trusted source этого установщика. Получите source через `git clone`, затем
+выберите RC tag или полный commit SHA в source checkout. Скрипт ничего не скачивает, не настраивает аккаунты и не публикует GitHub.
+Legacy `install-all.ps1`/per-skill scripts не использовать для RC. Stable Dreadnought остаётся
+прежним snapshot; RC выбирается явно по release/tag и exact commit SHA. Старые refs не двигать.
 
-**Цель:** перенести двухслойный AI-пайплайн (`.agents/` доктрина + `.claude/` исполнение) из reference-репозитория в новый проект и довести его до рабочего состояния через первый Bootstrap PR.
+Пререквизиты: Git, Bash, Python 3 (3.10+ для reference/native fixtures); jq для finalize, Node.js для Beads snapshot reader и reference
+tests, gh для PR evidence. `bd` нужен только проекту, использующему local Beads. Проверяйте
+текущий `bd --help`. macOS/Linux deterministic fixtures — граница reference evidence;
+На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
+не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
 
-**Аудитория:** оператор (человек, который не читает код) + ИИ-агент Claude, который выполнит установку.
+## Каталог Claude-сессии
 
-**Reference baseline:** [Universe Unlimited (U2), PR #185](https://github.com/komleff/u2/pull/185) — первая успешная dogfood-миграция (21 коммит, 7 итераций cross-model review через GPT-5.4 на iter 1 и GPT-5.5 на iters 2-7, ~10 deferred Beads issues, FINAL APPROVED через `/finalize-pr`).
+Installer читает canonical Git blobs и записывает Bash scripts с LF. Для последующих
+checkout сохраните LF этих project-owned путей через политику `.gitattributes` проекта
+(например, `*.sh text eol=lf`); чужой `.gitattributes` автоматически не перезаписывается.
 
----
+Для автоматической загрузки project hooks запускайте Claude из корня checkout и
+подтвердите загрузку settings/hooks. Shared `.claude/settings.json` не наследуется
+из родительских каталогов: новый запуск в подкаталоге без дополнительной настройки
+не включает root hooks. Если hooks уже загружены, Bash cwd в подкаталоге, включая
+пакет монорепо, включает режим восстановления до возврата в root.
+Для нового native CLI запуска из подкаталога явно загрузите неизменённый installed
+root файл через `--settings <ROOT>/.claude/settings.json`, разрешите root как workspace
+через `--add-dir <ROOT>` и используйте `--permission-mode manual`. Без разрешения root
+runtime может принять `cd`, затем вернуть cwd в стартовый подкаталог; это не успешное
+восстановление. Такой startup проверяется отдельно от автоматического root startup.
+Семантика загрузки: [Claude settings](https://code.claude.com/docs/en/settings) и
+[CLI options](https://code.claude.com/docs/en/cli-reference). В rc.1 допускается только одна unquoted команда
+`cd <absolute-checkout-path>`; допустимые символы пути — латиница, цифры, `_ : / . -`.
+Пробелы, кириллица, скобки и кавычки в этой форме не поддерживаются. Для такого пути
+завершите сессию и откройте новую непосредственно в корне checkout через интерфейс
+runtime/терминала. Root-запуск не зависит от `CLAUDE_PROJECT_DIR`, даже если переменная
+указывает на соседний checkout. Исправление recovery paths и внутренних U2-префиксов
+отложено в `og-7sr`; rc.1 сохраняет исходную семантику U2 #829.
 
-## A. Для оператора (короткая инструкция)
+Вне любого Git-репозитория Bash-команда блокируется кодом 2, но recovery hint остаётся
+заглушкой `cd <корень репозитория>`. Оператор принял это как `DECLARED_LIMIT` rc.1:
+завершите сессию и откройте новую из root нужного checkout. Literal-подсказка вне Git
+отложена в `og-7sr`; для собственного подкаталога literal absolute recovery по-прежнему
+обязательна. Не записывайте outside-Git placeholder как успешное восстановление.
 
-> Полная версия — секция B ниже (читает ИИ-агент). Эта секция объясняет, что делать **тебе** во время установки.
+Codex сохраняет source U2 adapter: один repository mutation guard, без commit/readiness
+hook entries и без dispatcher. Exact known previous-RC Codex entries заменяются, custom Bash
+hooks сохраняются; изменённая managed запись требует разрешения конфликта в target PR.
+Claude dispatcher evidence не является Codex actual activation PASS.
 
-### A.1 Что нужно перед стартом
+## До копирования
 
-- Терминал или VS Code с Claude Code (Opus 4.7+)
-- Открыта папка нового проекта
-- Доступ к GitHub-репо нового проекта (для PR)
-- **Reference-репозиторий** установлен локально (откуда копируем) — например `~/GitHub/overgate/`; reference должен уже содержать `.agents/INSTALL.md` и `.claude/settings.json`
-- **Runtime-инструменты в `PATH`** (проверь до старта — без них установка/спринт сломаются):
-  - **Python 3.x** (`py` / `python3` / `python`) — hook `check-merge-ready.py` (без него блокируется `gh pr comment`) и EXAMPLE-скилл `/sync-site-gdd`.
-  - **GitHub CLI** (`gh`), authenticated (`gh auth status`) — все PR-операции скиллов.
-  - **Node.js ≥ 18.17.0** — `openai-review.mjs` (Mode A-legacy внешнего ревью).
-  - **Beads `bd` ≥ 1.0.2** (`bd --version`) — трекер задач + helper-скрипты синхронизации завязаны на command surface 1.0.2.
-- **Сильно рекомендуется (любой из путей):** (a) **ChatGPT subscription** (Plus/Pro/Business) + Codex CLI logged in (`codex login` → "Logged in using ChatGPT") для Mode A primary (v3.9, ADR 3.27); ИЛИ (b) `OPENAI_API_KEY` для Mode A-legacy (v3.6 baseline через `openai-review.mjs` Platform API). Без обоих путей Bootstrap PR (executable infrastructure) не сможет пройти Sprint Final review-gate стандартным путём. Альтернатива — Mode D (ручное Copilot review) через явный operator risk acceptance, фиксируется в PR. См. §B.8 + §D.3 + ADR 3.20 + ADR 3.27.
-
-### A.2 Промпт активации (копируй целиком)
-
-```
-Ты — установщик OverGate-пайплайна. Прочитай .agents/INSTALL.md секцию B
-(полную инструкцию для AI-агента) в reference-репозитории
-[путь к reference, например ~/GitHub/overgate/.agents/INSTALL.md].
-
-Контекст текущего проекта:
-- Имя проекта: [например, my-new-game]
-- GitHub-репо: [https://github.com/user/repo]
-- Стек: [например, Node.js + React, или .NET + Unity]
-- Reference-репозиторий: [например, ~/GitHub/overgate/]
-- Префикс Beads: [например, mng-* для my-new-game]
-
-Действуй автономно по шагам a-j. Останавливайся только на:
-1. Шаг f (Bootstrap PR) — мне нужно подтвердить структуру PR
-2. Шаг j (финальный merge) — мерджу я
-
-После каждого шага кратко отчитывайся, что сделал. На спорных решениях
-(adapt vs copy-as-is) — выбирай consistency с reference и продолжай.
-```
-
-### A.3 Что ты контролируешь
-
-> **Два типа контрольных точек:**
-> - **Report-only** (после шагов c, d, e): AI-агент кратко отчитывается что сделал, ты читаешь, но **не блокируешь** — продолжай работу. Соответствует §A.2 «После каждого шага кратко отчитывайся».
-> - **Blocking confirmation** (шаги f и j): AI-агент **останавливается** и ждёт твоего ответа. Соответствует §A.2 «Останавливайся только на: 1. Шаг f, 2. Шаг j».
-
-| Точка | Тип | Действие | Что смотреть |
-|-------|-----|----------|--------------|
-| После шага c (копирование) | Report-only | Проверь diff `git status` | Файлы скопированы, без неожиданных удалений |
-| После шага d (адаптация) | Report-only | Прочитай предложенные правки имени проекта/префикса | Подмена везде однозначна |
-| После шага e (валидация) | Report-only | Подтверди что `bd doctor` зелёный, `/verify` либо есть либо N/A | Нет ошибок Beads |
-| Шаг f (Bootstrap PR) | **Blocking** | Подтверди структуру PR (один большой / серия мелких) | По умолчанию: один большой PR |
-| Шаги g-i (review-cycle) | Report-only | НЕ вмешивайся, кроме случаев явного блокера | Доверяй вердиктам — в этом смысл пайплайна |
-| Шаг j (merge) | **Blocking** | **Только ты** мержишь после `## ✅ Готов к merge` без warning | См. `HOW_TO_USE.md §4` про dual-invocation |
-
-> **Fallback `INSTALL_ALLOW_NPM_DRIFT=1`:** если в reference-репо нет `.claude/tools/package-lock.json`, шаг c (копирование) остановится fail-closed. Осознанный fallback на `npm install` без lock — выставь env-переменную `INSTALL_ALLOW_NPM_DRIFT=1` перед запуском агента (детали и обоснование — §B.3).
-
-### A.4 Когда установка завершена
-
-Полные критерии — секция D. Кратко: после твоего merge Bootstrap PR в default branch, ИИ-агент должен подтвердить:
-- `.agents/` и `.claude/` присутствуют в default branch
-- `bd doctor` без ошибок
-- Memory Bank инициализирован
-- Один dogfood-цикл (этот самый PR) пройден до merge
-
-После этого → используй `HOW_TO_USE.md` для обычной работы со спринтами.
-
----
-
-## B. Для AI-агента (полная инструкция)
-
-> Если ты ИИ-агент, выполняющий установку — читай эту секцию полностью **до** первого действия. Все шаги обязательны и идут строго по порядку.
-
-### B.0 Mindset
-
-Ты выполняешь **самоустанавливающийся пайплайн**: копируешь сам себя из reference-репо, потом проходишь свой же первый цикл review/finalize на самом себе. Это **chicken-and-egg** ситуация — есть один разовый ручной gate (шаг f confirm + шаг j merge оператором), всё остальное автономно.
-
-**Reference baseline:** U2 PR #185 (21 коммит, 7 итераций). Не воспроизводи 7 итераций намеренно — это норма для bootstrap, а не цель. Цель — `## ✅ Готов к merge` без warning.
-
-### B.1 Шаг a — Идентифицировать source и target
+1. Создай рабочую ветку target проекта. Прочитай project authority/context и legacy overrides.
+2. Открой **один target Draft PR** с plan и Verification Contract до записи managed payload.
+3. Выбери trusted clean source checkout, зафиксируй полный source SHA. Installer отказывает при
+   source movement/dirty copied surfaces, missing helper, nested/orphan core skill. До создания
+   плана и повторно до apply он собирает payload из frozen bytes во временном каталоге и запускает
+   его structural/closure checker. Отсутствие обязательного manifest entry тоже даёт stop до
+   записи в target и создания backup; наличие helper в source checkout не заменяет inventory.
+4. Сгенерируй inventory plan (пути ниже — пример; подставь реальные):
 
 ```bash
-# Reference (откуда копируем)
-REFERENCE_REPO="${REFERENCE_REPO:-/path/to/overgate}"   # передаёт оператор
-
-# Sanity-check: $REFERENCE_REPO должен указывать на валидный pipeline reference
-if [[ ! -f "$REFERENCE_REPO/.agents/INSTALL.md" ]] || [[ ! -f "$REFERENCE_REPO/.claude/settings.json" ]]; then
-  echo "СТОП: \$REFERENCE_REPO=$REFERENCE_REPO не похож на валидный pipeline reference"
-  echo "(нужны .agents/INSTALL.md и .claude/settings.json). Проверь путь."
-  exit 1
-fi
-
-# Sanity-check bd (обязательный пререквизит, §A.1): helper-скрипты синхронизации
-# (scripts/bd-sync-*.sh) завязаны на command surface bd 1.0.2 — fail-fast здесь, не на шаге e.
-# Реальный gate: stop при отсутствии bd; best-effort version-compare (portable awk) — stop при < 1.0.2.
-# Функциональный hard-gate совместимости — `bd ready --json` на шаге e (см. §A.3).
-if ! command -v bd >/dev/null 2>&1; then
-  echo "СТОП: bd не найден в PATH. Установи Beads (>= 1.0.2) до продолжения (§A.1)." >&2
-  exit 1
-fi
-BD_VER=$(bd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-# Portable semver-compare через awk (НЕ sort -V — он GNU-only, дефолтный BSD sort на
-# macOS/BSD не имеет -V → пустой вывод → ложная блокировка валидного окружения).
-if [ -n "$BD_VER" ] && ! awk -v v="$BD_VER" 'BEGIN{split(v,a,".");exit !((a[1]+0)>1||((a[1]+0)==1&&((a[2]+0)>0||((a[2]+0)==0&&(a[3]+0)>=2))))}'; then
-  echo "СТОП: bd $BD_VER < 1.0.2 — helper-скрипты синхронизации требуют command surface 1.0.2. Обнови Beads." >&2
-  exit 1
-fi
-echo "bd: ${BD_VER:-версия не распознана} (ожидается >= 1.0.2; функциональная проверка — bd ready на шаге e)"
-
-ls "$REFERENCE_REPO/.agents/"                      # должно быть: AGENTIC_PIPELINE.md, AGENT_ROLES.md, ..., INSTALL.md (10 файлов)
-ls "$REFERENCE_REPO/.claude/"                      # должно быть: settings.json, agents/, hooks/, skills/, rules/, tools/
-
-# Target (текущая директория)
-pwd                                                # должно быть == корень нового проекта
-git status                                         # ветка main или master, без uncommitted критичных
-DEFAULT_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
-echo "Default branch: $DEFAULT_BRANCH"
-
-# Target sanity-check: предотвращает silent overwrite существующего пайплайна.
-# Проверяем целиком .claude/ и .agents/ — не только settings.json. Если есть
-# .claude/agents/, .claude/hooks/, .claude/skills/, .claude/rules/ или
-# .claude/tools/ — там уже есть существующая Claude-инфра, копирование
-# может молча перезаписать или смешать. Любое существующее присутствие
-# Claude-структуры → СТОП, эскалация к оператору.
-if [[ -d .agents ]] || [[ -d .claude ]]; then
-  echo "СТОП: target-проект уже содержит .agents/ или .claude/."
-  ls -la .agents/ .claude/ 2>/dev/null
-  echo "Существующая Claude-инфра. Возможные действия:"
-  echo "  1. Если она от другого инсталлятора — backup и удалить вручную"
-  echo "  2. Если своя кастомная — оператор решает merge стратегию"
-  echo "  3. Если случайно создана пустой — rmdir пустых каталогов"
-  echo "PM не пытается auto-merge — это нетривиальное решение."
-  exit 1
-fi
+python3 /trusted/overgate/scripts/install-overgate.py plan \
+  --source /trusted/overgate --source-sha <EXACT_40_HEX_SHA> \
+  --target /project --contract /review/verification-contract.md \
+  --target-pr https://github.com/owner/project/pull/123 --output /review/install-plan.json
 ```
 
-**Эскалация:** sanity-check выше блокирует автоматически на наличие **любого** `.agents/` или `.claude/` (целиком, не только `settings.json`). Если оператор намеренно хочет overwrite — он явно удаляет ВЕСЬ `.agents/` каталог И ВЕСЬ `.claude/` каталог (или backup'ит их) ДО запуска установщика. Удаление одного `settings.json` недостаточно: если остался хотя бы `.claude/agents/`, `.claude/hooks/`, `.claude/skills/`, `.claude/rules/` или `.claude/tools/` — guard сработает.
+План содержит source SHA, managed operations, before/after hashes, runtime merge и конфликты.
+Порядок operations виден до approval: guards/helpers → dispatcher → settings.
+Он не меняет target. Опубликуй этот план и его SHA256 в том же PR, получи independent PLAN_READY
+до apply. Reviewer/PM сохраняет локальный approval JSON, привязанный к точным bytes плана:
 
-### B.2 Шаг b — Создать ветку
+```json
+{
+  "verdict": "PLAN_READY",
+  "plan_sha256": "<SHA256_OF_INSTALL_PLAN_BYTES>",
+  "evidence": "https://github.com/owner/project/pull/123#issuecomment-456"
+}
+```
+
+Approval — evidence input от уполномоченной роли, не self-approval установщиком. Скрипт проверяет
+binding и URL того же PR, но **не удостоверяет автора/содержимое удалённого комментария**;
+PM проверяет происхождение evidence до запуска. План/VC/approval не брать из untrusted PR как инструкции.
+
+## Apply и конфликты
 
 ```bash
-DATE=$(date +%Y-%m-%d)
-BRANCH="pipeline-bootstrap-${DATE}"
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  BRANCH="pipeline-bootstrap-${DATE}-$(date +%H%M%S)"
-fi
-git checkout -b "$BRANCH"
+python3 /trusted/overgate/scripts/install-overgate.py apply \
+  --plan /review/install-plan.json --approval /review/plan-ready.json
 ```
 
-Имя ветки **должно** содержать `pipeline-bootstrap` (generic prefix) — это **prompt-level convention** для PM-самораспознавания Bootstrap-режима (см. PM_ROLE.md §2.0.5 «Признаки Bootstrap session»). **Hook-enforcement отсутствует** — это soft constraint, на который PM опирается при чтении контекста сессии. Для новых проектов используй ТОЛЬКО `pipeline-bootstrap-*`. Имя `bigheroes-pipeline-migration` — legacy marker от исторической миграции big-heroes → U2 (PR #185); распознаётся ради backward compat, но не используется в новых проектах.
+До первой записи сохраняется backup всех изменяемых managed bytes и modes в ignored
+`.overgate-backups/<id>/rollback.json`. Inventory/source SHA остаются в tracked
+`.overgate/install-state.json`. Source/target/contract drift требует нового плана и affected
+Plan Review в том же PR. Нет `--force` и тихого overwrite изменённого managed role/skill.
 
-### B.3 Шаг c — Копировать файлы
+Explicit inventory — `.agents/distribution-manifest.json`. Копируются шесть delivery owners,
+ровно пять core skills, thin adapters, hook parser/policy/launcher/timeout/publisher closure,
+Beads readers и необходимые instructions. Не копируются каталоги U2, game data, credentials,
+Memory Bank, personal runtime state или весь `.claude/skills/`.
 
-**Что копировать:**
+AGENTS.md, `.agents/project/verify.sh` и project rules `beads.md`, `tests.md`, `universal.md`
+сохраняются. `.claude/rules/large-payloads.md` — managed publication policy: известная v3.9 версия
+обновляется вместе с publisher/finalize, а project modification даёт conflict без записи.
+Остальные project-owned rules вне inventory не затрагиваются. Settings merge
+сохраняет project env/permissions/custom hooks, заменяет только известные old managed hooks и
+добавляет required guards; изменённый managed hook даёт conflict. Known v3.9 и previous-RC
+entries заменяются по точной JSON identity; custom Bash hooks сохраняются. Ровно одна
+managed entry с timeout 600 с вызывает `.claude/hooks/pre-bash.sh` и не содержит backslashes. `.gitignore` сохраняет
+project entries и делает исключение для tracked `.codex/hooks.json`; прочий Codex state ignored.
+Product authority берётся из project AGENTS; если не назначен — оператор.
 
-| Источник | Назначение | Примечание |
-|----------|-----------|------------|
-| `$REFERENCE_REPO/.agents/templates/AGENTS.template.md` | `AGENTS.md` (корень) | First-touch инструкция: generic-секции (Beads, Session Completion, подпись, публикация ревью) + payload-плейсхолдеры (заполняются в §B.4). **Копировать с fail-closed guard'ом** (см. cp-блок) — не перезаписывать существующий target-`AGENTS.md` |
-| `$REFERENCE_REPO/.agents/*.md` | `.agents/` | Все markdown — доктрина (10 файлов: см. §F полный список) |
-| `$REFERENCE_REPO/.claude/settings.json` | `.claude/settings.json` | Hooks + deny rules + permissions |
-| `$REFERENCE_REPO/.claude/agents/*.md` | `.claude/agents/` | Native subagents |
-| `$REFERENCE_REPO/.claude/hooks/*` | `.claude/hooks/` | Pre/Post/SessionStart hooks (вкл. `codex-login.sh`) |
-| `$REFERENCE_REPO/.claude/skills/` | `.claude/skills/` | verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit |
-| `$REFERENCE_REPO/.claude/rules/*.md` | `.claude/rules/` | universal.md и beads.md обязательны (generic); client-*/server.md опционально (payload) |
-| `$REFERENCE_REPO/.claude/tools/` (`*.mjs`, `*.ps1`, `package.json`, `README.md`) | `.claude/tools/` | Cross-model review backend (`openai-review.mjs`) + helpers (`codex-account-switch.ps1`, `smoke-test.mjs`) + `package.json` (+ `npm ci --ignore-scripts` при наличии lockfile) |
-| `$REFERENCE_REPO/scripts/bd-sync-*.sh`, `scripts/test-bd-sync.sh` | `scripts/` | Beads sync helpers (`bd-sync-export.sh`/`bd-sync-restore.sh`) — на них ссылаются `AGENTS.md`/`beads.md`; без них установленный `AGENTS.md` ссылался бы на отсутствующие скрипты |
+v3.9 upgrade сверяет managed files с frozen legacy inventory. Изменённая роль или customized
+`.claude/skills/verify/SKILL.md` даёт адресный stop. Сначала перенеси project commands в
+`.agents/project/verify.sh` и сохрани custom instructions как project-owned файл в target PR;
+затем явно согласуй возвращение managed file к прежнему known baseline, пересоздай план.
+Installer не разрешает конфликт за оператора. Fresh verify template намеренно FAIL до заполнения.
+Reference `/verify` запускает `scripts/verify-reference.sh`, consumer — реальные project tests.
 
-**Что НЕ копировать:**
+## Проверка и завершение
 
-- `.claude/settings.local.json` — personal overrides
-- `.claude/worktrees/` — runtime artifacts
-- `.claude/skills/external-review/.review-responses/` — runtime cache
-- `.beads/` — issue tracker нового проекта инициализируется отдельно (шаг e)
-- `.memory-bank/` — контекст нового проекта инициализируется отдельно (шаг e)
-- `docs/plans/`, `docs/archive/` — это контент reference-проекта
+Запусти `python3 scripts/check-reference.py` в target и `bash .agents/project/verify.sh`.
+Проверь реальные runtime hooks в свежей сессии доступного Claude/Codex; static wiring не является
+live activation proof. QA → один scoped Review → landing → current checks → один `/finalize-pr`.
+Evidence в PR, merge выполняет оператор. Missing WHAT/Important/Critical known risk не принимается
+агентом. Обычные большие reports идут через `.claude/tools/run-python.sh .claude/tools/publish-pr-comment.py`;
+readiness — только trusted finalize. Новый governance package проверяется prior trusted bootstrap.
 
-**Команды:**
+## Rollback
 
 ```bash
-mkdir -p .agents .claude/{agents,hooks,skills,rules,tools} scripts
-
-# Корневой AGENTS.md — из ШАБЛОНА (.agents/templates/AGENTS.template.md), с fail-closed guard'ом:
-# НЕ перезаписывать существующий target-AGENTS.md (у проекта могут быть свои инструкции).
-# Совпадает с логикой sanity-check .agents/.claude в §B.1 — locаль не уничтожаем без operator-решения.
-AGENTS_TEMPLATE="$REFERENCE_REPO/.agents/templates/AGENTS.template.md"
-if [ ! -f "$AGENTS_TEMPLATE" ]; then
-  echo "СТОП: не найден шаблон $AGENTS_TEMPLATE в reference-репо. Проверь \$REFERENCE_REPO / версию пайплайна."
-  exit 1
-fi
-if [ -e AGENTS.md ]; then
-  echo "СТОП: target уже содержит AGENTS.md. Шаблон сохранён рядом как AGENTS.md.overgate-template."
-  cp "$AGENTS_TEMPLATE" ./AGENTS.md.overgate-template
-  echo "Оператор: смержи generic-секции шаблона в существующий AGENTS.md вручную."
-  echo "RE-ENTRY: после merge НЕ перезапускай этот блок (он снова упадёт на существующем AGENTS.md) —"
-  echo "          удали AGENTS.md.overgate-template и продолжи установку со следующей команды (cp .agents)."
-  exit 1
-fi
-cp "$AGENTS_TEMPLATE" ./AGENTS.md   # first-touch файл; плейсхолдеры заполняются в §B.4
-cp -r "$REFERENCE_REPO/.agents/"*.md .agents/
-cp "$REFERENCE_REPO/.claude/settings.json" .claude/
-cp -r "$REFERENCE_REPO/.claude/agents/"*.md .claude/agents/
-cp -r "$REFERENCE_REPO/.claude/hooks/"* .claude/hooks/
-
-# skills/ — preventive cleanup runtime cache в reference перед копированием
-# (rsync с exclude если доступен; иначе cp + reactive rm)
-# Windows-операторы (git-bash без WSL) обычно не имеют rsync — fallback на cp.
-if command -v rsync >/dev/null 2>&1; then
-  rsync -a --exclude='.review-responses/' --exclude='__pycache__/' \
-    "$REFERENCE_REPO/.claude/skills/" .claude/skills/
-else
-  # Windows fallback: cp без trailing slash на source копирует skills/ как
-  # subdirectory. Trailing slash на source («.claude/skills/») копирует
-  # ТОЛЬКО содержимое (могло бы создать .claude/<skills-content>/, не
-  # .claude/skills/<content>/). Защита от структурного бага:
-  cp -r "$REFERENCE_REPO/.claude/skills" .claude/
-  # cleanup runtime cache (defensive, см. блок ниже)
-fi
-
-# Post-copy structural check (защита от cross-platform cp quirks).
-# Проверяем все 5 обязательных skills — должны соответствовать D.1 acceptance criteria.
-for required_skill in finalize-pr external-review verify sprint-pr-cycle pipeline-audit; do
-  if [ ! -d ".claude/skills/${required_skill}" ]; then
-    echo "СТОП: structural check skills/ упал — отсутствует .claude/skills/${required_skill}/"
-    echo "Ожидаемая структура: .claude/skills/{finalize-pr,external-review,verify,sprint-pr-cycle,pipeline-audit}"
-    echo "Проверь fallback cp/rsync — возможен nested skills/skills или missing subdirs."
-    exit 1
-  fi
-done
-
-cp -r "$REFERENCE_REPO/.claude/rules/"*.md .claude/rules/
-# Все tools: review backend (.mjs) + helpers (.ps1) + manifest + README; node_modules исключён (rm ниже)
-for tf in "$REFERENCE_REPO/.claude/tools/"*.mjs "$REFERENCE_REPO/.claude/tools/"*.ps1 \
-          "$REFERENCE_REPO/.claude/tools/package.json" "$REFERENCE_REPO/.claude/tools/README.md"; do
-  [ -f "$tf" ] && cp "$tf" .claude/tools/
-done
-# Lockfile (если есть) — для воспроизводимости через npm ci
-[ -f "$REFERENCE_REPO/.claude/tools/package-lock.json" ] && cp "$REFERENCE_REPO/.claude/tools/package-lock.json" .claude/tools/
-
-# Beads sync helpers — на них ссылаются AGENTS.md / .claude/rules/beads.md
-for sf in "$REFERENCE_REPO/scripts/"bd-sync-*.sh "$REFERENCE_REPO/scripts/test-bd-sync.sh"; do
-  [ -f "$sf" ] && { cp "$sf" scripts/; chmod +x "scripts/$(basename "$sf")"; }
-done
-
-# Удалить runtime cache если случайно попал (defensive — на случай если
-# rsync недоступен и пришлось fallback на cp)
-rm -rf .claude/skills/external-review/.review-responses/
-rm -rf .claude/worktrees/
-rm -rf .claude/tools/node_modules/
-
-# Установить зависимости openai-review.mjs.
-# npm ci (а не install): строго по lockfile, не пачкает рабочее дерево, воспроизводимо.
-# --ignore-scripts: defence-in-depth против supply-chain attack через postinstall hooks
-# из npm registry. Trusted reference repo всё равно не гарантирует trust transitively.
-#
-# Fail-closed по умолчанию: если lockfile отсутствует — STOP. Это security-sensitive
-# tooling (`openai-review.mjs` имеет доступ к OPENAI_API_KEY и code review prompts);
-# dependency drift / supply-chain непредсказуемость недопустимы без явного operator
-# acceptance. Если оператор сознательно хочет fallback — пусть установит env-var
-# INSTALL_ALLOW_NPM_DRIFT=1 (явная opt-in).
-if [ -f .claude/tools/package-lock.json ]; then
-  (cd .claude/tools && npm ci --ignore-scripts)
-elif [ "${INSTALL_ALLOW_NPM_DRIFT:-0}" = "1" ]; then
-  echo "ВНИМАНИЕ: package-lock.json отсутствует, INSTALL_ALLOW_NPM_DRIFT=1 — fallback на npm install --ignore-scripts (dependency drift возможен; явный operator acceptance)"
-  (cd .claude/tools && npm install --ignore-scripts)
-else
-  echo "СТОП: package-lock.json отсутствует в \$REFERENCE_REPO/.claude/tools/."
-  echo "Это security-sensitive tooling — fail-closed по умолчанию."
-  echo "Если оператор явно принимает risk: установи INSTALL_ALLOW_NPM_DRIFT=1 в env и перезапусти эти команды"
-  echo "Безопаснее: попроси reference repo добавить package-lock.json и перезапусти."
-  exit 1
-fi
+python3 /trusted/overgate/scripts/install-overgate.py rollback \
+  --target /project --backup /project/.overgate-backups/<id>/rollback.json
 ```
 
-**Обнови `.gitignore`** (или создай если нет):
-
-```gitignore
-# Claude Code: коммитим shared pipeline-инфру (settings.json, hooks, agents,
-# skills, rules, tools/*.mjs, tools/*.ps1, tools/package.json) для cross-machine portability.
-# Исключаем только runtime artifacts и personal overrides.
-.claude/settings.local.json
-.claude/worktrees/
-.claude/tools/node_modules/
-.claude/**/*.local.*
-.claude/**/credentials*
-.claude/**/secrets*
-.env
-.env.*
-*.key
-*.pem
-*.p12
-*.crt
-*.npmrc
-
-# external-review skill runtime artifacts
-.review-responses/
-.claude/skills/external-review/.review-responses/
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-.beads/**/*.db
-.beads/dolt-server.*
-.beads-credential-key
-
-# Install merge-артефакт (fail-closed guard на существующий AGENTS.md, §B.3)
-AGENTS.md.overgate-template
-```
-
-### B.4 Шаг d — Адаптация (имя проекта, префикс Beads, стек)
-
-> **Принцип:** generic-strict в `.agents/INSTALL.md` (не трогать), U2-specific можно адаптировать по месту в твоём проекте. Минимизируй правки — большинство файлов универсальны.
-
-**Что обязательно адаптировать:**
-
-| Файл | Что заменить | На что |
-|------|--------------|--------|
-| `.agents/*.md` ВСЕ файлы (frontmatter `source:`) | `github.com/<reference-owner>/<reference-repo>/...` | `github.com/<your-owner>/<your-repo>/...` — source-only command ниже, без переписывания body. Owner и repo определи через shell-команду в code block ниже (НЕ inline, чтобы pipe `\|` не сломался при copy-paste). |
-| `AGENTS.md` (корень) | плейсхолдеры `<PROJECT_NAME>`, `<PROJECT_DESCRIPTION>`, `<CURRENT_FOCUS>`, `<DOC_INDEX>`, `<CODE_MAP>`, `<ABBREVIATIONS>` | **Заполни** под проект. Generic-секции (Beads, Session Completion, подпись AI-агентов, публикация ревью, временные файлы) — **не трогать**. Удали верхний HTML-комментарий-инструкцию шаблона после заполнения. |
-| `.agents/PM_ROLE.md` строка `**Проект:** Universe Unlimited (U2)` | `Universe Unlimited (U2)` | Имя твоего проекта |
-| `.agents/AGENT_ROLES.md` (frontmatter + строка 12 `Agent Roles — Universe Unlimited (U2)`) | `Universe Unlimited (U2)` | Имя твоего проекта |
-| `.agents/PIPELINE.md` (frontmatter + заголовок `Пайплайн разработки Universe Unlimited (U2)`) | `Universe Unlimited (U2)` | Имя твоего проекта |
-| `.agents/HOW_TO_USE.md` (frontmatter + контекстные упоминания) | `Universe Unlimited (U2)` если есть | Имя твоего проекта |
-| `.claude/rules/universal.md` (если есть упоминания проекта) | проектные упоминания | Адаптируй |
-| `.claude/skills/verify/SKILL.md`, `.claude/rules/tests.md` | `<PLACEHOLDER>`-команды и baseline-числа (стек-агностичный шаблон) | **Заполни** плейсхолдеры (`<CLIENT_DIR>`, `<CLIENT_BUILD_CMD>`, `<SERVER_BUILD_CMD>`, `<TEST_CMD>`, `<EXPECTED_CLIENT_TESTS>`, `<EXPECTED_SERVER_TESTS>`, `<WARNING_BASELINE>`) под свой стек. **Не удаляй** — скиллы поставляются как шаблон, а не как U2-хардкод. Имя скилла `/verify` менять нельзя. |
-| `.claude/skills/sync-docs/SKILL.md`, `.claude/skills/sync-site-gdd/SKILL.md` | EXAMPLE doc/site-навигация (U2-пути `docs/INDEX.md`, ADR-INDEX, memory-bank, manifest сайта) | **Не generic как прочие скиллы.** `sync-docs` — адаптируй doc-пути (`<DOC_INDEX>`, `<ADR_INDEX>`, `<MEMORY_BANK>`) под свою структуру. `sync-site-gdd` — если у проекта **нет публичного сайта документации, удали скилл целиком**; иначе адаптируй `<SITE_HOST>`/`<SITE_MANIFEST>` и `scripts/find-missing.py`. Те же `<SITE_HOST>`/`<SITE_MANIFEST>` есть в роли Doc Sync (`.agents/AGENT_ROLES.md §5`) — адаптируй/удали там же. |
-| `.claude/skills/README.md`, `architect/README.md`, `project-manager/README.md`, `sync-docs`/`sync-site-gdd` SKILL | плейсхолдер `<REPO_ROOT>` (абсолютный путь корня твоего репозитория) | **Заполни** своим путём — встречается в PowerShell install-командах README-скиллов и в worktree-путях sync-скиллов. |
-| `.claude/rules/client-*.md`, `server.md` (если присутствуют) | Стек-специфичные tactical-правила (в reference-репо U2 — TS+Three.js, .NET+Entitas) | U2-payload: в этом overgate-репозитории таких файлов **нет**. Если твой reference-репо их принёс и стек **не** совпадает — удали или замени на свои; совпадает — оставь. |
-
-**Shell-команда для автоматического определения owner/repo:**
-
-```bash
-# Извлечь owner/repo из git remote (HTTPS или SSH origin, с .git и без).
-REMOTE_URL=$(git remote get-url origin)
-OWNER_REPO=$(
-  printf '%s\n' "$REMOTE_URL" |
-    sed -E \
-      -e 's#^https://github\.com/([^/]+/[^/]+)/?$#\1#' \
-      -e 's#^git@github\.com:([^/]+/[^/]+)$#\1#' \
-      -e 's#\.git$##'
-)
-if ! printf '%s' "$OWNER_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'; then
-  echo "СТОП: не удалось извлечь owner/repo из origin: $REMOTE_URL" >&2
-  echo "Ожидается GitHub remote вида https://github.com/owner/repo(.git) или git@github.com:owner/repo.git" >&2
-  exit 1
-fi
-echo "Detected: $OWNER_REPO"
-
-# Обновить ТОЛЬКО frontmatter source:. Не переписывай исторические reference links в body:
-# ссылки на U2 PR #185/#186 — это reference baseline, не project-specific metadata.
-for f in .agents/*.md; do
-  tmp="$(mktemp)"
-  awk -v owner_repo="$OWNER_REPO" '
-    NR == 1 && $0 == "---" { in_fm = 1 }
-    in_fm && /^source: "github\.com\/[^/]+\/[^/]+\// {
-      sub(/^source: "github\.com\/[^/]+\/[^/]+\//, "source: \"github.com/" owner_repo "/")
-    }
-    { print }
-    in_fm && NR > 1 && $0 == "---" { in_fm = 0 }
-  ' "$f" > "$tmp" && mv "$tmp" "$f"
-done
-```
-
-**Что НЕ нужно адаптировать:**
-
-- `.agents/AGENTIC_PIPELINE.md` — universal philosophy + 7 invariants, уже generic
-- `.agents/PIPELINE_ADR.md` — историческая запись решений, не переписывается под твой проект
-- `.agents/INSTALL.md` (этот файл) — содержательно сохраняй как есть (U2 PR #185 как concrete reference baseline). **Адаптируй ТОЛЬКО frontmatter `source:` на свой `github.com/<owner>/<repo>/.agents/INSTALL.md`** через source-only `awk` block выше. Сам текст руководства не переписывай — он generic с U2-historical examples
-- `.agents/REFERENCES.md` — на шаге B.4 оставь без содержательных правок; добавление твоего проекта в секцию «Собственные проекты» — post-merge landing artifact (см. §B.9/D.4), потому что Bootstrap считается установленным только после merge
-- Бóльшая часть `.claude/skills/*/SKILL.md` — generic, не привязаны к проекту (`finalize-pr`, `external-review`, `sprint-pr-cycle`, `pipeline-audit`). **Исключения** (см. таблицу «Что обязательно адаптировать» выше):
-  - `verify/SKILL.md` + `.claude/rules/tests.md` — поставляются с `<PLACEHOLDER>`-командами/baseline'ами, которые **заполняются** под стек (не удаляются и не «уже generic»);
-  - `sync-docs/SKILL.md` + `sync-site-gdd/SKILL.md` — **EXAMPLE** doc/site-навигация: адаптируй пути или удали `sync-site-gdd`, если нет публичного сайта. НЕ считай их «generic, ничего не делать».
-- **U2-payload скиллы/правила, которых в этом overgate-репозитории НЕТ** (`game-designer`, `mobile-game-analyst`, `.claude/rules/server.md`, `.claude/rules/client-*.md`): это содержимое dogfood-проекта U2. Если твой reference-репо их притащил — относись к ним как к стек/домен-специфике (адаптируй или удали), они не часть generic-ядра OverGate.
-- Все `.claude/hooks/*` — generic enforcement
-- `.claude/settings.json` — generic, deny rules универсальны. ⚠️ PreToolUse-хук `Bash(git commit*)` запускает npm-тесты только при наличии `package.json` (в не-npm проекте — no-op); это уже учтено и не требует правок.
-
-**Адаптация Beads-префикса:**
-
-Если ты хочешь свой префикс (например `mng-*` вместо `u2-*`/`big-heroes-*`) — это решается в `bd init` (шаг e), а не правкой файлов. Большинство ссылок на U2-* / big-heroes-* в документах — исторические референсы и не требуют замены.
-
-### B.5 Шаг e — Инициализация runtime (Beads + Memory Bank)
-
-**Beads:**
-
-```bash
-# --skip-agents ОБЯЗАТЕЛЕН: без него bd сгенерирует в AGENTS.md свой блок BEADS
-# INTEGRATION, который рекомендует `bd dolt push/pull` как путь синхронизации.
-# В этом пайплайне sync — только через ветку beads-backup (см. .claude/rules/beads.md);
-# AGENTS.md уже скопирован из reference на шаге c с правильным разделом про Beads.
-bd init --skip-agents                      # создаёт .beads/, .gitignore-entries; AGENTS.md НЕ трогает
-
-# Отключить Dolt auto-sync (канон: Dolt — не операционный путь синхронизации).
-# bd init авто-настраивает git+https Dolt-remote и auto-export → их надо снять,
-# иначе read/мутирующие bd-команды пытаются dolt auto-push в origin/main.
-bd config set export.auto false            # не писать .beads/issues.jsonl в рабочее дерево
-bd config set backup.git-push false        # отключить git-push авто-бэкапа
-bd config unset sync.remote                # убрать sync.remote из config.yaml
-bd dolt remote remove origin 2>/dev/null || true   # убрать dolt-level remote (auto-push target)
-
-# health check. ВНИМАНИЕ: `bd doctor` в bd 1.0.2 работает только в server-mode;
-# в embedded-mode (дефолт `bd init`) он выводит "not yet supported in embedded mode".
-# Основной acceptance в embedded-mode — `bd ready --json` (должен вернуть валидный JSON).
-bd ready --json >/dev/null                 # acceptance check: tracker query работает
-bd doctor 2>/dev/null || true              # опционально (зелёный только в server-mode)
-
-# ⚠️ `bd prime` / `bd onboard` (и SessionStart-хук, инжектящий `bd prime`) могут советовать
-# `bd dolt push` — это upstream-дефолт, ПЕРЕОПРЕДЕЛЁН правилом .claude/rules/beads.md.
-# Синхронизация трекера — только: scripts/bd-sync-export.sh / scripts/bd-sync-restore.sh.
-# (Команд `bd backup export-git` / `fetch-git` в bd 1.0.2 нет — это были команды старой версии.)
-
-# ВНИМАНИЕ: per ADR 3.21 — только single-quotes для bd commands.
-# Double-quoted с $VAR / $(date) bash раскрывает ДО передачи в bd, и
-# значение попадает в Beads/Dolt persisted state. Если переменная
-# содержит секрет — leak. Безопасный pattern — hardcoded literal или
-# pre-substitute через intermediate variable + concatenation вне quotes:
-bd remember 'Pipeline installed on YYYY-MM-DD. Reference: U2 PR #185 baseline.'   # подставь реальную дату
-# Если нужен динамический контент — concatenate через '"$VAR"', не "$VAR":
-#   INSTALL_DATE=$(date +%Y-%m-%d)         # safe: just a date, no secrets
-#   bd remember 'Pipeline installed on '"$INSTALL_DATE"'. Reference: ...'
-```
-
-> **Важно:** `bd ready --json` — основной acceptance gate для шага e (валиден и в embedded-mode). Если он красный — **СТОП**, не двигайся дальше. Чаще всего проблема: missing dolt binary или несовместимая версия. Обновляй `bd` до последней. `bd doctor` — дополнительная диагностика, но в embedded-mode (дефолт) она не поддерживается; не считать её красный-в-embedded за провал.
-
-**Memory Bank:**
-
-```bash
-mkdir -p .memory-bank
-```
-
-Создай 6 файлов с минимальным содержимым (пустые шаблоны можно скопировать из reference как структурный пример, но **содержимое** должно быть про твой проект):
-
-- `.memory-bank/projectbrief.md` — цели, ограничения, milestone-история (1-2 параграфа для старта)
-- `.memory-bank/productContext.md` — зачем проект, UX (1 параграф)
-- `.memory-bank/systemPatterns.md` — пока пусто, заполнится после первой архитектурной задачи
-- `.memory-bank/techContext.md` — стек, команды, порты
-- `.memory-bank/activeContext.md` — `**Текущий фокус:** Bootstrap pipeline установка через PR #N`
-- `.memory-bank/progress.md` — `**Сделано:** установка пайплайна. **В процессе:** Bootstrap PR review.`
-
-### B.6 Шаг f — Bootstrap PR (точка contained-confirmation)
-
-> **Это единственная точка, где ты ОБЯЗАН остановиться и спросить оператора** — про структуру PR. Один большой коммит vs серия — нетривиальное решение.
-
-**По умолчанию:** один большой коммит-bundle (все файлы пайплайна) + последующие fix-коммиты в рамках review-цикла. Это паттерн U2 PR #185.
-
-```bash
-# Уточнение по .beads/: коммитим только конфиг, НЕ Dolt history и НЕ task snapshot.
-# .gitignore (см. шаг c) уже исключает .dolt/ и Beads-local DB/runtime files. После bd init трекаем:
-#   .beads/config.yaml        — local config (commit)
-#   .beads/metadata.json      — repo/clone id (commit)
-#   .beads/issues.jsonl       — НЕ коммитим в main (auto-export off); source of truth — ветка beads-backup
-#   .beads-credential-key     — НЕ коммитим (в .gitignore)
-# Placeholder-leak guard: корневой AGENTS.md заполнен (§B.4), плейсхолдеров не осталось.
-# Fail-closed — иначе в репозиторий уедет шаблон с <PROJECT_NAME>/<DOC_INDEX> как «активный» first-touch док.
-# Generic-паттерн <UPPER_SNAKE> (3+ симв.) — ловит и новые плейсхолдеры, добавленные в шаблон позже,
-# не только текущий хардкод-список (защита от silent-stale проверки).
-if grep -qE '<[A-Z][A-Z_]{2,}>' AGENTS.md; then
-  echo "СТОП: в AGENTS.md остались незаполненные плейсхолдеры (<UPPER_SNAKE>). Заполни их (§B.4) и удали HTML-комментарий шаблона."
-  grep -nE '<[A-Z][A-Z_]{2,}>' AGENTS.md
-  exit 1
-fi
-# Служебный HTML-комментарий шаблона тоже должен быть удалён (иначе инструкция шаблона уедет в репо).
-# Проверяем стабильный машинный маркер OG-AGENTS-TEMPLATE-v1 (не прозу — она может меняться).
-if grep -q 'OG-AGENTS-TEMPLATE-v1' AGENTS.md; then
-  echo "СТОП: в AGENTS.md остался служебный HTML-комментарий шаблона (маркер OG-AGENTS-TEMPLATE-v1). Удали блок <!-- OG-AGENTS-TEMPLATE-v1 ... --> целиком."
-  exit 1
-fi
-
-# Артефакт fail-closed guard'а на существующий AGENTS.md. Он уже в .gitignore (см. шаг c) —
-# `git add` его не застейджит, утечь в коммит не может. Здесь — только напоминание удалить после merge.
-if [ -e AGENTS.md.overgate-template ]; then
-  echo "ВНИМАНИЕ: найден AGENTS.md.overgate-template (gitignored merge-артефакт). Удали его после ручного merge."
-fi
-
-# Placeholder-leak guard для стек-шаблона /verify (§B.4). РАНТАЙМ-РИСК: незаполненный
-# <PLACEHOLDER> в ИСПОЛНЯЕМОМ блоке → /verify запустит литерал (напр. <TEST_CMD>) и упадёт в
-# первом же спринте. awk вырезает содержимое ЛЮБЫХ fenced code-блоков (toggle f на каждой
-# строке-fence `^\s*```...`; маркер строится через sprintf, чтобы не плодить тройные backticks
-# в доке). Покрывает ```bash, ```sh/```shell/```console и ОТСТУПЛЕННЫЕ fence — без привязки к
-# языку. Прозу-легенду под командами и блок «Пример (U2 reference)» НЕ трогаем: она вне fenced-
-# блоков либо без плейсхолдеров. Ограничение: незакрытый fence в malformed-доке захватит хвост
-# до EOF (ложная блокировка) — приемлемо, это баг самого дока адаптера. В reference-репо overgate
-# блоки намеренно остаются шаблоном; гейт применяется в target-проекте, не к overgate.
-VERIFY_BLOCKS=$(awk 'BEGIN{b=sprintf("%c",96);F="^[[:space:]]*" b b b} $0~F{f=!f;next} f' \
-     .claude/skills/verify/SKILL.md)
-if printf '%s\n' "$VERIFY_BLOCKS" | grep -qE '<[A-Z][A-Z_]{2,}>'; then
-  echo "СТОП: в исполняемых блоках .claude/skills/verify/SKILL.md остались незаполненные <PLACEHOLDER>. Подставь команды своего стека (§B.4) — иначе /verify запустит литерал и упадёт."
-  printf '%s\n' "$VERIFY_BLOCKS" | grep -nE '<[A-Z][A-Z_]{2,}>'
-  exit 1
-fi
-# Advisory (НЕ fail-closed): tests.md — документ baseline-чисел, не исполняемый код. Незаполненные
-# плейсхолдеры там не роняют спринт, но baseline стоит проставить под свой стек.
-if grep -qE '<[A-Z][A-Z_]{2,}>' .claude/rules/tests.md; then
-  echo "ВНИМАНИЕ: в .claude/rules/tests.md остались baseline-плейсхолдеры (<UPPER_SNAKE>) — проставь счётчики тестов / warning-baseline под свой стек (§B.4). Не блокирует установку."
-fi
-# Advisory (НЕ fail-closed): EXAMPLE-скиллы sync-docs/sync-site-gdd и install-команды в
-# .claude/skills/*/README.md содержат плейсхолдеры (<REPO_ROOT>/<SITE_HOST>/<SITE_MANIFEST>)
-# в ИСПОЛНЯЕМЫХ командах (worktree/PowerShell-install). Это EXAMPLE-артефакты (адаптируются
-# или удаляются целиком по §B.4) — fail-closed здесь неверен (скилл может быть удалён), но
-# предупреждаем: незаполненные плейсхолдеры → команда упадёт при первом запуске скилла.
-SYNC_PH=$(grep -lE '<(REPO_ROOT|SITE_HOST|SITE_MANIFEST)>' \
-  .claude/skills/sync-docs/SKILL.md .claude/skills/sync-site-gdd/SKILL.md \
-  .claude/skills/README.md .claude/skills/architect/README.md \
-  .claude/skills/project-manager/README.md 2>/dev/null || true)
-if [ -n "$SYNC_PH" ]; then
-  echo "ВНИМАНИЕ: EXAMPLE-скиллы/READMEs с незаполненными плейсхолдерами в исполняемых командах:"
-  echo "$SYNC_PH"
-  echo "  → перед использованием этих скиллов заполни <REPO_ROOT>/<SITE_HOST>/<SITE_MANIFEST> (или удали скиллы, §B.4). Установку не блокирует."
-fi
-
-# git add .beads/ корректно работает: tracked files добавятся, ignored игнорируются.
-git add AGENTS.md .agents/ .claude/ .gitignore .beads/ .memory-bank/
-git status                                  # покажи оператору
-# Спроси: "один большой коммит ОК?"
-
-# Public label для commit/PR metadata: НЕ используй $REFERENCE_REPO напрямую,
-# он может быть локальным filesystem path оператора.
-REFERENCE_REMOTE=$(cd "$REFERENCE_REPO" && git remote get-url origin 2>/dev/null || true)
-REFERENCE_OWNER_REPO=$(
-  printf '%s\n' "$REFERENCE_REMOTE" |
-    sed -E \
-      -e 's#^https://github\.com/([^/]+/[^/]+)/?$#\1#' \
-      -e 's#^git@github\.com:([^/]+/[^/]+)$#\1#' \
-      -e 's#\.git$##'
-)
-REFERENCE_SHA=$(cd "$REFERENCE_REPO" && git rev-parse --short HEAD 2>/dev/null || echo unknown)
-if printf '%s' "$REFERENCE_OWNER_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'; then
-  REFERENCE_LABEL="$REFERENCE_OWNER_REPO@$REFERENCE_SHA"
-else
-  REFERENCE_LABEL="local-reference@$REFERENCE_SHA"
-fi
-
-git commit -m "feat(pipeline): bootstrap OverGate pipeline from $REFERENCE_LABEL
-
-Двухслойный пайплайн: .agents/ (доктрина) + .claude/ (исполнение).
-Reference baseline: U2 PR #185.
-
-— PM (Claude Opus 4.7)"
-
-git push -u origin "$(git branch --show-current)"
-
-gh pr create \
-  --title "Pipeline bootstrap from $REFERENCE_LABEL" \
-  --body "$(cat <<'EOF'
-## Summary
-Bootstrap OverGate pipeline в новый проект.
-
-- `.agents/` — доктрина (10 файлов): AGENTIC_PIPELINE, AGENT_ROLES, PM_ROLE, PIPELINE, PIPELINE_ADR, HOW_TO_USE, REFERENCES, INSTALL, CODEX_AUTH (legacy fallback для Codex CLI), pipeline-improvement-plan-v3.3 (исторический snapshot)
-- `.claude/` — исполнение: settings.json, agents/, hooks/, skills/ (verify, sprint-pr-cycle, external-review, finalize-pr, pipeline-audit), rules/, tools/ (openai-review.mjs + helpers .mjs/.ps1 + README)
-
-## Reference
-- Source: U2 PR #185 (21 коммит, 7 итераций cross-model review GPT-5.4/5.5 mixed)
-- Validation: bd doctor зелёный, .claude/tools/npm ci --ignore-scripts ОК (или INSTALL_ALLOW_NPM_DRIFT=1 npm install при отсутствии lockfile с явным operator acceptance)
-
-## Tier: Sprint Final
-
-Это Bootstrap PR — финальная гейт через `/finalize-pr` обязательна.
-External review через `/external-review` обязательно (Sprint Final правило).
-
-— PM (Claude Opus 4.7)
-EOF
-)"
-```
-
-**Маркер `Tier: Sprint Final` в body PR — обязателен**, иначе `/finalize-pr` ошибочно классифицирует Bootstrap PR как `standard` и пропустит external review.
-
-### B.7 Шаг g — Активация PM-роли и dogfood старт
-
-После создания PR — переключись в PM-режим:
-
-```
-Ты PM. Прочитай .agents/PM_ROLE.md секцию "2.0.5 Bootstrap session"
-(если есть) или просто "2. Обязанности".
-
-Контекст: Bootstrap PR #N только что создан. Это первый dogfood-цикл
-для этого проекта. Tier: Sprint Final.
-
-Действуй автономно: запусти /sprint-pr-cycle для внутреннего review-pass,
-потом /external-review N для cross-model. Cycle review/fix/re-review
-до APPROVED по всем аспектам. Это норма что Bootstrap проходит несколько
-итераций (U2 baseline: 7).
-
-Останавливайся только на блокерах. Findings которые нельзя/не нужно
-фиксить сейчас — defer to Beads с обязательным ID.
-```
-
-### B.8 Шаг h — Cross-model review через `/external-review`
-
-Запускается из PM-сессии. Скилл сам определяет режим (A primary / A-hybrid / A-legacy / C / D) — см. `.agents/PIPELINE.md §5`.
-
-**Если Codex CLI залогинен на ChatGPT subscription** (`codex login status` → `Logged in using ChatGPT`, profile `[profiles.review]` в `~/.codex/config.toml` загружается) → **Mode A primary (v3.9)**: GPT-5.5 + GPT-5.3-Codex через subscription quota. См. ADR 3.27 + CODEX_AUTH.md §8.
-
-**Иначе если `OPENAI_API_KEY` установлен** → **Mode A-legacy (v3.6 baseline)**: через `openai-review.mjs` (Node.js native Platform API). GPT-5.5 primary + GPT-5.3-Codex или GPT-5.4 fallback.
-
-**Если оба пути недоступны** → Mode C (Claude adversarial) — degraded. **Scope ограничен ADR 3.20: только doc-only landing commit, НЕ для full Bootstrap PR.** Bootstrap PR содержит executable infrastructure (`.claude/hooks/*`, `.claude/settings.json`, deny rules, `openai-review.mjs`, skills) — security-sensitive код, для которого требуется cross-model adversarial diversity. Если ни Codex CLI subscription, ни `OPENAI_API_KEY` недоступны на установочной машине — оператор должен либо настроить один из двух путей, либо явно принять risk через operator acceptance перед `/finalize-pr` (Mode D через ручное Copilot review).
-
-**Stateless model dedup:** GPT-5.5 не помнит предыдущие итерации. Если он повторяет finding, который PM уже triage'нул в предыдущей итерации — PM агрегирует как duplicate, не запускает повторный fix-cycle (см. `AGENT_ROLES.md §3 Reviewer`).
-
-### B.9 Шаг i — Финализация PR (стандартный v3.4 pre-merge dual-invocation)
-
-> ⚠️ **REVISED 2026-05-05 (после PR #186 retrospective):** Прежняя версия §B.9 предписывала Bootstrap exception (post-merge landing). Это был over-engineered design. **Bootstrap PR теперь следует стандартному v3.4 pattern** — inline pre-merge landing, как любой обычный Sprint Final (см. PM_ROLE.md §2.5).
->
-> **Reasoning revision:** запись «Bootstrap COMPLETE» в Memory Bank на ветке PR — это **intent**, который становится фактом ПОСЛЕ operator merge. Семантически identical с записью «Sprint N завершён» в обычном Sprint Final landing. Branch protection на default branch делает Путь 2 (operator direct push) технически невозможным. Inline pre-merge landing — единственный sane вариант.
-
-После APPROVED от всех каналов — **dual-invocation per §2.5 Landing the Plane** (как любой Sprint Final):
-
-```bash
-# Шаг 1 — первый /finalize-pr с --pre-landing
-PM: /finalize-pr <PR_NUMBER> --pre-landing
-# Скилл опубликует первый "## ✅ Готов к merge" с warning
-# "⏳ Pre-merge landing commit впереди — жди второй /finalize-pr". НЕ мержи!
-
-# Шаг 2 — landing commit ВНУТРИ ветки PR
-# Landing artifacts:
-# - .memory-bank/activeContext.md — запись "Bootstrap pipeline COMPLETE YYYY-MM-DD"
-# - bd remember 'Bootstrap pipeline COMPLETE on YYYY-MM-DD. Lessons: ...'  # single-quotes per ADR 3.21
-# - .agents/REFERENCES.md — твой проект в секцию «Собственные проекты»
-# - bd close <bootstrap-tracker-id> если был создан в §B.5/§B.7
-git add .memory-bank/ .agents/REFERENCES.md
-git commit -m "chore(landing): pre-merge artifacts — Bootstrap PR #N"
-git push
-
-# Шаг 3 — второй /finalize-pr БЕЗ --pre-landing на новом HEAD
-PM: /finalize-pr <PR_NUMBER>
-# Скилл опубликует второй "## ✅ Готов к merge" без warning.
-# Это единственный сигнал к merge для оператора.
-```
-
-> **Что значит «как обычный Sprint Final»:** PM_ROLE.md §2.5 Landing the Plane описывает этот pattern для всех Sprint Final PR. Никаких Bootstrap-специфичных шагов больше нет — используй §2.5 как single source of truth.
-
-### B.10 Шаг j — Merge оператором
-
-> **Это единственный merge, который делает оператор.** Ты как ИИ-агент **не мержишь**.
-
-Сообщи оператору после второго `/finalize-pr` (без warning):
-
-```
-PR #N готов к merge:
-- ✅ Готов к merge (без warning) опубликован после landing commit
-- Landing artifacts inside ветки PR (Memory Bank update, REFERENCES update, bd remember)
-- bd doctor зелёный
-- Все Beads-замечания либо closed, либо deferred с ID
-
-Жду твоего merge через GitHub UI или `gh pr merge N` (любой mode).
-```
-
-> ⚠️ **Заметка про squash merge и D.4:** GitHub при `--squash` создаёт single squash-commit (не merge-commit с двумя parents). D.4 acceptance criterion «PR-history содержит merge-коммит с маркером `Tier: Sprint Final`» относится к body/title PR-а или squash-commit message — не к git merge-commit структуре. Squash merge сохраняет PR title/body метаданные.
-
-После merge оператора → проект готов к обычным спринтам через `HOW_TO_USE.md`. **Никаких post-merge housekeeping шагов нет** — всё уже в landing commit ветки PR.
-
-> ⛔ **Запрещено:** PM пушит artifacts напрямую в default branch (branch protection всё равно блокирует, но даже без protection — нарушит инвариант #4).
-
----
-
-## C. Bootstrap pattern (chicken-and-egg note)
-
-> Эта секция — для понимания, **почему** Bootstrap PR требует contained-confirmation gates вместо полностью автономного режима.
-
-**Парадокс:** пайплайн обещает автономность через hard gates (`/finalize-pr` verify-on-commit), но первый PR — это сам пайплайн, и hard gates ещё не работают на нём по полной (например `/verify` нет если нет тестовой инфраструктуры; landing artifacts ссылаются на сам себя).
-
-**Решение в U2 PR #185:**
-
-1. **Один разовый ручной merge оператором** — это и есть единственный gate, который обходит chicken-and-egg.
-2. **Все остальные шаги** (review/fix/external/finalize) проходят как обычно — потому что hooks и skills уже на ветке после первого commit.
-3. **Mode C (degraded) допустим ТОЛЬКО для doc-only landing commit** (per ADR 3.20). Для full Bootstrap PR Mode C **недопустим** — Bootstrap PR содержит executable infrastructure, требует cross-model adversarial diversity. Mode C — exception для landing artifacts только.
-
-**Урок для будущих миграций:** не пытайтесь автоматизировать Bootstrap merge. Это нарушит инвариант 7 (merge — решение оператора) и создаст рекурсивную дыру в trust model.
-
-**Что НЕ делает пайплайн в Bootstrap:**
-
-- Не пушит в default branch (даже Bootstrap PR — через PR, никогда напрямую)
-- Не использует `git checkout` для сброса (защита pipeline self-defense)
-- Не модифицирует `.gitignore` после первого commit без явной правки PM
-- Не запускает `/external-review` на ветках без PR (защита от leak prompts в trusted env)
-
----
-
-## D. Критерии завершения установки
-
-> **Установка считается завершённой, когда выполнены ВСЕ пункты ниже.** Если хотя бы один не выполнен — пайплайн не готов к production-спринтам.
-
-### D.1 Структурные
-
-- [ ] `.agents/` присутствует в default branch с 10 doctrine-файлами: AGENTIC_PIPELINE, AGENT_ROLES, PM_ROLE, PIPELINE, PIPELINE_ADR, HOW_TO_USE, REFERENCES, INSTALL, CODEX_AUTH, pipeline-improvement-plan-v3.3
-- [ ] `.claude/settings.json` присутствует в default branch
-- [ ] `.claude/hooks/` укомплектован: `check-merge-ready.py`, `test_check_merge_ready.py`, `codex-login.sh` (SessionStart-хук из `settings.json` — без него `bash .claude/hooks/codex-login.sh` укажет на missing file)
-- [ ] `.claude/skills/` содержит как минимум: `verify`, `sprint-pr-cycle`, `external-review`, `finalize-pr`, `pipeline-audit`
-- [ ] `.claude/tools/` укомплектован: `openai-review.mjs`, `codex-account-switch.ps1`, `smoke-test.mjs`, `package.json`, `README.md` присутствуют, `npm ci --ignore-scripts` отработал. **Если `package-lock.json` отсутствует** — fail-closed по умолчанию (`exit 1`); fallback `npm install --ignore-scripts` разрешён ТОЛЬКО при явном `INSTALL_ALLOW_NPM_DRIFT=1` operator acceptance (см. §B.3)
-- [ ] `.gitignore` обновлён (runtime artifacts исключены)
-- [ ] `AGENTS.md` присутствует в корне default branch; payload-плейсхолдеры (`<PROJECT_NAME>`, `<PROJECT_DESCRIPTION>`, `<CURRENT_FOCUS>`, `<DOC_INDEX>`, `<CODE_MAP>`, `<ABBREVIATIONS>`) заполнены; generic-секции (Beads, Session Completion, подпись, публикация ревью) на месте
-- [ ] `.claude/rules/beads.md` присутствует (generic-правило bd)
-- [ ] `bd init` выполнен с `--skip-agents`; запрещённый sync-guidance отсутствует как **рекомендация**. Scripted-гейт на известные recommendation-сигнатуры (должен вернуть exit 0 / «нет рекомендаций»):
-  ```bash
-  # Scope — только agent-facing guidance (AGENTS.md + .claude/rules). НЕ сканировать .agents/:
-  # INSTALL.md/PIPELINE_ADR.md легитимно обсуждают анти-паттерн (guard'ы, override, это определение
-  # гейта) и дали бы self-match.
-  if grep -rniE "(use[d]? +bd dolt (push|pull))|(bd dolt (push|pull) +#)|(# *sync with remote)|(push changes:.*bd dolt)|(bd dolt push.*(end of session|конце сессии))" AGENTS.md .claude/rules; then
-    echo "FAIL: найдена recommendation-сигнатура bd dolt push/pull"; exit 1
-  else echo "OK: рекомендаций нет"; fi
-  # Гейт несуществующих в bd 1.0.2 команд: export-git/fetch-git не должны встречаться
-  # как операционная инструкция (sync — через scripts/bd-sync-export.sh / bd-sync-restore.sh):
-  if grep -rniE "bd backup (export-git|fetch-git)" AGENTS.md .claude/rules; then
-    echo "FAIL: ссылка на несуществующую команду bd backup export-git/fetch-git"; exit 1
-  else echo "OK: stale-команд нет"; fi
-  ```
-  Дополнительно — ручной аудит-чтением: `rg "bd dolt (push|pull)" AGENTS.md .claude/rules` → все вхождения в запретительном/override-контексте (маркер «НЕ»/«не применяется»/«override»/«Запрещено» может стоять на соседней строке). Построчным автогейтом эту часть НЕ проверять — даст ложные срабатывания на multiline-контексте
-
-### D.2 Runtime
-
-- [ ] `bd ready --json` возвращает валидный JSON (даже если пусто) — основной health-check в embedded-mode
-- [ ] `bd doctor` без ошибок (только server-mode; в embedded-mode «not supported» — не провал)
-- [ ] `.memory-bank/activeContext.md` существует и содержит контекст проекта (не пустой)
-- [ ] PM-промпт активации работает (Claude отвечает как PM, читает MEMORY)
-
-### D.3 Dogfood-цикл
-
-- [ ] Bootstrap PR прошёл хотя бы один полный `/sprint-pr-cycle` (внутренний review-pass APPROVED)
-- [ ] Bootstrap PR прошёл `/external-review` **Mode A primary / A-hybrid / A-legacy** (cross-model GPT-5.5 primary + GPT-5.3-Codex; GPT-5.4 — допустимый fallback для GPT-5.5 в Mode A-legacy; см. §B.8 + PIPELINE.md §5 + ADR 3.27). **Альтернативно — Mode D** (ручное VS Code Copilot Agent review) с явной фиксацией operator risk acceptance в PR comment (формат: `Operator risk acceptance: external review через Mode D, причина: ..., scope: full Bootstrap PR, commit: abcd1234, подпись оператора`). **Mode C для full Bootstrap PR недопустим** — Bootstrap PR содержит executable infrastructure (см. §B.8 + ADR 3.20)
-- [ ] **Pre-merge dual-invocation per §2.5 + §B.9:** первый `/finalize-pr --pre-landing` → landing commit inline → второй `/finalize-pr` без флага. Финальный `## ✅ Готов к merge` БЕЗ warning опубликован после landing commit на новом HEAD
-- [ ] Bootstrap PR смерджен оператором в default branch
-
-### D.4 Документация (pre-merge inline в landing commit)
-
-> ✅ **REVISED 2026-05-05:** D.4 чек-листы выполняются **ВНУТРИ ветки PR в landing commit** (per §2.5 + §B.9), как обычный Sprint Final. Прежняя Bootstrap exception (post-merge) отменена per PR #186 retrospective.
-
-- [ ] `.memory-bank/activeContext.md` обновлён в landing commit с записью «Bootstrap pipeline COMPLETE YYYY-MM-DD»
-- [ ] `bd remember` содержит запись с lessons learned из Bootstrap PR
-- [ ] `.agents/REFERENCES.md` обновлён в landing commit — твой проект добавлен в секцию «Собственные проекты»
-- [ ] PR-метаданные (title, body, или squash-commit message при squash merge) содержат маркер `Tier: Sprint Final`. Не требуется git merge-commit как отдельный объект (squash merge создаёт single commit без двух parents — это валидно)
-
-### D.5 Финальный smoke test
-
-> **Manual smoke check** — это subjective acceptance gate, не automatable. Использовать как complement к D.1-D.4 (machine-checkable).
-
-После merge Bootstrap PR в default branch, оператор запускает:
-
-```
-Ты PM. Прочитай .agents/AGENT_ROLES.md секция "0. Project Manager".
-Задача: покажи текущее состояние проекта и предложи план Sprint 1.
-```
-
-**Объективные критерии успеха** (все должны выполниться, не subjective оценка):
-
-- [ ] PM возвращает не пустой ответ длиной > 200 символов
-- [ ] В ответе явно упоминается «Bootstrap COMPLETE» или эквивалент из `.memory-bank/activeContext.md`
-- [ ] В ответе вызывается `bd ready` или эквивалент (упоминание Beads-задач)
-- [ ] PM предлагает план Sprint 1 как минимум с 2-3 конкретными задачами (не общие фразы)
-- [ ] Нет ошибок типа «не могу прочитать», «файл не найден», «недоступно»
-
-→ **Установка завершена.** Дальше — обычная работа через `HOW_TO_USE.md`.
-
-Если хотя бы один критерий не выполнен — диагностируй: какой шаг (D.1-D.4) не доделан, и докручивай.
-
----
-
-## E. Что делать при провале установки
-
-| Симптом | Диагноз | Что делать |
-|---------|---------|------------|
-| `bd doctor` красный | Beads не инициализирован или версия старая | `bd init`, обновить `bd` до последней |
-| `/verify` ругается на отсутствие тестов | Тестовой инфры в проекте ещё нет | Это норма для нового проекта — `/verify` пропустит шаг тестов или вернёт N/A; добавь tests в Sprint 1 |
-| Hook блокирует `gh pr comment` | PreToolUse matcher срабатывает в bootstrap-режиме | Проверь `.claude/settings.json` matchers; в U2 PR #185 фиксили catch-22 в Step 7.10 |
-| `/external-review` падает с auth error | Codex CLI subscription и `OPENAI_API_KEY` оба недоступны | **Primary path (v3.9, ADR 3.27):** `codex login` через browser → workspace picker, профиль `[profiles.review]` в `~/.codex/config.toml` (см. CODEX_AUTH.md §8). **Fallback (Mode A-legacy, v3.6):** session-only `$env:OPENAI_API_KEY = '...'` (PowerShell) или `export OPENAI_API_KEY=...` (bash). `setx OPENAI_API_KEY ...` (Windows) сохраняет ключ в registry — это persisted, противоречит духу ADR 3.23. Если нужен persisted — используй secrets manager. **Fallback на Mode C ограничен** — только doc-only landing commit (ADR 3.20). Для full Bootstrap PR Mode C **недопустим** (см. §B.8 + §D.3); либо настрой один из путей, либо явно прими risk через Mode D (ручное Copilot review). |
-| `/finalize-pr` блокирует на отсутствии Tier | В body PR нет строки `Tier: ...` | Добавь `Tier: Sprint Final` в body PR через `gh pr edit N --body` |
-| Bash переменная `$VAR` раскрылась в `bd create` и закоммичен secret | Использовал double-quotes с `$OPENAI_API_KEY` или подобным | Только single-quotes для bd commands; rotate secret немедленно |
-| `git checkout file` блокируется deny-rule | Сработала pipeline self-defense | Это **positive** signal. Используй `git restore --source=HEAD --staged --worktree -- file` (если разрешено) или Edit для аккуратной правки |
-
----
-
-## F. Связанные документы
-
-| Файл | Когда читать |
-|------|--------------|
-| `.agents/HOW_TO_USE.md` | После завершения установки — обычная работа |
-| `.agents/PIPELINE.md` | Карта компонентов и lifecycle спринта |
-| `.agents/PM_ROLE.md` | Детальный workflow PM, включая §2.0.5 Bootstrap session |
-| `.agents/AGENT_ROLES.md` | Промпты активации для всех ролей |
-| `.agents/PIPELINE_ADR.md` | Решения 3.16-3.24 (PR #185 dogfood + convergence cap из PR #186) + ADR 3.27 (v3.8 — Codex CLI ChatGPT subscription primary backend) |
-| `.agents/AGENTIC_PIPELINE.md` | Философия generic, для понимания «почему». Полные нумерованные инварианты — в `PIPELINE_ADR.md §3` |
-| `.agents/REFERENCES.md` | Источники и референсы фреймворков |
-| `.agents/CODEX_AUTH.md` | **Primary backend setup (v3.9).** §8 — ChatGPT subscription path для Mode A primary (browser OAuth, workspace picker, `[profiles.review]` config). §1-§7 — legacy Platform API path для Mode A-legacy fallback. §9 — legacy footnote. Читай при первой настройке и при auth issues |
-| `.agents/pipeline-improvement-plan-v3.3.md` | **Исторический snapshot.** План эволюции пайплайна v3.3, переехал из big-heroes как reference. Не required для миграции, но полезен для понимания контекста ADR 3.11-3.15 |
+Rollback сравнивает current managed hashes с installed state: последующая правка даёт stop,
+чтобы не потерять работу. Затем восстанавливает исходные bytes/modes или удаляет только созданные
+managed files. Обратный порядок сначала возвращает settings, затем удаляет новый
+dispatcher. Apply не является multi-file atomic update; при ошибке используется сохранённый
+journal и тот же обратный порядок. Project overrides, Beads и Memory Bank не откатываются вслепую. Backup содержит
+только managed pipeline files, не secrets. После commit — revert upgrade PR и адресно восстанови
+saved overrides; команды rollback применимы только к соответствующему snapshot.
+
+Для самого reference возврат к stable — revert candidate PR либо checkout неизменного stable
+release/tag в отдельной рабочей ветке. Не передвигай опубликованные теги. RC не становится Latest;
+promotion в stable — отдельное решение.
