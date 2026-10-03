@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """AC-07: реальные isolated Git fixtures; source drift, conflict, rollback bytes."""
 import importlib.util
+import errno
 from unittest import mock
 import hashlib
 import json
@@ -202,7 +203,7 @@ class InstallTests(unittest.TestCase):
         limits=[int(line) for line in err.splitlines() if line.isdigit()]
         self.assertEqual(len(limits),1,err);self.assertLessEqual(limits[0],96)
         dispatcher=self.target/'.claude/hooks/pre-bash.sh'
-        dispatcher.write_text(dispatcher.read_text(encoding='utf-8').replace('export OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS=', 'export U2_COMMIT_GATE_TEST_MAX_SECONDS='),newline='\n')
+        dispatcher.write_text(dispatcher.read_text(encoding='utf-8').replace('export OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS=', 'export U2_COMMIT_GATE_TEST_MAX_SECONDS='),encoding='utf-8',newline='\n')
         code,err=dispatch.run(entry,'git commit -m x',self.target,extra_env={'OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS':'100'})
         self.assertEqual(code,2,err)
         self.assertIn('100',err.splitlines(),'producer/consumer mismatch must leave real gate unsqueezed')
@@ -241,7 +242,7 @@ class InstallTests(unittest.TestCase):
     def test_custom_publication_rule_conflict_preserves_target(self):
         self.upgrade_fixture()
         rule=self.target/'.claude/rules/large-payloads.md'
-        rule.write_text(rule.read_text(encoding='utf-8')+'\nProject publication override\n')
+        rule.write_text(rule.read_text(encoding='utf-8')+'\nProject publication override\n',encoding='utf-8')
         before=snapshot(self.target);self.make_plan();self.approve();result=self.apply(ok=False)
         self.assertIn('.claude/rules/large-payloads.md',result.stderr)
         self.assertEqual(snapshot(self.target),before)
@@ -324,9 +325,39 @@ class InstallTests(unittest.TestCase):
 
     def test_backup_symlink_rejected_before_write(self):
         self.make_plan();self.approve()
-        outside=self.root/'outside';outside.mkdir();(self.target/'.overgate-backups').symlink_to(outside)
+        outside=self.root/'outside';outside.mkdir()
+        try:(self.target/'.overgate-backups').symlink_to(outside,target_is_directory=True)
+        except OSError as error:
+            if sys.platform=='win32' and getattr(error,'winerror',None)==1314:
+                self.skipTest('Windows WinError1314: directory symlink creation privilege unavailable; security test NOT RUN')
+            raise
         self.assertIn('symlink',self.apply(ok=False).stderr)
         self.assertEqual(list(outside.iterdir()),[])
+
+    def test_unicode_fixtures_with_cp1251_default(self):
+        # Реальные записи файлов под не-UTF-8 default, без PYTHONUTF8 override.
+        original=Path.write_text
+        def locale_write(path,data,encoding=None,errors=None,newline=None):
+            return original(path,data,encoding=encoding or 'cp1251',errors=errors,newline=newline)
+        for name in ('test_custom_publication_rule_conflict_preserves_target',
+                     'test_installed_real_gate_receives_remaining_budget'):
+            with self.subTest(name=name),mock.patch.object(Path,'write_text',locale_write):
+                result=unittest.TestResult();InstallTests(name).run(result)
+                self.assertEqual(result.errors,[])
+                self.assertEqual(result.failures,[])
+                self.assertEqual(result.skipped,[])
+
+    def test_symlink_capability_handling_is_exact(self):
+        for platform,winerror,skip in (('win32',1314,True),('win32',5,False),('darwin',1314,False)):
+            error=OSError(errno.EACCES,'injected symlink capability error');error.winerror=winerror
+            with self.subTest(platform=platform,winerror=winerror):
+                with mock.patch.object(sys,'platform',platform),mock.patch.object(Path,'symlink_to',side_effect=error) as create:
+                    result=unittest.TestResult();InstallTests('test_backup_symlink_rejected_before_write').run(result)
+                self.assertTrue(create.call_args.kwargs.get('target_is_directory'))
+                self.assertEqual(len(result.skipped),int(skip))
+                self.assertEqual(len(result.errors),int(not skip))
+                self.assertEqual(result.failures,[])
+                if skip:self.assertIn('1314',result.skipped[0][1])
 
     def test_custom_runtime_hook_conflict_preserves_target(self):
         self.upgrade_fixture()

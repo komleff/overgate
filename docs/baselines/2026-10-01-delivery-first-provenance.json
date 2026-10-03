@@ -634,8 +634,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native Windows fixture evidence and operator-owned main protection state; immutable bound plans unchanged.  Actual OPUS CODE5 CHANGES_REQUESTED/open addressed Codex blocker and QA6/explicit additional RV budget state.",
-      "target_sha256": "333abdcffd7ae301606e913693aac4a9acfad5b0a83283e6a11ad694b8cabb34"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native Windows fixture evidence and operator-owned main protection state; immutable bound plans unchanged.  Actual OPUS CODE5 CHANGES_REQUESTED/open addressed Codex blocker and QA6/explicit additional RV budget state.  Current CODE5680 APPROVED/budget6of7/QA pending and actualWindows live5680PASS/accepted limits; ordinary-user native fixture3errors addressed without runtime changes.",
+      "target_sha256": "6ddd2910db687888f02034956614b8be40ea6464978154e0cbf6143ba02aea96"
     },
     {
       "target": ".memory-bank/progress.md",
@@ -857,8 +857,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained. Frozen-byte assertion reads binary git show exactSHA:path, not CRLF source worktree; real clean core.autocrlf=true checkout regression exercises full v3.9 upgrade/rollback and preserves QA-F1, overrides and byte assertions.  Codex previous-RC exact-extra removal, custom hook/env preservation, variant conflict before writes and full byte rollback regression.",
-      "target_sha256": "36ebeaa102d6f159a24e14001c559a282f4a2a18df88a6e3e977b30dc2491118"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained. Frozen-byte assertion reads binary git show exactSHA:path, not CRLF source worktree; real clean core.autocrlf=true checkout regression exercises full v3.9 upgrade/rollback and preserves QA-F1, overrides and byte assertions.  Codex previous-RC exact-extra removal, custom hook/env preservation, variant conflict before writes and full byte rollback regression.  Ordinary-user Windows cp1251 fixtures: explicit UTF-8 for two Unicode writes; actual file IO cp1251-default regression. Directory symlink flag explicit; only native WinError1314 privilege absence skips security case, all other errors propagate; precise capability regression, original supported-host security assertion retained.",
+      "target_sha256": "f2967ab2c41c4908377453f64f8ee6e8992833e15546fcb0f493e2afaa995620"
     },
     {
       "target": "scripts/tests/lib/assert.sh",
