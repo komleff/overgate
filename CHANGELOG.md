@@ -14,7 +14,8 @@
 
 ### Added
 - Шесть delivery owners и пять generic skills с conditional triggers, без обязательной designer-роли.
-- Shared Claude/Codex mutation, commit, readiness guards; source parser/policy/timeout/publisher closure.
+- Claude dispatcher с mutation, commit и readiness guards; Codex adapter сохраняет единственный
+  source U2 repository guard, без commit/readiness hook entries. Source parser/policy/timeout/publisher closure.
 - Explicit inventory, frozen-source plan/apply, preserved overrides, pre-write backup и byte-restoring rollback.
 - Read-only `verify-reference` CI job, structural negatives, static positive/non-trigger scenarios,
   behavioural runtime tests и fresh/v3.9 upgrade/rollback fixtures.

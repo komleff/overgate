@@ -58,5 +58,6 @@ runtime/терминала. Root-запуск не зависит от `CLAUDE_P
 Три guards идут последовательно: repository mutation, PR readiness, project commit tests.
 Быстрая фаза сужает окно настоящего `.agents/project/verify.sh` через
 `OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS`; явный более узкий override сохраняется.
-Custom runtime hooks проекта сохраняются при upgrade. Codex использует существующий adapter;
-его activation и платформенные пределы проверяются отдельно.
+Custom runtime hooks проекта сохраняются при upgrade. Codex использует source U2 adapter:
+одна repository mutation guard запись, без commit/readiness hook entries и без dispatcher.
+Его actual activation и платформенные пределы проверяются отдельно; Claude evidence не является Codex PASS.

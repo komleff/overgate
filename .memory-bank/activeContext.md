@@ -4,7 +4,10 @@
 Approved refresh: `docs/plans/2026-10-03-delivery-first-rc-refresh.md` и portability amendment.
 Frozen U2 source: `c450fa7b0d90fecf970f9931011255ea836da258`; старый source contract
 `fb8ebfa5` и bound reports сохранены как history. Independent PLAN_READY 3/6 + 4/6 получены;
-следующие verifier launches: affected QA 5/6, один scoped Code Review 6/6, свободного reserve нет.
+Оператор запустил scoped CODE_REVIEW 5/6 до Windows live/QA: CHANGES_REQUESTED,
+Important Codex blocker — лишние commit/readiness entries вне frozen U2 source.
+Addressed source-equivalent fix и exact previous-RC migration в работе; Claude runtime не меняется.
+QA остаётся слот 6/6; addressed RV recheck требует явного дополнительного бюджета, reserve нет.
 
 Реализация переносит #829 dispatcher, staged/installed closure и migration fixtures;
 installer QA-F1/F2 fixes `bdc92fac` сохраняются и требуют affected QA.

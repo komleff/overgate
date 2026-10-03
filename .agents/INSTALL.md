@@ -51,7 +51,10 @@ runtime/терминала. Root-запуск не зависит от `CLAUDE_P
 отложена в `og-7sr`; для собственного подкаталога literal absolute recovery по-прежнему
 обязательна. Не записывайте outside-Git placeholder как успешное восстановление.
 
-Codex сохраняет прежний adapter contract; Claude dispatcher evidence не является Codex PASS.
+Codex сохраняет source U2 adapter: один repository mutation guard, без commit/readiness
+hook entries и без dispatcher. Exact known previous-RC Codex entries заменяются, custom Bash
+hooks сохраняются; изменённая managed запись требует разрешения конфликта в target PR.
+Claude dispatcher evidence не является Codex actual activation PASS.
 
 ## До копирования
 

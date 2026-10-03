@@ -125,7 +125,10 @@ def make_plan(source,sha,target,contract,target_pr):
             old_text='\n'.join(x for x in old_text.splitlines() if x.strip()!='.codex/')
             data=(old_text.rstrip()+'\n\n'+data.decode()).encode()
         elif policy=='settings':
-            try:data=merge_settings(p.read_bytes() if old else None,data,m.get('legacy_settings',{}),m.get('previous_rc_settings',{}))
+            legacy=m.get('legacy_settings',{});previous_rc=m.get('previous_rc_settings',{})
+            if path=='.codex/hooks.json':
+                legacy={};previous_rc=m.get('previous_rc_codex_settings',{})
+            try:data=merge_settings(p.read_bytes() if old else None,data,legacy,previous_rc)
             except InstallError as e:conflicts.append(f'{path}: {e}');continue
         elif old is not None and old['sha256']!=digest(data):
             prior=previous.get(path,{}).get('sha256')

@@ -5,7 +5,10 @@ Generic шесть owners и пять skills сохранены; добавле�
 managed identities, native Windows CI, real installed project verifier/budget fixtures.
 QA-F1/F2 fixes сохранены. Verification: `bash scripts/verify-reference.sh`; exact tested SHA/logs
 публикуются в PR. Platform/live results остаются pending до фактического evidence.
-Budget 4/6; affected QA 5/6 и scoped Review 6/6 управляет PM. Finalize/merge/release pending.
+Budget 5/6: actual OPUS CODE_REVIEW 5 — CHANGES_REQUESTED, Codex source deviation blocker.
+В работе source-equivalent один Codex repository guard + previous-RC migration/custom hook regression.
+QA slot 6/6 и addressed RV recheck с explicit дополнительным бюджетом управляет PM.
+Finalization/merge/release pending; Developer tests не являются independent acceptance.
 Windows recovery для spaces/Cyrillic/parentheses + косметический prefix cleanup — следующий `og-7sr`.
 Outside-Git placeholder принят оператором 2026-10-03 как `DECLARED_LIMIT` rc.1, block2
 обязателен, root restart ожидаем; literal hint также `og-7sr`. Own-subdirectory literal recovery сохраняется.

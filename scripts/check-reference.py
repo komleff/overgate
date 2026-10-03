@@ -115,9 +115,12 @@ def closure(root):
                     errors.append('CLOSURE-004: missing/duplicate dispatcher guard: '+handler)
         settings=json.loads((root/'.codex/hooks.json').read_text(encoding='utf-8'))
         entries=settings['hooks']['PreToolUse']
-        for handler in handlers:
-            if not any(re.fullmatch(e['matcher'],'Bash') and handler in json.dumps(e['hooks']) for e in entries):
-                errors.append('CLOSURE-004: missing whole-Bash adapter: .codex/hooks.json: '+handler)
+        hooks=[h for e in entries if re.fullmatch(e['matcher'],'Bash') for h in e['hooks']]
+        managed=[h for h in hooks if any(n in json.dumps(h) for n in names)]
+        if (len(managed)!=1 or managed[0].get('type')!='command' or managed[0].get('timeout')!=5 or
+                any('check-repository-mutation.py' not in managed[0].get(field,'')
+                    for field in ('command','commandWindows'))):
+            errors.append('CLOSURE-004: Codex requires one managed whole-Bash repository guard from source')
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append('CLOSURE-001: invalid/missing manifest or adapter: ' + str(error))
     return errors

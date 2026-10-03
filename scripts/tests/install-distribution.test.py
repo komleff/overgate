@@ -336,4 +336,29 @@ class InstallTests(unittest.TestCase):
         self.make_plan();self.approve();self.assertIn('conflict',self.apply(ok=False).stderr)
         self.assertEqual(snapshot(self.target),before)
 
+    def test_previous_rc_codex_upgrade_custom_hook_and_rollback(self):
+        # Exact прежний OverGate adapter; custom Bash hook не managed identity.
+        old=json.loads(subprocess.check_output(['git','-C',str(ROOT),'show',
+            '2998f6d001bf877ff118162bfb611da3459cd274:.codex/hooks.json']))
+        custom={'matcher':'^Bash$','hooks':[{'type':'command','command':'echo codex-project'}]}
+        old['hooks']['PreToolUse'].append(custom);old['env']={'PROJECT':'preserve'}
+        path=self.target/'.codex/hooks.json';path.parent.mkdir(parents=True);path.write_text(json.dumps(old),encoding='utf-8')
+        before=snapshot(self.target);self.make_plan();self.approve();self.apply()
+        after=json.loads(path.read_text(encoding='utf-8'))
+        expected=json.loads((self.source/'.codex/hooks.json').read_text(encoding='utf-8'))['hooks']['PreToolUse']
+        self.assertEqual(after['hooks']['PreToolUse'],[custom]+expected)
+        self.assertEqual(len(expected),1);self.assertEqual(after['env'],{'PROJECT':'preserve'})
+        state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
+        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.assertEqual(snapshot(self.target),before)
+
+    def test_custom_codex_managed_variant_conflicts_before_write(self):
+        old=json.loads(subprocess.check_output(['git','-C',str(ROOT),'show',
+            '2998f6d001bf877ff118162bfb611da3459cd274:.codex/hooks.json']))
+        old['hooks']['PreToolUse'][1]['hooks'][0]['timeout']=599
+        path=self.target/'.codex/hooks.json';path.parent.mkdir(parents=True);path.write_text(json.dumps(old),encoding='utf-8')
+        before=snapshot(self.target);self.make_plan();self.approve();result=self.apply(ok=False)
+        self.assertIn('custom managed runtime hook',result.stderr)
+        self.assertEqual(snapshot(self.target),before);self.assertFalse((self.target/'.overgate-backups').exists())
+
 if __name__=='__main__':unittest.main()

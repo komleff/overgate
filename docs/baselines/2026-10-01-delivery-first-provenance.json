@@ -94,9 +94,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".agents/HOW_TO_USE.md",
       "source_blob": "e2c614a398c8cfc28fcc597763e759314abe2baa",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.  Accurate Codex source repository-guard-only disclosure; no commit/readiness hooks or dispatcher, actual activation separate.",
       "refresh_delta": "unchanged source blob",
-      "target_sha256": "062712dabcf141428cc3e32137593bccec6c53d9546b953f75f9e9f1501a0e9a"
+      "target_sha256": "b6da5776a9afe07e869c2a682e0a7d94d4fd060cc6d2b0db8ace2be4f4290757"
     },
     {
       "target": ".agents/INSTALL.md",
@@ -105,9 +105,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".agents/INSTALL.md",
       "source_blob": "38fcca0f1abbaee9bdc6a86fbb788d036dbf9f64",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.  Accurate Codex source repository-guard-only disclosure and exact previous-RC migration/custom hook preservation; actual activation separate.",
       "refresh_delta": "updated source blob; generic adaptation retained",
-      "target_sha256": "a26808ac110bdbef911dc787aa38f62cbc525f955d09133b19ac5af075606ddb"
+      "target_sha256": "cde321c1cfae3496a52d78406e510889f2d0c330133ba2334ae0b42025a64dce"
     },
     {
       "target": ".agents/PIPELINE.md",
@@ -204,7 +204,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained.  Explicit previous_rc_codex_settings retains exact old three managed identities for migration; source payload is one U2 repository guard.",
+      "target_sha256": "5df1d66824ce16ff071302333beff05e65d0a5aacc532b2421313dcc11a2d97d"
     },
     {
       "target": ".agents/pipeline-improvement-plan-v3.3.md",
@@ -610,8 +611,9 @@
       "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
       "source_path": ".codex/hooks.json",
       "source_blob": "98b436e205d00960636f7e05b9b7bf8949336a2d",
-      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
-      "refresh_delta": "unchanged source blob"
+      "adaptation": "Only U2→OverGate description/statusMessage branding; exact frozen U2 single repository guard command, commandWindows and timeout. OverGate-added commit/readiness entries removed per operator source-compatible policy.",
+      "refresh_delta": "unchanged source blob",
+      "target_sha256": "050300922c0791e38f9dc5a509e0d370637cab6fd8dffb1ae60cb1bda9b89eb2"
     },
     {
       "target": ".github/workflows/ci.yml",
@@ -632,16 +634,16 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native Windows fixture evidence and operator-owned main protection state; immutable bound plans unchanged.",
-      "target_sha256": "dcd0b4d6326ad7b3f66bcb91a05bb45540d496feaa9f274050198a8ac0f9d34d"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native Windows fixture evidence and operator-owned main protection state; immutable bound plans unchanged.  Actual OPUS CODE5 CHANGES_REQUESTED/open addressed Codex blocker and QA6/explicit additional RV budget state.",
+      "target_sha256": "333abdcffd7ae301606e913693aac4a9acfad5b0a83283e6a11ad694b8cabb34"
     },
     {
       "target": ".memory-bank/progress.md",
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native fixture corrections and pending exact-SHA qualification; immutable bound plans unchanged.",
-      "target_sha256": "ca6d5804e95bf76931298c9d4c77f11ce8df0c0dbf10b6e8a5a47d8ff14fc9b8"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native fixture corrections and pending exact-SHA qualification; immutable bound plans unchanged.  Actual OPUS CODE5 CHANGES_REQUESTED/open addressed Codex blocker and QA6/explicit additional RV budget state.",
+      "target_sha256": "676ff800e31bc5bf380a525ab48a26445ccf0686b470bf80d7844c813a09ce3a"
     },
     {
       "target": "AGENTS.md",
@@ -655,8 +657,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. RC limits/migration documents accepted outside-Git placeholder DECLARED_LIMIT, mandatory block2, root restart and own-subdirectory literal recovery; improvement deferred og-7sr.",
-      "target_sha256": "6f8c5243e99fc878d0212246c2e4afb31572d3adc6d787c657c168ffa690f2a2"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. RC limits/migration documents accepted outside-Git placeholder DECLARED_LIMIT, mandatory block2, root restart and own-subdirectory literal recovery; improvement deferred og-7sr.  Claude all-three guards versus Codex source single repository guard accurately separated.",
+      "target_sha256": "1f4b92f1431068fb6373a6d804f4a21d4cf92980e25d8c94b94fde2d4102412b"
     },
     {
       "target": "README.md",
@@ -705,14 +707,16 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Claude closure via dispatcher; explicit order; NTFS uses native Git Bash readability/syntax proof and explicit UTF-8 reads, POSIX uses executable bits."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Claude closure via dispatcher; explicit order; NTFS uses native Git Bash readability/syntax proof and explicit UTF-8 reads, POSIX uses executable bits.  Codex closure requires one managed source repository guard, including commandWindows; legitimate custom Bash hooks allowed. Claude dispatcher still requires all three guards.",
+      "target_sha256": "20bb5a117df0c8b374502e8e8a5fb336dbf9738c4113a4d078f4b13b8d49c3e1"
     },
     {
       "target": "scripts/install-overgate.py",
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Known previous-RC JSON identities replace wrappers; custom managed dispatcher conflicts; UTF-8 metadata reads portable across native Windows locale."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Known previous-RC JSON identities replace wrappers; custom managed dispatcher conflicts; UTF-8 metadata reads portable across native Windows locale.  Codex-only known previous-RC identities remove exact old added gates and preserve custom hooks/overrides; changed managed variants conflict. Claude settings branch behavior unchanged.",
+      "target_sha256": "c94d94b6e365329c3513bf28460bbbfd93abd2066548210a125c63846219e77c"
     },
     {
       "target": "scripts/lib/bd-env.sh",
@@ -853,8 +857,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained. Frozen-byte assertion reads binary git show exactSHA:path, not CRLF source worktree; real clean core.autocrlf=true checkout regression exercises full v3.9 upgrade/rollback and preserves QA-F1, overrides and byte assertions.",
-      "target_sha256": "9cc11f07f84836379b34eebb4fc20c3b439f09cbd6214704ab831e0cf7e4a475"
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained. Frozen-byte assertion reads binary git show exactSHA:path, not CRLF source worktree; real clean core.autocrlf=true checkout regression exercises full v3.9 upgrade/rollback and preserves QA-F1, overrides and byte assertions.  Codex previous-RC exact-extra removal, custom hook/env preservation, variant conflict before writes and full byte rollback regression.",
+      "target_sha256": "36ebeaa102d6f159a24e14001c559a282f4a2a18df88a6e3e977b30dc2491118"
     },
     {
       "target": "scripts/tests/lib/assert.sh",
@@ -972,7 +976,8 @@
       "classification": "original integration",
       "source_path": null,
       "source_blob": null,
-      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained.  Frozen local U2 Git blob equivalence after branding with Git clean for CRLF checkout, no external CI reads; native Python→Git Bash sourcecommand read0/protectedmutation2/commitpayload0 without CLAUDE_PROJECT_DIR; duplicate/extra/missing Windows closure negatives and custom positive.",
+      "target_sha256": "1716d760dcf0d43f1758f515673d2cfc6330db579c9aac11b35aee5f5e156b8a"
     },
     {
       "target": "scripts/tests/repository-mutation-guard.test.sh",
