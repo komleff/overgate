@@ -11,3 +11,10 @@ PM/Planner/Developer не выбирают missing WHAT. Ready source → PASS_T
 не читать `.env*`, credentials, secrets. Evidence публиковать с фактической ролью/моделью.
 Проверки проекта: `.agents/project/verify.sh`; до заполнения он намеренно даёт FAIL.
 Личные runtime overrides и project context принадлежат проекту.
+
+Beads: основной checkout использует `bd` и sync helpers; локальная worktree —
+`scripts/bd-wt.sh` с живой основной базой; облачный агент — снимок `beads-backup` и
+pending-заявки `.bd-intents/` в PR. Порядок и граница поставки applier:
+`.agents/HOW_TO_USE.md`, секция Beads; project owner — `.claude/rules/beads.md`.
+Авторизованный GitHub-коннектор не требует отдельного login Git CLI. Не создавать
+cloud writer, не менять снимок вручную; очередь применяет оператор trusted tooling.

@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — дополнение для планируемой v4.0.1
+
+### Documentation
+- Порядок доступа к Beads по окружениям из U2 ADR-0042: основной checkout, локальная
+  worktree через `bd-wt.sh`, облако через снимок и pending-заявки `.bd-intents/`.
+- Чтение exact-SHA снимка и публикация PR через авторизованный GitHub-коннектор без
+  обязательного login Git CLI; конечное ожидание и сверка результата после timeout записи.
+- Исправлен blanket-запрет worktree-мутаций: обёртка пишет в основную живую базу.
+- Указана фактическая граница поставки: applier не включён; подключение trusted tooling,
+  lifecycle очереди, частичные сбои и обновление preserved project rules описаны явно.
+- Runtime, inventory, release tags и stable/RC identities не изменены; новый релиз не опубликован.
+
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
