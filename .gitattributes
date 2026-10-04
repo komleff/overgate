@@ -1,0 +1,2 @@
+# Bash scripts сохраняют LF при нативном Windows checkout.
+*.sh text eol=lf

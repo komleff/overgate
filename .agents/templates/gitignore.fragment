@@ -1,0 +1,8 @@
+# OverGate personal state (managed fragment)
+.codex/*
+!.codex/hooks.json
+.claude/settings.local.json
+.overgate-runtime/
+.overgate-backups/
+__pycache__/
+*.pyc

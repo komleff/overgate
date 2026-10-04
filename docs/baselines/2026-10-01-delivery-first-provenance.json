@@ -1,0 +1,1239 @@
+{
+  "format": 1,
+  "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+  "overgate_base": "466ad2020b8c46e6c14b4bbe67b5335017726542",
+  "implementation_base": "93d5348e0c305a022ebd08d887ca2fe5f82a4baf",
+  "copyright_notice": "Copyright (c) 2026 Dmitriy Komlev; OverGate MIT notice preserved. Provenance does not grant a universal license to U2.",
+  "source_skills": [
+    {
+      "source_path": ".agents/skills/u2-canon-router/SKILL.md",
+      "source_blob": "6ded3ab7b87f103216e7fb4ca03ddefa001ba66a",
+      "classification": "generic core",
+      "target": ".agents/skills/canon-router/SKILL.md"
+    },
+    {
+      "source_path": ".agents/skills/u2-product-gap/SKILL.md",
+      "source_blob": "e5131f235e53cf519bfdae57ddadcce4730d9a50",
+      "classification": "generic core",
+      "target": ".agents/skills/product-gap/SKILL.md"
+    },
+    {
+      "source_path": ".agents/skills/u2-product-handoff/SKILL.md",
+      "source_blob": "998f481839a75ee2877f5a8915ee0dece07dd6d1",
+      "classification": "generic core",
+      "target": ".agents/skills/product-handoff/SKILL.md"
+    },
+    {
+      "source_path": ".agents/skills/u2-diagnose/SKILL.md",
+      "source_blob": "fd6abb2d961075ef870f9ec64920f3382efd29af",
+      "classification": "generic core",
+      "target": ".agents/skills/diagnose/SKILL.md"
+    },
+    {
+      "source_path": ".agents/skills/u2-handoff/SKILL.md",
+      "source_blob": "d9c0002086281cde27856c94e42d23e1e73a73c6",
+      "classification": "generic core",
+      "target": ".agents/skills/handoff/SKILL.md"
+    },
+    {
+      "source_path": ".agents/skills/u2-almanac-authoring/SKILL.md",
+      "source_blob": "ad269e9ba9fadadcc21e5028499b7424b83a7293",
+      "classification": "excluded project adapter",
+      "target": null
+    }
+  ],
+  "files": [
+    {
+      "target": ".agents/AGENTIC_PIPELINE.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/AGENT_ROLES.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/AGENT_ROLES.md",
+      "source_blob": "2946bd04c60a9a346b3bfdd0950daa146512e98d",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/CODEX_AUTH.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/DEV_ROLE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/DEV_ROLE.md",
+      "source_blob": "ea84615577c6bd72f097aa9bb356d714a855131a",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/HOW_TO_INSTALL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/HOW_TO_INSTALL.md",
+      "source_blob": "71b7ba81314a9b84c603c36042cb2a7a682325df",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/HOW_TO_USE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/HOW_TO_USE.md",
+      "source_blob": "e2c614a398c8cfc28fcc597763e759314abe2baa",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.  Accurate Codex source repository-guard-only disclosure; no commit/readiness hooks or dispatcher, actual activation separate.",
+      "refresh_delta": "unchanged source blob",
+      "target_sha256": "b6da5776a9afe07e869c2a682e0a7d94d4fd060cc6d2b0db8ace2be4f4290757"
+    },
+    {
+      "target": ".agents/INSTALL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/INSTALL.md",
+      "source_blob": "38fcca0f1abbaee9bdc6a86fbb788d036dbf9f64",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign. Operator2026-10-03 accepts outside-Git placeholder as rc.1 DECLARED_LIMIT with required block2/root restart; own-subdirectory literal recovery retained, outside hint deferred og-7sr.  Accurate Codex source repository-guard-only disclosure and exact previous-RC migration/custom hook preservation; actual activation separate.",
+      "refresh_delta": "updated source blob; generic adaptation retained",
+      "target_sha256": "cde321c1cfae3496a52d78406e510889f2d0c330133ba2334ae0b42025a64dce"
+    },
+    {
+      "target": ".agents/PIPELINE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/PIPELINE.md",
+      "source_blob": "72e6a75a26fb3b38b27f9ee63ea7da7373ad98b7",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/PIPELINE_ADR.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/PIPELINE_ADR.md",
+      "source_blob": "c5f7227b4fffdc79cbbbce70f11ab1d60dd4de8f",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "updated source blob; generic adaptation retained"
+    },
+    {
+      "target": ".agents/PL_ROLE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/PL_ROLE.md",
+      "source_blob": "38160eafc42aebc6216dae3455f91ed687b8f756",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/PM_ROLE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/PM_ROLE.md",
+      "source_blob": "e266cbb700c67548309880f617f5568f1afa72b5",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/QA_ROLE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/QA_ROLE.md",
+      "source_blob": "0d4262f003e5417c48980bffb2bc1ed5b62af9bc",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/REFERENCES.md",
+      "classification": "transferred/adapted",
+      "source_path": ".agents/REFERENCES.md",
+      "source_blob": "234449c48500e034ddb09326fdba36b517319e1c",
+      "adaptation": "Current source bibliography/credits adapted; OverGate MIT/provenance and historical sections retained.",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "refresh_delta": "current bibliography adaptation"
+    },
+    {
+      "target": ".agents/RV_ROLE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/RV_ROLE.md",
+      "source_blob": "9b7e95b87060ef6edf47064915c4a0aad17cf12c",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/SKILLS.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/SKILLS.md",
+      "source_blob": "f416712805630095dda377a086131b9e93f0b5ae",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/SV_ROLE.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/SV_ROLE.md",
+      "source_blob": "7b6a2b2d8f50ba36e8c45d11c0b421fe1be4255d",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/distribution-manifest.json",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained.  Explicit previous_rc_codex_settings retains exact old three managed identities for migration; source payload is one U2 repository guard.",
+      "target_sha256": "5df1d66824ce16ff071302333beff05e65d0a5aacc532b2421313dcc11a2d97d"
+    },
+    {
+      "target": ".agents/pipeline-improvement-plan-v3.3.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/project/verify.sh",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/skills/canon-router/SKILL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/skills/u2-canon-router/SKILL.md",
+      "source_blob": "6ded3ab7b87f103216e7fb4ca03ddefa001ba66a",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/skills/diagnose/SKILL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/skills/u2-diagnose/SKILL.md",
+      "source_blob": "fd6abb2d961075ef870f9ec64920f3382efd29af",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/skills/handoff/SKILL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/skills/u2-handoff/SKILL.md",
+      "source_blob": "d9c0002086281cde27856c94e42d23e1e73a73c6",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/skills/product-gap/SKILL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/skills/u2-product-gap/SKILL.md",
+      "source_blob": "e5131f235e53cf519bfdae57ddadcce4730d9a50",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/skills/product-handoff/SKILL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".agents/skills/u2-product-handoff/SKILL.md",
+      "source_blob": "998f481839a75ee2877f5a8915ee0dece07dd6d1",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".agents/templates/AGENTS.template.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/templates/gitignore.fragment",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/templates/project-authority.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".agents/templates/project-verify.sh",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/agents/developer.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/agents/developer.md",
+      "source_blob": "e01309736c8b2fef74e5045b7b3beb58d5194c29",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/agents/planner.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/agents/planner.md",
+      "source_blob": "b0b61733b99d6e3c1bc551696123c26f049f79ec",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/agents/reviewer.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/agents/reviewer.md",
+      "source_blob": "a2ccf4f4f6b0468a9e9e7c57e5b4ab95d482918a",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/agents/tester.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/agents/tester.md",
+      "source_blob": "795406b77b1d24d0ed97e9874e8250c89dce8c00",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/check-merge-ready.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/check-merge-ready.py",
+      "source_blob": "ce6f0dd0e2f73e001cd5f5496c5c1f8a0e2c491c",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/check-repository-mutation.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/check-repository-mutation.py",
+      "source_blob": "4dbe85e877fd56c37cb9dd139ef287e32a1a409b",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/check-tests-before-commit.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/check-tests-before-commit.sh",
+      "source_blob": "44573c5943b5ddcb4044bad6f44b8e78e8da9154",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/commit_command_classifier.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/commit_command_classifier.py",
+      "source_blob": "950ddf225277afe02567ba5bfe663af326c36e98",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/readiness_policy.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/readiness_policy.py",
+      "source_blob": "9d698d280d8a0cbec980bb10f6fea06f781be59b",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/shell_comment_parser.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/shell_comment_parser.py",
+      "source_blob": "4af8f3d64c2882afe917dfc77e16469644babb61",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/shell_grammar.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/shell_grammar.py",
+      "source_blob": "537a687622fd0bfa431c449fe9e095fa3f2daca6",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/hooks/test_check_merge_ready.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/test_check_merge_ready.py",
+      "source_blob": "4e4fb13978b6091b82701c3f16184299aacad81c",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/rules/large-payloads.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/rules/tests.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/rules/universal.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/settings.json",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/settings.json",
+      "source_blob": "ac7164a6e9fab24cfdddbc839a4b62a531a6e45e",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "updated source blob; generic adaptation retained"
+    },
+    {
+      "target": ".claude/skills/README.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/architect/README.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/architect/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/architect/references/templates.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/external-review/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/finalize-pr/SKILL.md",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/skills/finalize-pr/SKILL.md",
+      "source_blob": "8bb5eddc4633f612a92dfc4cf4aab85d1b1c45e6",
+      "adaptation": "Preserve triage/binding/race/readiness procedure; generic owner references and project Beads helper closure. Manual error path requires explicit operator command, retains hard checks and accepted-risk validation; never bypass hooks/permissions.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/skills/finalize-pr/validators/regression_pr183.sh",
+      "classification": "transferred/adapted",
+      "source_path": ".claude/skills/finalize-pr/validators/regression_pr183.sh",
+      "source_blob": "f710fb37a7ebfbc31f4f3cdfda57c96579c80c0e",
+      "adaptation": "Preserve existing validator source and executable bit; PR183 corpus utility marked historical and excluded from distribution/reference suite.",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_repository": "https://github.com/komleff/u2",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/skills/finalize-pr/validators/strip_code_spans.sh",
+      "classification": "transferred/adapted",
+      "source_path": ".claude/skills/finalize-pr/validators/strip_code_spans.sh",
+      "source_blob": "45b5ed30d097dfccc79f5d72c25b40afb6d542fc",
+      "adaptation": "Preserve existing validator source and executable bit; PR183 corpus utility marked historical and excluded from distribution/reference suite.",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_repository": "https://github.com/komleff/u2",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/skills/finalize-pr/validators/test_validate_review_pass.sh",
+      "classification": "transferred/adapted",
+      "source_path": ".claude/skills/finalize-pr/validators/test_validate_review_pass.sh",
+      "source_blob": "afdde01cce56ff4d654be5d22127a828470ae5cc",
+      "adaptation": "Preserve existing validator source and executable bit; PR183 corpus utility marked historical and excluded from distribution/reference suite.",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_repository": "https://github.com/komleff/u2",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/skills/pipeline-audit/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/project-manager/README.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/project-manager/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/project-manager/references/templates.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/sprint-pr-cycle/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/skills/verify/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/tools/README.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/tools/publish-pr-comment.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/tools/publish-pr-comment.py",
+      "source_blob": "e969d97fe6c80495466e7b19bea9859a84a9fe6c",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/tools/run-python.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/tools/run-python.sh",
+      "source_blob": "cd6341fa8d73307d28408b84c001fc050e5660b1",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".claude/tools/with-timeout.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/tools/with-timeout.sh",
+      "source_blob": "a04234d181dcb819076a22763249521ff805ccae",
+      "adaptation": "Preserve executable parser/policy/security logic; rename test env U2→OVERGATE where used; commit gate runs project verify entrypoint.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": ".codex/hooks.json",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".codex/hooks.json",
+      "source_blob": "98b436e205d00960636f7e05b9b7bf8949336a2d",
+      "adaptation": "Only U2→OverGate description/statusMessage branding; exact frozen U2 single repository guard command, commandWindows and timeout. OverGate-added commit/readiness entries removed per operator source-compatible policy.",
+      "refresh_delta": "unchanged source blob",
+      "target_sha256": "050300922c0791e38f9dc5a509e0d370637cab6fd8dffb1ae60cb1bda9b89eb2"
+    },
+    {
+      "target": ".github/workflows/ci.yml",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".gitignore",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".memory-bank/activeContext.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native Windows fixture evidence and operator-owned main protection state; immutable bound plans unchanged.  Actual OPUS CODE5 CHANGES_REQUESTED/open addressed Codex blocker and QA6/explicit additional RV budget state.  Current CODE5680 APPROVED/budget6of7/QA pending and actualWindows live5680PASS/accepted limits; ordinary-user native fixture3errors addressed without runtime changes.",
+      "target_sha256": "6ddd2910db687888f02034956614b8be40ea6464978154e0cbf6143ba02aea96"
+    },
+    {
+      "target": ".memory-bank/progress.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Current operator outside-Git DECLARED_LIMIT, native fixture corrections and pending exact-SHA qualification; immutable bound plans unchanged.  Actual OPUS CODE5 CHANGES_REQUESTED/open addressed Codex blocker and QA6/explicit additional RV budget state.",
+      "target_sha256": "676ff800e31bc5bf380a525ab48a26445ccf0686b470bf80d7844c813a09ce3a"
+    },
+    {
+      "target": "AGENTS.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": "CHANGELOG.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. RC limits/migration documents accepted outside-Git placeholder DECLARED_LIMIT, mandatory block2, root restart and own-subdirectory literal recovery; improvement deferred og-7sr.  Claude all-three guards versus Codex source single repository guard accurately separated.",
+      "target_sha256": "1f4b92f1431068fb6373a6d804f4a21d4cf92980e25d8c94b94fde2d4102412b"
+    },
+    {
+      "target": "README.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Claude startup: shared settings not inherited; configured nested startup needs installed --settings + ordinary --add-dir root + manual mode, separate live evidence; no runtime/recovery redesign.",
+      "target_sha256": "c2b46ef1c7a026f7e185368e61bf1d2bf898a44144640d82354c79481079a557"
+    },
+    {
+      "target": "docs/architecture/ADR-INDEX.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": "docs/baselines/2026-10-01-delivery-first-provenance.json",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": "scripts/bd-read.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/bd-read.sh",
+      "source_blob": "48ee39e26b03d86d3e68b25e06a84290d05f2c99",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/bd-wt.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/bd-wt.sh",
+      "source_blob": "852c90dbf390bb6d9ea3b8736c182d23483cc8ff",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/check-reference.py",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Claude closure via dispatcher; explicit order; NTFS uses native Git Bash readability/syntax proof and explicit UTF-8 reads, POSIX uses executable bits.  Codex closure requires one managed source repository guard, including commandWindows; legitimate custom Bash hooks allowed. Claude dispatcher still requires all three guards.",
+      "target_sha256": "20bb5a117df0c8b374502e8e8a5fb336dbf9738c4113a4d078f4b13b8d49c3e1"
+    },
+    {
+      "target": "scripts/install-overgate.py",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Known previous-RC JSON identities replace wrappers; custom managed dispatcher conflicts; UTF-8 metadata reads portable across native Windows locale.  Codex-only known previous-RC identities remove exact old added gates and preserve custom hooks/overrides; changed managed variants conflict. Claude settings branch behavior unchanged.",
+      "target_sha256": "c94d94b6e365329c3513bf28460bbbfd93abd2066548210a125c63846219e77c"
+    },
+    {
+      "target": "scripts/lib/bd-env.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/lib/bd-env.sh",
+      "source_blob": "54ffed1279a88557e74ba874c8d3a3527a9f0ac5",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/lib/bd-read-engine.mjs",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/lib/bd-read-engine.mjs",
+      "source_blob": "d0dfe768d56fec8d73276a1b8f756bc6c413541d",
+      "adaptation": "Generic extraction; project authority from AGENTS/operator; Delivery First retained.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/activation-routing.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/activation-routing.test.sh",
+      "source_blob": "5c97f42979a94fb1923fcd78550ee7fd5e3af40a",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/bd-read.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/bd-read.test.sh",
+      "source_blob": "7affd66b188ff08bb1ba9390c0ec562b9f1f2c20",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/bd-wt.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/bd-wt.test.sh",
+      "source_blob": "cd77f00174a555b64a9305f67f3afb66d931d286",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/check-reference.test.py",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": "scripts/tests/commit-command-classifier.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/commit-command-classifier.test.sh",
+      "source_blob": "0240efa14c6afc1c6b150726535c25c6c0f9137c",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/commit-gate.test.py",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": "scripts/tests/finalize-triage-parse.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/finalize-triage-parse.test.sh",
+      "source_blob": "3456cc8f29eaeb0d63237fbeabe65014f7a82ec8",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/fixtures/issues-nodeps.jsonl",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/fixtures/issues-nodeps.jsonl",
+      "source_blob": "9a18e05aaa0eccb472f2260bb169399f79b7e2e4",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/fixtures/issues.jsonl",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/fixtures/issues.jsonl",
+      "source_blob": "6cd9f8a28f6c0f788c35f18c4156c263c0d658b4",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/gate-arithmetic-expansion.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/gate-arithmetic-expansion.test.sh",
+      "source_blob": "6de119f8587825122b6d00b1ba385ba824dd84de",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/gate-heredoc-delimiter.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/gate-heredoc-delimiter.test.sh",
+      "source_blob": "faa4efb6aef9c1df89225d0b22ce8c869248701c",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/gate-line-continuation-parity.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/gate-line-continuation-parity.test.sh",
+      "source_blob": "16b0d25617ec0429df53d1ceca45417bcdfb98a3",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/install-distribution.test.py",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained. Native Git Bash invocation; explicit LF shell fixtures; real project verifier/budget integration; interrupted restore observes settings deletion before dispatcher. Native Windows rollback fixture snapshot keys normalized to manifest POSIX paths; path-flavor regression preserves actual CRLF/non-UTF-8 bytes. Existing QA-F1 policy replacement and full rollback assertions retained. Frozen-byte assertion reads binary git show exactSHA:path, not CRLF source worktree; real clean core.autocrlf=true checkout regression exercises full v3.9 upgrade/rollback and preserves QA-F1, overrides and byte assertions.  Codex previous-RC exact-extra removal, custom hook/env preservation, variant conflict before writes and full byte rollback regression.  Ordinary-user Windows cp1251 fixtures: explicit UTF-8 for two Unicode writes; actual file IO cp1251-default regression. Directory symlink flag explicit; only native WinError1314 privilege absence skips security case, all other errors propagate; precise capability regression, original supported-host security assertion retained.",
+      "target_sha256": "f2967ab2c41c4908377453f64f8ee6e8992833e15546fcb0f493e2afaa995620"
+    },
+    {
+      "target": "scripts/tests/lib/assert.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/lib/assert.sh",
+      "source_blob": "ab2ef54865aedf17ad96430a1c1e66e536665579",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/lib/bd-stub.mjs",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/lib/bd-stub.mjs",
+      "source_blob": "0256349dc48e2c7b662bdbe6c23b3937583509b8",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/merge-gate-parse-budget.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/merge-gate-parse-budget.test.sh",
+      "source_blob": "fc2dbf68a5775d837e6d2f05e8a9f2029e8bb4ea",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable. Linux portable budget fixture:8192 interword spaces force a real timed lexer checkpoint; same input wide-limit positive retained. No runtime timing/parser change.",
+      "refresh_delta": "updated source blob; generic adaptation retained",
+      "target_sha256": "86e8d208f247e469e4d3a05b7cfa2e66c1be6958ee1d805e3298b6b2d8f66cfb"
+    },
+    {
+      "target": "scripts/tests/merge-gate-parse-completeness.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/merge-gate-parse-completeness.test.sh",
+      "source_blob": "8f3bf6b13c89e27bbeef6f93f99106d58ace7200",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/merge-gate-parse-complexity.test.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/merge-gate-parse-complexity.test.py",
+      "source_blob": "703223a850a75a6bddccc7ee71dac05485194ef8",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/merge-gate-script-run-parity.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/merge-gate-script-run-parity.test.sh",
+      "source_blob": "9c964e2340a4373767c3e6d52380c8ece28305a2",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/module-resolution-closure.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/module-resolution-closure.test.sh",
+      "source_blob": "b65091df92ac96d95f1a476ddef34fe15c5f41f8",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/publish-pr-comment.test.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/publish-pr-comment.test.py",
+      "source_blob": "385f96134e32256ed66300333a7ed2d832440c65",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "updated source blob; generic adaptation retained"
+    },
+    {
+      "target": "scripts/tests/python-launcher.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/python-launcher.test.sh",
+      "source_blob": "2e52eb8a0419069fec70f5907f0300926eb819c1",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/readiness-declaration-corpus.test.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/readiness-declaration-corpus.test.py",
+      "source_blob": "a83d33c1bb1adf6728a6c0105f7d325db5d4ca7b",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/readiness-policy-complexity.test.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/readiness-policy-complexity.test.py",
+      "source_blob": "540b349c23eef98bfd173f4f7d149d3d46ab0b0b",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/reference-closure.test.py",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained.  Frozen local U2 Git blob equivalence after branding with Git clean for CRLF checkout, no external CI reads; native Python→Git Bash sourcecommand read0/protectedmutation2/commitpayload0 without CLAUDE_PROJECT_DIR; duplicate/extra/missing Windows closure negatives and custom positive.",
+      "target_sha256": "1716d760dcf0d43f1758f515673d2cfc6330db579c9aac11b35aee5f5e156b8a"
+    },
+    {
+      "target": "scripts/tests/repository-mutation-guard.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/repository-mutation-guard.test.sh",
+      "source_blob": "b57f65ab46f01c94c29d855c809a02bcf237c203",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "updated source blob; generic adaptation retained"
+    },
+    {
+      "target": "scripts/tests/shell-grammar-single-source.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/shell-grammar-single-source.test.sh",
+      "source_blob": "56c90986f9d353a17b45b4fa2acc48eea8a8dd4d",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/with-timeout-transparency.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/with-timeout-transparency.test.sh",
+      "source_blob": "910cfb5a8fcd509a53bba9d2f1930c2bf5947b39",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/tests/with-timeout.test.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/with-timeout.test.sh",
+      "source_blob": "c6df945d4ecff140e01a1d49426fad990d2e246f",
+      "adaptation": "Source behavioral fixtures; generic repositories/env; obsolete mandatory Copilot/legacy installer snippet cases replaced by generic installation suite where applicable.",
+      "refresh_delta": "unchanged source blob"
+    },
+    {
+      "target": "scripts/verify-reference.sh",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate integration/documentation/fixture; prior OverGate history and MIT notices retained."
+    },
+    {
+      "target": ".claude/hooks/pre-bash.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": ".claude/hooks/pre-bash.sh",
+      "source_blob": "35e7e87079e978526b7c5c11fb8b9304b1cca4fe",
+      "adaptation": "Source #829 semantics/timing; U2_COMMIT_GATE_TEST_MAX_SECONDS -> OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS matches real consumer; two ${label} delimiters preserve fail-closed diagnostics on macOS Bash 3.2.",
+      "refresh_delta": "new source transfer"
+    },
+    {
+      "target": "scripts/tests/pre-bash-dispatch.test.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/pre-bash-dispatch.test.py",
+      "source_blob": "641a5f1929de51e197131ce671c0d218f7dbc7b2",
+      "adaptation": "Source native Git Bash/settings/cwd/budget mutations; real .agents/project/verify.sh red/green instead of npm; OVERGATE override; unsupported recovery paths blocked and root restart exercised. Native Windows CI on3402c772 exposed TEMP short-name tilde invalidating mutation discriminator and readonly Git-object cleanup. Mutation now uses native source-root absolute missing target and checks baseline block; TemporaryDirectory cleanup reports errors and handles owned readonly temp files. Runtime bytes unchanged.",
+      "refresh_delta": "new source transfer",
+      "target_sha256": "af1a3c985d5c3df8207c0ce22030b24381a1ed2103c084325955a5be8a07ad21"
+    },
+    {
+      "target": "scripts/tests/lib/claude_hooks.py",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/lib/claude_hooks.py",
+      "source_blob": "99550d6c642adfb93f0f19ed3adbf4b1cd10b8a4",
+      "adaptation": "Source entry/wiring/limits reader; native Git Bash resolver added for Windows installer fixtures. Installed helper counts managed entries only and preserves custom Bash hooks.",
+      "refresh_delta": "new source transfer"
+    },
+    {
+      "target": "scripts/tests/lib/seed-claude-hooks.sh",
+      "classification": "transferred/adapted",
+      "source_repository": "https://github.com/komleff/u2",
+      "source_commit": "c450fa7b0d90fecf970f9931011255ea836da258",
+      "source_path": "scripts/tests/lib/seed-claude-hooks.sh",
+      "source_blob": "d56d3b813a0b3f335b7b9ff601404b3a89fac733",
+      "adaptation": "Source helper retained; no U2 checkout dependency.",
+      "refresh_delta": "new source transfer"
+    },
+    {
+      "target": "docs/baselines/2026-10-01-delivery-first-source-inventory.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate inventory/approved contract; bound plan bytes preserved."
+    },
+    {
+      "target": "docs/plans/2026-10-03-delivery-first-rc-refresh.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate inventory/approved contract; bound plan bytes preserved."
+    },
+    {
+      "target": "docs/plans/2026-10-03-delivery-first-rc-portability-amendment.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "OverGate inventory/approved contract; bound plan bytes preserved."
+    },
+    {
+      "target": ".gitattributes",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "LF checkout for reference Bash scripts; consumer attributes remain project-owned and LF policy documented."
+    },
+    {
+      "target": ".claude/skills/sync-site-gdd/SKILL.md",
+      "classification": "original integration",
+      "source_path": null,
+      "source_blob": null,
+      "adaptation": "Existing legacy/example marked outside RC distribution and user-invocable false; U2 CDP/site update excluded."
+    }
+  ],
+  "previous_source_commit": "fb8ebfa5133c13726bd7960a1a075ab7a7089191",
+  "refresh_implementation_base": "bdc92fac13ad4a4c28b7bed9284ab9b50d3be256",
+  "refresh_contract": [
+    "docs/plans/2026-10-03-delivery-first-rc-refresh.md",
+    "docs/plans/2026-10-03-delivery-first-rc-portability-amendment.md"
+  ],
+  "source_delta_classification": [
+    {
+      "source_status": "M",
+      "source_path": ".agents/INSTALL.md",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": ".agents/PIPELINE_ADR.md",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "D",
+      "source_path": ".claude/hooks/check-bash-cwd.py",
+      "decision": "deleted obsolete cwd guard; absent from active OverGate payload"
+    },
+    {
+      "source_status": "A",
+      "source_path": ".claude/hooks/pre-bash.sh",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": ".claude/rules/tests.md",
+      "decision": "project-owned preserve templates; U2 project test/runtime instructions excluded"
+    },
+    {
+      "source_status": "M",
+      "source_path": ".claude/rules/universal.md",
+      "decision": "project-owned preserve templates; U2 project test/runtime instructions excluded"
+    },
+    {
+      "source_status": "M",
+      "source_path": ".claude/settings.json",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": ".claude/skills/pipeline-audit/SKILL.md",
+      "decision": "generic inventory rebuilt in OverGate; raw U2 inventory excluded"
+    },
+    {
+      "source_status": "M",
+      "source_path": ".claude/skills/sync-site-gdd/SKILL.md",
+      "decision": "U2 site/CDP instructions excluded; target legacy/example outside distribution"
+    },
+    {
+      "source_status": "D",
+      "source_path": "scripts/tests/bash-cwd-guard.test.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/cdp-touch.test.py",
+      "decision": "U2 product/CDP test excluded"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/claude-commit-gate-fresh-session.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/commit-gate-dispatcher.test.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/commit-gate-parse-budget.test.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/commit-gate-timeout.test.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/hooks-executable.test.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/install-runtime-closure.test.py",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "A",
+      "source_path": "scripts/tests/lib/claude_hooks.py",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "A",
+      "source_path": "scripts/tests/lib/seed-claude-hooks.sh",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/merge-gate-parse-budget.test.sh",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/pipeline-audit-inventory.test.sh",
+      "decision": "U2-specific inventory/wiring/launcher fixture excluded as raw copy; equivalent runtime/closure/budget behavior covered by generic dispatcher, commit-gate and install suites"
+    },
+    {
+      "source_status": "A",
+      "source_path": "scripts/tests/pre-bash-dispatch.test.py",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/publish-pr-comment.test.py",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/repository-mutation-guard.test.sh",
+      "decision": "applicable transferred surface; adapted target retained/refreshed"
+    },
+    {
+      "source_status": "M",
+      "source_path": "scripts/tests/run-all.sh",
+      "decision": "U2 suite excluded; generic verify-reference explicitly registers native dispatcher"
+    }
+  ]
+}

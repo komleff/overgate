@@ -1,10 +1,43 @@
 ---
 name: finalize-pr
-description: Hard gate перед merge. Единственный разрешённый способ объявить PR готовым к merge. Проверяет commit binding (verify, internal review, external review для Sprint Final, статусы замечаний). Используй: /finalize-pr <PR_NUMBER> [--force] [--pre-landing]
+description: Delivery First hard gate before operator merge. Verifies current deterministic checks, QA/Code Review evidence with content binding, blocker triage and accepted risk. External/second-pass are not ritual gates.
 user-invocable: true
 ---
 
 # Finalize PR — hard gate перед merge
+
+## Delivery First execution — ADR 3.29
+
+Этот раздел — **живой алгоритм** Delivery First. Старые tier/iteration/external и confirming-pass
+блоки физически удалены в Phase 2; fixture-suite проверяет только действующий алгоритм.
+
+1. Зафиксируй current HEAD и запусти `/verify`/CI на current HEAD — deterministic checks всегда fresh.
+2. Найди последнее обязательное QA/CODE REVIEW evidence для данного PR.
+3. Evidence валидно, если:
+   - оно относится к current HEAD; **или**
+   - report содержит reviewed/tested paths + content fingerprint, и пересчёт на current HEAD даёт тот же fingerprint,
+     при этом new runtime surface не появился.
+4. Base/head movement само по себе не инвалидирует LLM evidence.
+5. Sprint Final не требует external review. Critical не требует iteration >= 2.
+6. Copilot не mandatory. External review проверяется только если Review Contract/оператор явно сделал его required named-risk evidence.
+7. Confirming pass после advisory triage не требуется. Reviewer сам классифицирует BLOCKER/ADVISORY.
+8. Исправленный BLOCKER требует affected QA + scoped re-review только изменённой surface.
+9. Triage parser, accepted-risk checks, CI/build/test/security/data-loss safeguards и operator-only merge остаются hard.
+
+### Content-equivalence proof
+
+Используй существующий primitive ADR 3.28, superseded/уточнённый ADR 3.29:
+`CONTENT_FINGERPRINT = sha256(PKG blob hashes + relevant contract text)`.
+
+Verifier report обязан публиковать:
+- `Reviewed-Paths:`;
+- `Content-Fingerprint:`;
+- SHA/build;
+- source contract/scope.
+
+Если exact-HEAD report не найден, **не запускай новый LLM автоматически**: сначала пересчитай fingerprint.
+Совпал → evidence зачтено; разошёлся → affected verifier recheck.
+
 
 `/finalize-pr <PR_NUMBER>` — **единственный разрешённый способ** объявить PR готовым к merge. Чеклист «PM обязан проверить» в v2 был soft constraint и игнорировался — `/finalize-pr` превращает его в hard gate с привязкой к commit hash.
 
@@ -13,17 +46,155 @@ user-invocable: true
 ## Аргументы
 
 - `PR_NUMBER` — номер PR (обязательный)
-- `--force` — emergency override **только по явной команде оператора** или при подтверждённой ошибке самого скилла. PM не имеет права инициировать `--force` самостоятельно.
-- `--pre-landing` — explicit маркер **первого** вызова Sprint Final PR (до landing commit). Skill добавит строку `⏳ Pre-merge landing commit впереди — жди второй /finalize-pr, не мерджи сейчас.` в финальный комментарий — operator видит сигнал не мержить до второго вызова. Без флага — обычный merge-ready комментарий. PM передаёт `--pre-landing` для первого Sprint Final вызова, без флага — для второго (после landing commit). Detection explicit, без runtime autodetect (см. Dual-invocation pattern).
+- `--force` — только ручное оформление результатов при зафиксированном сбое автоматической валидации и явной команде оператора. Hard checks и ACCEPTED_RISK не пропускаются.
+
+### Обязательная проверка помощника ограничения времени
+
+Выполни этот блок один раз до первого сетевого или Beads-вызова. `run_with_timeout`
+пишет причину сбоя в stderr: истечение времени и обычная ошибка команды различаются.
+
+<!-- timeout-helper-preflight:start -->
+```bash
+# ⚠️ Корень репозитория читается ОТДЕЛЬНЫМ шагом, а не подстановкой внутри строки пути.
+# Прежняя форма `"$(git rev-parse …)/.claude/tools/…"` сохраняла только вывод и теряла код
+# возврата: отказ git давал путь `/.claude/tools/with-timeout.sh`, и диагноз получался чужой
+# («помощника нет» вместо «git не отработал»). Внешнее ревью PR #634, P1 — класс «код
+# возврата одиночного процесса не проверен».
+PREFLIGHT_REPO_ROOT=$(git rev-parse --show-toplevel)
+preflight_repo_root_rc=$?
+if [ "$preflight_repo_root_rc" -ne 0 ]; then
+  echo "СТОП: корень репозитория не определён — git завершился с кодом ${preflight_repo_root_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие помощника: чини окружение (доступность git, целостность репозитория)." >&2
+  exit 1
+fi
+TIMEOUT_HELPER="${PREFLIGHT_REPO_ROOT}/.claude/tools/with-timeout.sh"
+if [ ! -e "$TIMEOUT_HELPER" ]; then
+  echo "СТОП: помощник .claude/tools/with-timeout.sh отсутствует." >&2
+  exit 1
+fi
+if [ ! -x "$TIMEOUT_HELPER" ]; then
+  echo "СТОП: помощник .claude/tools/with-timeout.sh не исполним." >&2
+  exit 1
+fi
+
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  "$TIMEOUT_HELPER" "$seconds" "$@"
+  local command_rc=$?
+  if [ "$command_rc" -eq 124 ]; then
+    echo "ОШИБКА: истечение времени (${seconds} с) при выполнении команды '$1'." >&2
+  elif [ "$command_rc" -ne 0 ]; then
+    echo "ОШИБКА: команда '$1' завершилась с кодом ${command_rc}." >&2
+  fi
+  return "$command_rc"
+}
+```
+<!-- timeout-helper-preflight:end -->
+
+### Инвариант исполнения: отказ инструмента ≠ «проверять нечего»
+
+Гейт публикации читает своё сырьё чужими процессами — `gh`, `jq`, `sed`, `awk`, `grep`, `bd`,
+читатель снимка. У любого из них есть исход «не отработал»: команды нет в окружении, она упала,
+её убило по времени. Такой исход даёт **пустой или частичный результат**, и пустой результат
+в гейте по умолчанию читается как «нечего проверять» — то есть как чистота.
+
+Поэтому правило, обязательное для каждого места скилла:
+
+- **отказ разбора, чтения или запуска — СТОП гейта**, с сообщением, которое называет ОТКАЗ;
+- пустой результат засчитывается за «замечаний нет» **только тогда**, когда положительно
+  известно, что инструмент отработал успешно (проверен код возврата);
+- проверяется код возврата **КАЖДОГО процесса**, а не итог шага. В конвейере `A | B`
+  значение `$?` принадлежит только `B`: отказ `A` невидим, `B` отрабатывает на пустом входе
+  успешно, и шаг сообщает «всё в порядке» о том, что не читалось;
+- сообщения обязаны различать два диагноза: **инструмент отработал и нашёл ноль строк**
+  (чинить нечего) и **инструмент не смог отработать** (чинить окружение). Это разные адреса
+  починки, и склеивать их в один текст нельзя;
+- у `grep` исходов три, и отказ только третий: `0` — совпадение найдено, `1` — не найдено,
+  `≥2` — процесс не отработал. Ветвиться по «нашёл / не нашёл» разрешено только после того,
+  как исход `≥2` отсечён; `if grep …; then` без такого отсечения читает отказ как «не нашёл»
+  и молча выключает проверку.
+
+### Как это исполняется: один шаг — один процесс
+
+**Конвейеров в командах гейта нет.** Каждый внешний процесс вызывается отдельным шагом, вход
+следующему подаётся строкой-переменной через `<<<`, а сразу после вызова код возврата пишется
+в именованную переменную и проверяется. Законных форм ДВЕ, и вторая — узкое, объявляемое
+исключение из первой.
+
+**Форма 1 — основная, по умолчанию.** Применяется везде, где отказ инструмента неотличим от
+содержательного ответа:
+
+```bash
+ЗНАЧЕНИЕ=$(один_процесс …)
+значение_rc=$?
+if [ "$значение_rc" -ne 0 ]; then
+  echo "СТОП: <что не состоялось> — <инструмент> завершился с кодом ${значение_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не результат проверки: чини окружение, а не отчёт." >&2
+  exit 1
+fi
+```
+
+**Форма 2 — команда-ПРОБА в позиции условия.** Процесс стоит прямо в `if`/`elif`, отдельной
+переменной кода возврата у него нет, потому что его код возврата И ЕСТЬ искомый ответ:
+
+```bash
+# проба-условия: <почему код возврата и есть ответ, и куда уводит промах>
+if один_процесс …; then
+  echo "СТОП: <что не состоялось и что чинить>" >&2
+  exit 1
+fi
+```
+
+Форма 2 законна только при выполнении ВСЕХ трёх условий разом:
+
+1. **вопрос пробы — не о содержании, а о работоспособности**: «инструмент вообще отвечает?»,
+   «значение вообще пусто?». У такого вопроса код возврата и есть полный ответ, различать
+   «отказал» и «ответил нет» не нужно, потому что это один и тот же ответ;
+2. **обе ветки безопасны**: любая уводит либо в стоп, либо в диагноз «проверить нечем», но ни
+   одна не даёт зачёта. Промах пробы не превращается в GATE_SUCCESS ни при каком коде;
+3. **проба ОБЪЯВЛЕНА маркером** — комментарием `проба-условия:` со строкой причины
+   непосредственно выше. Маркер обязателен: по нему сплошная проверка фикстуры отличает пробу
+   от находки, а число маркеров зафиксировано кейсом — молча добавить исключение нельзя.
+
+Команда в позиции условия БЕЗ маркера — находка, а не форма 2: под этим послаблением жил
+реальный дефект (определение класса окружения Beads стояло в `if`, и отказ `git` внутри него
+читался как содержательный ответ «не основной checkout»).
+
+Два отвергнутых способа — чтобы к ним не возвращались:
+
+- **`PIPESTATUS`** не работает там, где нужен: `ЗНАЧЕНИЕ=$(A | B)` — это простая команда, а не
+  конвейер, поэтому в вызывающей оболочке `PIPESTATUS` состоит из ОДНОГО элемента (кода
+  подстановки, то есть кода `B`). Проверено исполнением: `x=$(false | true)` даёт
+  `PIPESTATUS` длиной 1 со значением 0, тогда как тот же конвейер без подстановки даёт `1 0`.
+  Большинство чтений гейта — именно подстановки, и `PIPESTATUS` дал бы там ложную уверенность.
+- **`set -o pipefail`** склеивает диагнозы в один код (какой процесс отказал — неизвестно) и
+  даёт ложный отказ на законной ранней остановке читателя: `grep -q` закрывает вход, писатель
+  выше получает `SIGPIPE`, и здоровый шаг объявляется сломанным.
+
+Причина — внешнее ревью PR #634, P1: у разбора таблиц замечаний (Шаг 6) код возврата `awk` не
+проверялся. Заглушка `awk` с кодом 2 на шаблонном отчёте с `defer to Beads` давала гейту пустой
+разбор, цикл проверки выполнялся ноль раз, и гейт возвращал 0 — «замечаний нет» вместо
+«разбор не состоялся». Это тот же fail-open, ради которого гейт существует, только этажом ниже:
+не строка не проверена, а сам разбор не выполнялся.
 
 ## Фаза 1: hard-проверки (commit + verify + review)
 
 ### Шаг 1: Зафиксировать HEAD commit hash
 
-> Оборачивай все вызовы `gh pr view` в `timeout 10` — защита от зависания при медленном GitHub API.
+> Оборачивай все вызовы `gh pr view` в `run_with_timeout 10` — защита от зависания при медленном GitHub API.
 
 ```bash
-HEAD_COMMIT=$(timeout 10 gh pr view <PR_NUMBER> --json headRefOid --jq '.headRefOid' 2>/dev/null)
+HEAD_COMMIT=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json headRefOid --jq '.headRefOid')
+head_commit_rc=$?
+# Код возврата проверяется ОТДЕЛЬНО от пустоты: это разные диагнозы и разные адреса починки.
+# Без него пустой ответ упавшего `gh` попадал бы в общий null-guard ниже, и оператор читал бы
+# «PR закрыт/удалён» там, где на деле не отработал инструмент.
+if [ "$head_commit_rc" -ne 0 ]; then
+  echo "СТОП: HEAD commit PR #<PR_NUMBER> не прочитан — gh завершился с кодом ${head_commit_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не ответ GitHub: чини окружение (доступность gh, сеть, права), а не PR." >&2
+  exit 1
+fi
 
 # null-guard: PR может быть закрыт/удалён/недоступен между шагами
 if [ -z "$HEAD_COMMIT" ] || [ "$HEAD_COMMIT" = "null" ]; then
@@ -35,7 +206,7 @@ fi
 echo "Финализируем PR #<PR_NUMBER> на commit $HEAD_COMMIT"
 ```
 
-Все дальнейшие проверки идут против **этого** commit. Если PR сменит HEAD во время выполнения скилла — придётся запускать заново.
+Deterministic проверки идут против **этого** commit. LLM evidence может относиться к более раннему SHA только через доказанный content-equivalence по ADR 3.29. Если HEAD меняется во время самого finalize-run — перезапусти finalize, чтобы исключить race.
 
 ### Шаг 2: Проверка `/verify` на текущем commit
 
@@ -44,6 +215,14 @@ echo "Финализируем PR #<PR_NUMBER> на commit $HEAD_COMMIT"
 ```bash
 # Локальный HEAD должен совпадать с PR HEAD
 LOCAL_HEAD=$(git rev-parse HEAD)
+local_head_rc=$?
+# Отказ `git` дал бы пустой LOCAL_HEAD, сравнение ниже не совпало бы, и стоп пришёл бы с чужим
+# диагнозом «checkout не тот». Диагноз обязан называть отказ инструмента.
+if [ "$local_head_rc" -ne 0 ]; then
+  echo "СТОП: локальный HEAD не прочитан — git завершился с кодом ${local_head_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не расхождение checkout'а: чини окружение (доступность git, целостность репозитория)." >&2
+  exit 1
+fi
 if [ "$LOCAL_HEAD" != "$HEAD_COMMIT" ]; then
   echo "СТОП: локальный HEAD ($LOCAL_HEAD) не совпадает с PR HEAD ($HEAD_COMMIT)."
   echo "Выполни: gh pr checkout <PR_NUMBER>"
@@ -53,295 +232,264 @@ fi
 
 Запусти `/verify`. Если упал — **СТОП**, скилл не публикует финальный комментарий, оператор получает ошибку.
 
-### Шаг 3: Internal review-pass привязан к $HEAD_COMMIT?
+### Шаг 3: Review evidence — exact HEAD или content-equivalent binding
 
 PM публикует review-отчёты с двумя маркерами commit binding:
 1. **Строка `Commit: <hash>`** в теле отчёта (под заголовком) — человекочитаемый маркер для оператора.
-2. **JSON-метаданные** в HTML-комментарии (см. `PM_ROLE.md` секция 2.2): `<!-- {"reviewer": "...", "commit": "<hash>", ...} -->` — машинный маркер.
+2. **JSON-метаданные** в HTML-комментарии (см. `.agents/PM_ROLE.md` §5): `<!-- {"reviewer": "...", "commit": "<hash>", ...} -->` — машинный маркер.
 
-Скилл ищет **последний по времени** internal review-pass с `commit == $HEAD_COMMIT` через `jq` (сортировка по `createdAt`):
+Сначала ищи exact-HEAD report. Если его нет, live-алгоритм ADR 3.29 требует проверить published Reviewed-Paths + Content-Fingerprint до любого нового LLM call. Shell-блок ниже — legacy exact-HEAD fallback/fixture:
 
 ```bash
-LAST_INTERNAL=$(timeout 10 gh pr view <PR_NUMBER> --json comments \
-  | jq -r --arg head "$HEAD_COMMIT" '
+# ⚠️ Чтение и разбор — ДВА ШАГА, а не конвейер `gh | jq`. В конвейере код возврата принадлежит
+# только `jq`, а `jq` на пустом входе отрабатывает успешно и отдаёт пустую строку — отказ `gh`
+# становился бы «на этом commit нет internal review-pass», и стоп приходил бы с чужим адресом
+# починки (перезапусти цикл ревью) вместо своего (чини окружение).
+INTERNAL_COMMENTS_JSON=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json comments)
+internal_comments_rc=$?
+if [ "$internal_comments_rc" -ne 0 ]; then
+  echo "СТОП: комментарии PR для поиска internal review-pass не прочитаны — gh завершился с кодом ${internal_comments_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие отчёта: чини окружение (доступность gh, сеть, права)." >&2
+  exit 1
+fi
+if [ -z "$INTERNAL_COMMENTS_JSON" ]; then
+  echo "СТОП: gh pr view вернул пустой результат вместо комментариев PR." >&2
+  exit 1
+fi
+
+EVIDENCE_SHA="$HEAD_COMMIT"
+
+LAST_INTERNAL=$(jq -r --arg head "$HEAD_COMMIT" '
       [ .comments[]
-        | select(.body | test("review-pass|Внутреннее ревью"; "i"))
+        | select(.body | test("review-pass|Внутреннее ревью|CODE REVIEW"; "i"))
         | select(.body | test("\"commit\":\\s*\"" + $head + "\"|Commit:\\s*`?" + $head; "s"))
       ]
       | sort_by(.createdAt)
       | last
       | .body // empty
-    ')
-
-if [ -z "$LAST_INTERNAL" ]; then
-  echo "СТОП: Internal review-pass отсутствует для commit $HEAD_COMMIT."
-  echo "Запусти /sprint-pr-cycle для нового review-pass."
+    ' <<< "$INTERNAL_COMMENTS_JSON")
+last_internal_rc=$?
+if [ "$last_internal_rc" -ne 0 ]; then
+  echo "СТОП: комментарии PR не разобраны — jq завершился с кодом ${last_internal_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие internal review-pass: чини окружение (доступность jq, валидность ответа API)." >&2
   exit 1
 fi
-echo "$LAST_INTERNAL" | head -30
+
+if [ -z "$LAST_INTERNAL" ]; then
+  LAST_INTERNAL=$(jq -r '
+        [ .comments[] | select(.body | test("## CODE REVIEW"; "i")) ]
+        | sort_by(.createdAt) | last | .body // empty
+      ' <<< "$INTERNAL_COMMENTS_JSON")
+  content_review_rc=$?
+  if [ "$content_review_rc" -ne 0 ]; then
+    echo "СТОП: CODE REVIEW evidence не разобрано — jq завершился с кодом ${content_review_rc}." >&2
+    exit 1
+  fi
+  if [ -z "$LAST_INTERNAL" ]; then
+    echo "СТОП: нет CODE REVIEW evidence для content-equivalence." >&2
+    exit 1
+  fi
+
+  EVIDENCE_SHA=$(jq -Rrs 'capture("Commit:\\s*`?(?<sha>[0-9a-fA-F]{40})").sha // empty' <<< "$LAST_INTERNAL")
+  evidence_sha_rc=$?
+  if [ "$evidence_sha_rc" -ne 0 ]; then
+    echo "СТОП: Commit binding CODE REVIEW не разобран — jq завершился с кодом ${evidence_sha_rc}." >&2
+    exit 1
+  fi
+  EVIDENCE_FINGERPRINT=$(jq -Rrs 'capture("Content-Fingerprint:\\s*`?(?:sha256:)?(?<fp>[0-9a-fA-F]{64})").fp // empty' <<< "$LAST_INTERNAL")
+  evidence_fp_rc=$?
+  if [ "$evidence_fp_rc" -ne 0 ]; then
+    echo "СТОП: Content-Fingerprint CODE REVIEW не разобран — jq завершился с кодом ${evidence_fp_rc}." >&2
+    exit 1
+  fi
+  if [ -z "$EVIDENCE_SHA" ] || [ -z "$EVIDENCE_FINGERPRINT" ]; then
+    echo "СТОП: prior CODE REVIEW не несёт Commit + Content-Fingerprint binding." >&2
+    exit 1
+  fi
+
+  BINDING_META=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json baseRefOid,body)
+  binding_meta_rc=$?
+  if [ "$binding_meta_rc" -ne 0 ]; then
+    echo "СТОП: base/body PR не прочитаны для content binding — gh завершился с кодом ${binding_meta_rc}." >&2
+    exit 1
+  fi
+  if [ -z "$BINDING_META" ]; then
+    echo "СТОП: gh вернул пустые base/body для content binding." >&2
+    exit 1
+  fi
+
+  BINDING_BASE=$(jq -r '.baseRefOid // empty' <<< "$BINDING_META")
+  binding_base_rc=$?
+  if [ "$binding_base_rc" -ne 0 ]; then
+    echo "СТОП: base SHA не разобран — jq завершился с кодом ${binding_base_rc}." >&2
+    exit 1
+  fi
+  BINDING_BODY=$(jq -r '.body // ""' <<< "$BINDING_META")
+  binding_body_rc=$?
+  if [ "$binding_body_rc" -ne 0 ]; then
+    echo "СТОП: body PR не разобран — jq завершился с кодом ${binding_body_rc}." >&2
+    exit 1
+  fi
+  if [ -z "$BINDING_BASE" ]; then
+    echo "СТОП: base SHA пуст для content binding." >&2
+    exit 1
+  fi
+
+  BINDING_DIR=$(mktemp -d)
+  binding_dir_rc=$?
+  if [ "$binding_dir_rc" -ne 0 ] || [ -z "$BINDING_DIR" ]; then
+    echo "СТОП: временный каталог для content binding не создан." >&2
+    exit 1
+  fi
+
+  tr -d '\r' <<< "$BINDING_BODY" > "$BINDING_DIR/body.txt"
+  binding_body_write_rc=$?
+  if [ "$binding_body_write_rc" -ne 0 ]; then
+    echo "СТОП: body PR не записан во временный файл." >&2
+    exit 1
+  fi
+
+  BIND_BEGIN_COUNT=$(grep -c '^<!-- CONTRACT-BEGIN -->$' "$BINDING_DIR/body.txt")
+  bind_begin_count_rc=$?
+  if [ "$bind_begin_count_rc" -ge 2 ]; then
+    echo "СТОП: CONTRACT-BEGIN не проверен — grep завершился с кодом ${bind_begin_count_rc}." >&2
+    exit 1
+  fi
+  BIND_END_COUNT=$(grep -c '^<!-- CONTRACT-END -->$' "$BINDING_DIR/body.txt")
+  bind_end_count_rc=$?
+  if [ "$bind_end_count_rc" -ge 2 ]; then
+    echo "СТОП: CONTRACT-END не проверен — grep завершился с кодом ${bind_end_count_rc}." >&2
+    exit 1
+  fi
+  if [ "$BIND_BEGIN_COUNT" != "1" ] || [ "$BIND_END_COUNT" != "1" ]; then
+    echo "СТОП: content-equivalence требует ровно одну пару CONTRACT-BEGIN/CONTRACT-END." >&2
+    exit 1
+  fi
+
+  BIND_BEGIN=$(awk '/^<!-- CONTRACT-BEGIN -->$/{print NR; exit}' "$BINDING_DIR/body.txt")
+  bind_begin_rc=$?
+  if [ "$bind_begin_rc" -ne 0 ] || [ -z "$BIND_BEGIN" ]; then
+    echo "СТОП: позиция CONTRACT-BEGIN не определена." >&2
+    exit 1
+  fi
+  BIND_END=$(awk '/^<!-- CONTRACT-END -->$/{print NR; exit}' "$BINDING_DIR/body.txt")
+  bind_end_rc=$?
+  if [ "$bind_end_rc" -ne 0 ] || [ -z "$BIND_END" ]; then
+    echo "СТОП: позиция CONTRACT-END не определена." >&2
+    exit 1
+  fi
+  if [ "$BIND_BEGIN" -ge "$BIND_END" ]; then
+    echo "СТОП: CONTRACT markers имеют неверный порядок." >&2
+    exit 1
+  fi
+
+  awk '/^<!-- CONTRACT-BEGIN -->$/{f=1;next} /^<!-- CONTRACT-END -->$/{f=0} f' "$BINDING_DIR/body.txt" > "$BINDING_DIR/contract.txt"
+  contract_extract_rc=$?
+  if [ "$contract_extract_rc" -ne 0 ]; then
+    echo "СТОП: contract не извлечён — awk завершился с кодом ${contract_extract_rc}." >&2
+    exit 1
+  fi
+  grep -q '[^[:space:]]' "$BINDING_DIR/contract.txt"
+  contract_nonempty_rc=$?
+  if [ "$contract_nonempty_rc" -ge 2 ]; then
+    echo "СТОП: contract не проверен — grep завершился с кодом ${contract_nonempty_rc}." >&2
+    exit 1
+  fi
+  if [ "$contract_nonempty_rc" -ne 0 ]; then
+    echo "СТОП: contract пуст — content-equivalence недоказуем." >&2
+    exit 1
+  fi
+
+  git diff --no-color --no-ext-diff --name-only "$BINDING_BASE...$HEAD_COMMIT" > "$BINDING_DIR/files.raw"
+  binding_diff_rc=$?
+  if [ "$binding_diff_rc" -ne 0 ]; then
+    echo "СТОП: package diff не получен — git завершился с кодом ${binding_diff_rc}." >&2
+    exit 1
+  fi
+  LC_ALL=C sort "$BINDING_DIR/files.raw" > "$BINDING_DIR/files.sorted"
+  binding_sort_rc=$?
+  if [ "$binding_sort_rc" -ne 0 ]; then
+    echo "СТОП: package paths не отсортированы — sort завершился с кодом ${binding_sort_rc}." >&2
+    exit 1
+  fi
+
+  : > "$BINDING_DIR/pkg.txt"
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    BLOB_SHA=$(git rev-parse "$HEAD_COMMIT:$f" 2>/dev/null)
+    blob_sha_rc=$?
+    if [ "$blob_sha_rc" -ne 0 ]; then
+      BLOB_SHA="DELETED"
+    fi
+    printf '%s %s\n' "$f" "$BLOB_SHA" >> "$BINDING_DIR/pkg.txt"
+    pkg_write_rc=$?
+    if [ "$pkg_write_rc" -ne 0 ]; then
+      echo "СТОП: package binding не записан." >&2
+      exit 1
+    fi
+  done < "$BINDING_DIR/files.sorted"
+
+  cat "$BINDING_DIR/pkg.txt" "$BINDING_DIR/contract.txt" > "$BINDING_DIR/content.txt"
+  binding_cat_rc=$?
+  if [ "$binding_cat_rc" -ne 0 ]; then
+    echo "СТОП: content binding input не собран — cat завершился с кодом ${binding_cat_rc}." >&2
+    exit 1
+  fi
+  BINDING_SHA_LINE=$(shasum -a 256 "$BINDING_DIR/content.txt")
+  binding_sha_rc=$?
+  if [ "$binding_sha_rc" -ne 0 ]; then
+    echo "СТОП: content fingerprint не вычислен — shasum завершился с кодом ${binding_sha_rc}." >&2
+    exit 1
+  fi
+  CURRENT_CONTENT_FINGERPRINT="${BINDING_SHA_LINE%% *}"
+  if [ -z "$CURRENT_CONTENT_FINGERPRINT" ]; then
+    echo "СТОП: content fingerprint пуст." >&2
+    exit 1
+  fi
+
+  rm -rf "$BINDING_DIR"
+  binding_cleanup_rc=$?
+  if [ "$binding_cleanup_rc" -ne 0 ]; then
+    echo "СТОП: временный content-binding каталог не удалён — rm завершился с кодом ${binding_cleanup_rc}." >&2
+    exit 1
+  fi
+
+  if [ "$CURRENT_CONTENT_FINGERPRINT" != "$EVIDENCE_FINGERPRINT" ]; then
+    echo "СТОП: prior CODE REVIEW не content-equivalent current HEAD; нужен affected recheck." >&2
+    exit 1
+  fi
+  echo "Content-equivalent CODE REVIEW accepted: evidence=$EVIDENCE_SHA current=$HEAD_COMMIT"
+fi
+head -30 <<< "$LAST_INTERNAL"
+head_preview_rc=$?
+if [ "$head_preview_rc" -ne 0 ]; then
+  echo "СТОП: начало internal review-pass не показано — head завершился с кодом ${head_preview_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА: отчёт найден, но прочитать его нечем — чини окружение (доступность head)." >&2
+  echo "Пустой вывод здесь нельзя читать как «в отчёте ничего нет»." >&2
+  exit 1
+fi
 ```
+
+> **Почему во всём скилле значение подаётся через `<<<`, а не аргументом команды.** Значения
+> `$LAST_INTERNAL`, `$bead_id`, `$rationale`
+> приходят из тел комментариев PR, то есть их пишет автор комментария. В позиции аргумента любой
+> команды такое значение читается как **опция**: `-n`, `-e`, `-E` у вывода строки, `-h`,
+> `--help`, `--version` у `bd show`. Команда меняет поведение или печатает справку с кодом 0, а
+> проверка, которая должна была прочитать содержимое, отрабатывает на пустоте и молчит.
+> Действующая форма закрывает класс целиком: значение уходит на **стандартный ввод** через
+> here-string `<<<`, а стандартный ввод опциями не разбирается. Прежняя редакция этого абзаца
+> предписывала `printf '%s\n' "$X" | …` — форму, которая с переходом на «один шаг — один
+> процесс» запрещена: конвейер прячет код возврата писателя. Обёртки-писателя больше нет вовсе,
+> и подменить её `echo` тоже негде.
+>
+> Там, где значение обязано дойти до внешней команды именно аргументом (`bd show "$bead_id"`),
+> действуют две защиты вместо стандартного ввода: **проверка формы значения** до вызова и
+> явная **граница опций `--`** перед ним (внешнее ревью PR #634, P1). Норма одна и та же:
+> **значение из отчёта не попадает в позицию опции — ни разу, ни в одной команде.**
 
 > Используем `jq sort_by(.createdAt) | last` вместо `head -50`: при нескольких review-pass на одном commit (например, CHANGES_REQUESTED → APPROVED в одном цикле) берём именно последний, не первый.
 
-Если последний review-pass на этом commit — **OK**.
-
-### Шаг 4: External review для Sprint Final
-
-Tier определяется автоматически из PR-метаданных, чтобы hard gate не зависел от ручной интерпретации. Sprint Final — это PR, который завершает спринт и готовится к merge в main. Признаки (любой ⇒ `sprint-final`):
-- Метка `sprint-final` на PR;
-- В описании PR (`body`) встречается строка `Tier: Sprint Final` (case-insensitive).
-
-```bash
-PR_META=$(timeout 10 gh pr view <PR_NUMBER> --json labels,body 2>/dev/null)
-
-# null-guard: PR может быть закрыт/удалён между шагами
-if [ -z "$PR_META" ]; then
-  echo "СТОП: не удалось получить метаданные PR #<PR_NUMBER> (labels/body)."
-  exit 1
-fi
-
-HAS_LABEL=$(echo "$PR_META" | jq -r '.labels[]?.name | select(. == "sprint-final")' | head -1)
-# Любой `Tier:` в body — Sprint Final, Critical, Standard, Light.
-# Наличие маркера (для обязательной эскалации при его отсутствии):
-TIER_BODY_LINE=$(echo "$PR_META" | jq -r '.body // ""' | grep -iE '^Tier:[[:space:]]*(Sprint Final|Critical|Standard|Light)([[:space:]]|$)' | head -1)
-# Sprint Final ищем среди ВСЕХ Tier-строк, а не только первой.
-# Bug: `head -1` на общем grep прятал Sprint Final, если в body раньше
-# встречался `Tier: Standard` (двойной маркер, старая строка + новая, цитата
-# чужого PR). Silent downgrade → Sprint Final тихо классифицировался как
-# standard и external review пропускался. Class: regression от round 1 fix.
-HAS_SPRINT_FINAL_BODY=$(echo "$PR_META" | jq -r '.body // ""' | grep -iE '^Tier:[[:space:]]*Sprint Final([[:space:]]|$)' | head -1)
-
-# Критический случай: нет НИ label, НИ строки Tier в body. Прежде чем
-# молча классифицировать как standard (и пропустить external review),
-# требуем явной эскалации. Это CRITICAL из external review GPT-5.4 round 12.
-if [ -z "$HAS_LABEL" ] && [ -z "$TIER_BODY_LINE" ]; then
-  echo "СТОП: PR #<PR_NUMBER> не маркирован tier'ом — нет ни label 'sprint-final',"
-  echo "ни строки 'Tier: <Sprint Final|Critical|Standard|Light>' в body."
-  echo "Добавь маркер через редактирование PR body (см. шаблон в"
-  echo ".claude/skills/sprint-pr-cycle/SKILL.md шаг 1.3) и перезапусти /finalize-pr."
-  echo "Тихая классификация как 'standard' запрещена — возможен пропуск external review."
-  exit 1
-fi
-
-if [ -n "$HAS_LABEL" ] || [ -n "$HAS_SPRINT_FINAL_BODY" ]; then
-  TIER="sprint-final"
-elif echo "$PR_META" | jq -r '.body // ""' | grep -qiE '^Tier:[[:space:]]*Critical([[:space:]]|$)'; then
-  TIER="critical"   # Critical без Sprint Final: второй проход обязателен, external опционален
-else
-  TIER="standard"  # явно маркирован как Standard/Light — и iteration 2, и external опциональны
-fi
-echo "Tier для финализации: $TIER"
-
-# Hard gate: iteration >= 2 для Critical и Sprint Final.
-# AGENT_ROLES.md и sprint-pr-cycle.md требуют два прохода внутреннего ревью
-# для Critical tier (первый — полный, второй — adversarial с фокусом на
-# пропущенном/регрессиях). GPT-5.4 round 14 CRITICAL #3: без этой проверки
-# workflow требует два прохода, но hard gate верифицирует только один.
-# Критерий: в META JSON последнего internal review-pass поле iteration >= 2.
-if [ "$TIER" = "critical" ] || [ "$TIER" = "sprint-final" ]; then
-  ITERATION=$(echo "$LAST_INTERNAL" \
-    | grep -oE '"iteration"[[:space:]]*:[[:space:]]*[0-9]+' \
-    | head -1 \
-    | grep -oE '[0-9]+$')
-  if [ -z "$ITERATION" ] || [ "$ITERATION" -lt 2 ]; then
-    echo "СТОП: tier=$TIER требует iteration >= 2 для internal review (adversarial second pass)."
-    echo "Текущий iteration в META: '${ITERATION:-не найден}'."
-    echo "Запусти второй проход через /sprint-pr-cycle шаг 2.4 (Critical — второй проход)."
-    echo "Каждый повторный review-pass увеличивает iteration в META JSON."
-    exit 1
-  fi
-  echo "iteration check: ✅ (iteration=$ITERATION >= 2)"
-fi
-```
-
-> Memory Bank как источник tier здесь **не используется**: hard gate должен опираться только на воспроизводимые PR-метаданные, иначе локальные расхождения дадут ложный пропуск external review.
->
-> Канонический способ маркировать Sprint Final — строка `Tier: Sprint Final` в body PR. Шаблон создания PR в `.claude/skills/sprint-pr-cycle/SKILL.md` шаг 1.3 включает обязательное поле `Tier:`. Без этого маркера (и без label `sprint-final`) hard gate ошибочно классифицирует PR как `standard` и не потребует external review. Если PR создан вручную без `Tier:` — это эскалация к оператору, а не «finalize по тихому».
-
-Если `TIER == sprint-final`:
-```bash
-LAST_EXTERNAL=$(timeout 10 gh pr view <PR_NUMBER> --json comments \
-  | jq -r --arg head "$HEAD_COMMIT" '
-      [ .comments[]
-        | select(.body | test("Внешнее ревью"; "i"))
-        | select(.body | test("\"commit\":\\s*\"" + $head + "\"|Commit:\\s*`?" + $head; "s"))
-      ]
-      | sort_by(.createdAt)
-      | last
-      | .body // empty
-    ')
-
-if [ -z "$LAST_EXTERNAL" ]; then
-  echo "СТОП: External review обязателен для Sprint Final на commit $HEAD_COMMIT."
-  echo "Запусти /external-review <PR_NUMBER>."
-  exit 1
-fi
-```
-
-- Если внешний review-pass на $HEAD_COMMIT есть — **OK**.
-- `N/A` для Sprint Final **не допускается** — внешнее ревью обязательно.
-
-> Используем тот же `jq sort_by(.createdAt) | last` паттерн: ищем маркер `Commit: <hash>` (человекочитаемый в теле) ИЛИ `"commit": "<hash>"` (в META JSON HTML-комментария). Оба варианта гарантированно присутствуют в шаблоне `external-review/SKILL.md` после обновления раунда фиксов Copilot.
-
-**Hard gate на метку Degraded/Manual mode (инвариант 6 → честный audit trail):**
-
-Если в тексте последнего `external review-pass` найден маркер режима `C` или `D` (degraded режимы), в теле комментария **обязана** присутствовать метка:
-- Для режима C: `⚠️ Degraded mode`
-- Для режима D: `⚠️ Manual emergency mode`
-
-Здесь hard gate опирается именно на содержимое `$LAST_EXTERNAL`. Отдельного парсинга HTML-комментария META нет, поэтому учитываются только те маркеры, которые реально матчатся в тексте комментария (`Режим: C/D` как стабильный заголовок из шаблона `external-review` или `Mode: C/D` / `"mode": "C"` как fallback, если PM дополнительно включил машинный маркер в тело).
-
-Без метки Sprint Final ложно маркируется как cross-model review. Финализация заблокирована:
-
-```bash
-# $LAST_EXTERNAL уже содержит тело последнего external review-pass на $HEAD_COMMIT
-# Матчим допустимые текстовые маркеры режима в самом комментарии:
-#   1) человекочитаемый заголовок «Режим: C» / «Режим: D» (всегда в шаблоне external-review)
-#   2) машинный маркер «Mode: C» / `"mode": "C"`, если он присутствует в тексте комментария
-#
-# Copilot round 26: сначала убираем HTML-комментарии, чтобы grep не матчился на
-# неактивные шаблонные метки `⚠️ ...` внутри <!-- ... --> (после round 25
-# обе строки по умолчанию внутри HTML-комментария).
-VISIBLE_EXTERNAL=$(echo "$LAST_EXTERNAL" | sed '/<!--/,/-->/d')
-if echo "$VISIBLE_EXTERNAL" | grep -qE '(Режим|Mode)[:"]*[[:space:]]*"?[CD]([[:space:]]|"|$)'; then
-  # Degraded/Manual режим — нужна метка
-  if ! echo "$VISIBLE_EXTERNAL" | grep -qE '⚠️ (Degraded mode|Manual emergency mode)'; then
-    echo "СТОП: external review в режиме C/D без обязательной метки '⚠️ Degraded mode' / '⚠️ Manual emergency mode'."
-    echo "PM должен опубликовать новый external review-pass с меткой."
-    exit 1
-  fi
-fi
-```
-
-> **Почему два маркера.** Шаблон `external-review/SKILL.md` использует человекочитаемый заголовок «**Режим: [A/B/C/D]**» — это стабильный якорь (проверено Copilot в раунде 2: предыдущий паттерн `mode: C|D` не матчился ни с одним реальным отчётом). Регексп с альтернативой `(Режим|Mode)` закрывает оба варианта — включая случай, когда PM дополнительно включает `Mode: C` в META JSON.
-
-Если `TIER != sprint-final` — external review **опционален**. Если он есть на $HEAD_COMMIT — отметить, если нет — `N/A`.
-
-### Шаг 5: Повторный review после CHANGES_REQUESTED
-
-Если внешний review (или внутренний) когда-либо возвращал `CHANGES_REQUESTED`, после фиксов **обязателен** повторный review-pass на $HEAD_COMMIT с APPROVED — **отдельно для каждого канала** (internal и external).
-
-> ⛔ **Нельзя проверять один общий «последний» review-pass среди internal+external.** Более поздний internal `APPROVED` может скрыть актуальный external `CHANGES_REQUESTED` на том же commit, и hard gate даст ложный пропуск. Каждый канал валидируется независимо: `LAST_INTERNAL` (из шага 3) и `LAST_EXTERNAL` (из шага 4).
-
-```bash
-# Хелпер: hard gate по одному review-pass-каналу на $HEAD_COMMIT.
-# Проверяет два условия (см. round 8 finding):
-#   1) в теле НЕТ ни одного CHANGES_REQUESTED (иначе один из аспектов
-#      или ревьюеров сигналит CHANGES_REQUESTED, скрытый поздним APPROVED);
-#   2) в теле есть хотя бы один APPROVED.
-#
-# Предобработка strip_code_spans.sh (Sprint v3.5, big-heroes-nw5):
-# вхождения CHANGES_REQUESTED и APPROVED внутри inline code spans
-# (парные одиночные бэктики) и fenced code blocks (тройные бэктики)
-# — это historical/narrative цитаты в review-pass комментариях,
-# они НЕ должны матчиться regex'ом. Раньше бэктики попадали в
-# non-[A-Z_] boundary и давали infrastructure false positive
-# (v3.4 PR #14: narrative «оснований для `CHANGES_REQUESTED` не
-# вижу» блокировал hard gate при реальном Вердикт: APPROVED).
-# Stripper читает тело из stdin и возвращает текст с вырезанными
-# code spans, затем grep работает на plain text. Реальные вердикты
-# в plain text продолжают блокировать/пропускать как раньше.
-# Unit-тесты: .claude/skills/finalize-pr/validators/test_validate_review_pass.sh.
-validate_review_pass_body() {
-  local review_kind="$1"   # "internal" | "external"
-  local review_body="$2"
-
-  if [ -z "$review_body" ]; then
-    echo "СТОП: не найден ${review_kind} review-pass на $HEAD_COMMIT."
-    echo "Hard gate требует отдельный review-pass на текущем commit для каждого обязательного канала."
-    exit 1
-  fi
-
-  # Mask code spans перед regex-проверкой (strip_code_spans.sh — stdin→stdout).
-  # Pass 3 Copilot CP-3 (закрывает dolt-hta): используем absolute path через
-  # git rev-parse --show-toplevel. Прежний relative путь ломался если
-  # /finalize-pr вызывался из subdirectory (cwd != repo root) → stripper
-  # не найден → fail-secure fallback на raw grep, где backtick-wrapped
-  # CHANGES_REQUESTED снова триггерит infrastructure false positive.
-  local repo_root
-  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-    echo "СТОП: не удалось определить корень git-репозитория для strip_code_spans."
-    echo "Повтори запуск /finalize-pr из git-репозитория."
-    exit 1
-  }
-
-  local stripper_path="${repo_root}/.claude/skills/finalize-pr/validators/strip_code_spans.sh"
-  if [ ! -f "$stripper_path" ]; then
-    echo "СТОП: не найден stripper по пути: $stripper_path"
-    echo "Убедись, что .claude/skills/finalize-pr/validators/ присутствует в репо."
-    exit 1
-  fi
-
-  # Pass 4 CX-2: fail-secure exit-code проверка stripper'а.
-  # Прежняя форма `stripped_body=$(... | bash "$stripper_path")` игнорировала
-  # exit code stripper'а — при segfault/ошибке переменная получала пустую
-  # строку, grep не находил ни CHANGES_REQUESTED ни APPROVED, validator
-  # fall-through на «нет APPROVED → СТОП». Это корректный fail-secure, но
-  # маскирует реальную ошибку: оператор видит «нет APPROVED», а не «stripper
-  # упал». Явная if-guard: если stripper упал — немедленная остановка
-  # с диагностикой, без попыток grep'ать мусор.
-  local stripped_body
-  if ! stripped_body=$(printf '%s' "$review_body" | bash "$stripper_path"); then
-    echo "СТОП: strip_code_spans.sh завершился с ошибкой при проверке ${review_kind} review-pass."
-    echo "Это fail-secure остановка: sanitizer review-pass не отработал, поэтому продолжать проверку небезопасно."
-    exit 1
-  fi
-
-  if printf '%s\n' "$stripped_body" | grep -qE '(^|[^A-Z_])CHANGES_REQUESTED([^A-Z_]|$)'; then
-    echo "СТОП: в последнем ${review_kind} review-pass на $HEAD_COMMIT есть CHANGES_REQUESTED по одному из аспектов/ревьюеров."
-    echo "После CHANGES_REQUESTED обязателен повторный ${review_kind} review-pass с APPROVED по всем аспектам на текущем commit."
-    exit 1
-  fi
-
-  if ! printf '%s\n' "$stripped_body" | grep -qE '(^|[^A-Z_])APPROVED([^A-Z_]|$)'; then
-    echo "СТОП: в последнем ${review_kind} review-pass не найден APPROVED."
-    echo "Проверь, что отчёт публикуется по шаблону sprint-pr-cycle и содержит явный 'Вердикт: APPROVED'."
-    exit 1
-  fi
-}
-
-# Internal review-pass обязателен всегда (LAST_INTERNAL получен в шаге 3).
-validate_review_pass_body "internal" "$LAST_INTERNAL"
-
-# External review-pass обязателен ТОЛЬКО для Sprint Final
-# (LAST_EXTERNAL получен в шаге 4 и пустой при TIER != sprint-final).
-if [ "$TIER" = "sprint-final" ]; then
-  validate_review_pass_body "external" "$LAST_EXTERNAL"
-fi
-```
-
-### Known limitations (v3.5, deferred to v3.6)
-
-Awk-based CommonMark stripper покрывает базовый subset spec:
-- Fenced code blocks (backtick/tilde, 0-3 indent, info-string validation для backtick-fences);
-- Inline code spans (N-backtick run-length matching, per-line scanning, backslash-escape для opener);
-- Structural line recognition (ATX heading `#`, list item `-*+`, thematic break `---`/`***`/`___`) — emit raw без inline-scan.
-
-**Не покрыто (deferred до Python rewrite — `big-heroes-55m` P1 v3.6 sprint-opener):**
-
-1. **Multiline inline spans** (opener на строке N, closer на строке N+1) — `big-heroes-55m`. v3.5 Option B revert per-line scanning; multi-line спаны трактуются как unmatched backticks → safe default (fallback в plain text, validator блокирует).
-2. **Blockquote** (`>` prefix) как paragraph terminator — `big-heroes-36d`.
-3. **Setext heading** (`===` / `---` underline) как paragraph terminator — `big-heroes-42a`.
-4. **HTML block** (`<div>`, `<details>`, CommonMark §4.6 block tags) как terminator — `big-heroes-zhe`.
-5. **Structural-line inline strip** — ATX heading / list item lines emit raw; inline `` `CR` `` в structural-line survives — `big-heroes-6bp` (P2, theoretical false APPROVED).
-6. **Ellipsis U+2026 terminator** — оставлено для hook (уже покрыто), не stripper-concern.
-7. **Hook Po overmatch:** `:` в backtick quote (`big-heroes-16e`), `/` `.` в paths/branches (`big-heroes-3ed`), `Pe`/`Pd` broad categories (`big-heroes-ytx`).
-
-Low exploitability: требуют malicious reviewer с specific markdown construct. Systemic Python rewrite в v3.6 (`big-heroes-55m`) решает все пункты вместе, на единой AST-based реализации с полным CommonMark-покрытием.
-
-### Debug / regression helpers
-
-Помощники для отладки stripper'а и проверки регрессий — запускаются вручную PM'ом при подозрении на infrastructure false positive / false negative, не вызываются автоматически из hard gate.
-
-- `.claude/skills/finalize-pr/validators/test_validate_review_pass.sh` — unit-тесты stripper'а; актуальный набор кейсов и их число смотри в самом скрипте.
-- `.claude/skills/finalize-pr/validators/regression_pr183.sh` — regression prove на реальной истории PR #183 U2 (VC-5; baseline сменён с big-heroes PR #14 при импорте в U2). Требует `$COMMENTS_DIR` с раскладкой `c*.txt` (см. docstring скрипта). Запуск:
-  ```bash
-  mkdir -p /tmp/pr183_comments
-  for i in $(seq 0 24); do
-    gh pr view 183 --json comments -q ".comments[$i].body" > /tmp/pr183_comments/c$i.txt
-  done
-  bash .claude/skills/finalize-pr/validators/regression_pr183.sh
-  ```
+Если exact-HEAD report найден — `EVIDENCE_SHA=$HEAD_COMMIT`. Если принят prior content-equivalent CODE REVIEW — `EVIDENCE_SHA` равен SHA того отчёта. Дальнейший triage использует именно `EVIDENCE_SHA`.
 
 ## Фаза 2: triage-проверки
 
@@ -349,46 +497,935 @@ Low exploitability: требуют malicious reviewer с specific markdown const
 
 ### Шаг 6: статус каждого замечания
 
-> ⚠️ **Гибридный gate (часть автоматически, часть PM-вручную).** В отличие от фаз 1.1–1.5 (полностью bash+jq), здесь автоматика проверяет только **наличие и формат Beads ID** для строк-таблиц с `defer to Beads` и **наличие текста-обоснования** для `reject with rationale`. Связь fix-now-замечания с конкретным закрывающим APPROVED-аспектом, как и распознавание «обоснование не пустое», PM выполняет вручную — это явный manual-check, не автоматический hard gate. Не считай фазу 2 безусловным предохранителем.
+> ⚠️ **Гибридный gate (часть автоматически, часть PM-вручную).** В отличие от фаз 1.1–1.5 (полностью bash+jq), автоматика здесь останавливает гейт на семи классах: **наличие, формат и существование Beads ID** для строк с `defer to Beads` (существование — через `bd`, а без него по снимку `origin/beads-backup`); **визуально непустое обоснование** для `reject with rationale` (пусто = ничего, кроме прочерков любого начертания и невидимых пробелов); **колонка носителя платежа не названа в шапке** — у `defer to Beads` это колонка идентификатора задачи, у `reject with rationale` колонка обоснования, и одна другую не подменяет; **нераспознанный статус** в строке опознанной таблицы замечаний (иное написание, приписка к статусу, невидимый символ, пустая ячейка статуса); **строка, заявляющая статус триажа, в блоке, который таблицей замечаний не признан** (шапка не несёт подписи шаблона `reviewer.md` И не набралось опознание по содержанию — для него нужны канонический статус хотя бы в одной строке И второй признак: ячейка замечания в шапке либо решение триажа в КАЖДОЙ строке блока); **строка опознанной таблицы замечаний, у которой колонка статуса не названа в шапке** — стоп адресный, на каждой строке, и он не зависит от того, написано ли решение каноническим статусом; **отказ самого разбора** — упавшая подготовка сырья или упавший разбор таблиц (инвариант исполнения «отказ инструмента ≠ „проверять нечего“»: пустой результат засчитывается за «замечаний нет» только при успешном коде возврата). Что автоматика **не** проверяет: связь `fix now`-замечания с конкретным закрывающим APPROVED-аспектом и осмысленность (а не только непустоту) обоснования — это явные manual-check PM, не автоматический hard gate. Не считай фазу 2 безусловным предохранителем.
 
 Каждое замечание из internal/external review должно иметь явный статус, проставленный PM:
 
 | Статус | Валидация |
 |--------|-----------|
-| **fix now** | Должен быть закрыт (повторный review-pass на $HEAD_COMMIT с APPROVED для затронутого аспекта) — **проверяет PM вручную** |
-| **defer to Beads** | **Обязателен Beads ID** (автопроверка: `bd show <id>` приоритет, fallback regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+` — case-insensitive prefix покрывает `U2-*` и `big-heroes-*`) |
-| **reject with rationale** | **Обязательно обоснование** в PR comment — **проверяет PM вручную** (автоматика только убеждается, что в той же строке таблицы есть непустой текст после статуса) |
+| **fix now** | Должен быть закрыт affected scoped re-review на `EVIDENCE_SHA` с APPROVED для затронутой surface — **проверяет PM вручную** |
+| **defer to Beads** | **Обязателен Beads ID** — читается из колонки идентификатора, названной шапкой «Beads ID» (при составном имени — «Beads ID / Обоснование»), где бы она ни стояла. Автопроверка: сначала форма — regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+`, покрывает `project-*` и `big-heroes-*`; затем существование — маршрутами того класса окружения, в котором запущен гейт (`bd show -- <id>` авторитетен только в основном checkout; иначе `scripts/bd-wt.sh`, затем снимок `origin/beads-backup` через `scripts/bd-read.sh show <id>`); проверить нечем — стоп. Колонка «Обоснование», если шапка назвала её ОТДЕЛЬНО, идентификатор не заменяет: шапка без колонки идентификатора даёт адресный стоп «колонка идентификатора не названа», а не зачёт текстом из соседней колонки |
+| **reject with rationale** | **Обязательно обоснование** в PR comment; осмысленность обоснования **проверяет PM вручную** (автоматика убеждается лишь в том, что колонка обоснования — названная шапкой «Обоснование», при составном имени «Beads ID / Обоснование», где бы она ни стояла — не пуста визуально: в ней есть хоть что-то помимо прочерков любого начертания и невидимых пробелов). Колонка «Beads ID», если шапка назвала её ОТДЕЛЬНО, к отклонению отношения не имеет и пустое обоснование не закрывает; шапка без колонки обоснования даёт адресный стоп «колонка обоснования не названа», а не зачёт идентификатором |
 
 **Минимальная автоматика для defer/reject (выполняется скиллом):**
 
 ```bash
-# Извлекаем все строки markdown-таблиц с triage-статусами из review-pass на $HEAD_COMMIT.
-# Шаблон reviewer.md фиксирует формат:
-#   | # | Severity | Заголовок | Файл:строка | Статус | Beads ID / Обоснование |
-# Regex допускает пробелы вокруг статуса (шаблон в reviewer.md публикует
-# `| fix now |` именно с пробелами — строгое сопоставление даёт silent skip).
-# ⚠️ Перед grep/split снимаем экранирование `\|` → ASCII 0x1F (Unit Separator).
+# Извлекаем строки таблицы замечаний из review-pass на $HEAD_COMMIT.
+# Шаблон reviewer.md фиксирует шапку — номер, severity, заголовок, файл со строкой,
+# статус, Beads ID или обоснование. Живые отчёты от шаблона отступают и числом колонок
+# (три, четыре, пять), и именем колонки статуса (перечень поддерживаемых имён целиком —
+# словарь `STATALT_LIST` в разборе ниже; здесь и далее в пояснениях приводятся ПРИМЕРЫ), поэтому
+# колонка статуса ищется в ТОМ ЖЕ БЛОКЕ — ИСКЛЮЧИТЕЛЬНО ПО ИМЕНИ ЯЧЕЙКИ ШАПКИ, из списка
+# поддерживаемых имён. Колонка платежа (Beads ID / обоснование) берётся ОТТУДА ЖЕ, по своему
+# имени, и стоять рядом со статусом не обязана. Ни по содержанию строк, ни по смещению от
+# соседней колонки колонка не выбирается: имени статуса в шапке нет — таблица получает
+# адресный стоп «колонка статуса не названа». Подробности — в комментарии к разбору ниже.
+# ⚠️ Перед разбором снимаем экранирование `\|` → ASCII 0x1F (Unit Separator).
 # Reviewer'ы пишут `\|` в ячейках, чтобы markdown-рендер не ломал таблицу
-# (шаблон в reviewer.md это явно разрешает). Без предобработки IFS='|'
-# расщепляет строку по самому `|` из `\|` и колонки сдвигаются
-# (status → path:1, payload → «defer to Beads») — это parser-contract bypass
-# (GPT-5.4 round 32 CRITICAL). 0x1F выбран как не-печатаемый управляющий
-# символ (Record Separator area), никогда не встречающийся в содержимом
-# markdown-комментария. После IFS-split восстанавливаем в каждой колонке.
+# (шаблон в reviewer.md это явно разрешает). Без предобработки разбор расщепил бы
+# строку по самому `|` из `\|`, и колонки сдвинулись бы (status → path:1,
+# payload → «defer to Beads») — это parser-contract bypass (GPT-5.4 round 32
+# CRITICAL). 0x1F выбран как не-печатаемый управляющий символ из области служебных
+# разделителей, никогда не встречающийся в содержимом markdown-комментария.
+# Обратно в `|` его переводит цикл проверки ниже, отдельно в каждой колонке.
 # SEP передаётся переменной, чтобы не полагаться на GNU-специфичный `\x1f`
-# в replacement-части sed (BSD/macOS sed его не поддерживает).
+# в replacement-части sed (BSD/macOS sed его не поддерживает), и объявляется
+# ОДИН раз — все его потребители читают эту переменную.
 SEP=$(printf '\037')
-TRIAGE_ROWS=$(timeout 10 gh pr view <PR_NUMBER> --json comments \
-  | jq -r --arg head "$HEAD_COMMIT" '
-      .comments[]
-      | select(.body | test("review-pass|Внутреннее ревью|Внешнее ревью"; "i"))
-      | select(.body | test("\"commit\":\\s*\"" + $head + "\"|Commit:\\s*`?" + $head; "s"))
-      | .body
-    ' \
-  | sed "s/\\\\|/${SEP}/g" \
-  | grep -E '^\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[[:space:]]*(fix now|defer to Beads|reject with rationale)[[:space:]]*\|' || true)
+# ⚠️ ЕДИНЫЙ СЛОВАРЬ «ВИЗУАЛЬНО ПУСТОЙ ЯЧЕЙКИ» — объявлен ОДИН раз на весь гейт и читается
+# ВСЕМИ его потребителями: разбор (awk получает список параметром `BLANKS`) и построчная
+# проверка обоснования ниже (функция `payload_is_blank`).
+# Причина — внешнее ревью PR #634, P1: словарь был записан ДВАЖДЫ независимо, и копии
+# разошлись. Разбор уже считал прочерком короткое тире `–`, а проверка обоснования знала
+# только `-` и `—`: ячейка `–` давала `GATE_SUCCESS` на `reject with rationale`, то есть
+# визуально пустое обоснование молча закрывало замечание. Класс «две копии одного словаря
+# разъехались» чинится единственным источником, а не досыпкой символов во вторую копию.
+# Состав словаря — формы, которые человек читает как «здесь ничего не написано»:
+#   • прочерки: дефис-минус, короткое тире, длинное тире, минус, цифровое тире, горизонтальная черта;
+#   • невидимые пробелы: неразрывный (U+00A0), узкий неразрывный (U+202F), нулевой ширины
+#     (U+200B), метка порядка байтов / неразрывный нулевой ширины (U+FEFF), соединитель слов
+#     (U+2060), тонкий (U+2009) и цифровой (U+2007) пробелы.
+# Невидимые формы задаются восьмеричными escape-последовательностями, а не литеральными
+# байтами: литерал в markdown невидим и при копировании блока агентом теряется молча.
+BLANK_INVISIBLE=$(printf '\302\240;\342\200\257;\342\200\213;\357\273\277;\342\201\240;\342\200\211;\342\200\207')
+BLANK_FORMS="-;–;—;−;‒;―;${BLANK_INVISIBLE}"
+# Ячейка «визуально пуста»: после удаления ВСЕХ форм словаря и обычных пробелов не осталось
+# ничего. Реализация одна на shell-сторону; awk-сторона строит свою из того же `BLANK_FORMS`.
+payload_is_blank() {
+  local value="$1" form saved_ifs="$IFS"
+  IFS=';'
+  # shellcheck disable=SC2086
+  set -- $BLANK_FORMS
+  IFS="$saved_ifs"
+  for form in "$@"; do
+    [ -n "$form" ] && value="${value//"$form"/}"
+  done
+  value="${value//[[:space:]]/}"
+  [ -z "$value" ]
+}
+# Тело review-pass'ов на доказанном evidence SHA — считаем ОДИН раз: ниже по нему идёт и разбор
+# строк таблицы замечаний, и страховка на строку триажа вне таблицы (U2-m5b1).
+#
+# ⚠️ Проверки исхода сетевого вызова сохранены в полном объёме: код возврата, пустой
+# ответ, невалидный JSON. Молчаливый провал `gh pr view` даёт ПУСТОЙ список тел — цикл
+# проверки ниже не выполняется НИ РАЗУ, и гейт публикует «готов к merge» при недоступном
+# API: тот же fail-open, ради которого гейт и существует. Каждая из трёх проверок нужна
+# отдельно и ни одна не поглощается соседней: `gh` умеет вернуть ненулевой код при
+# непустом выводе, поэтому проверка кода возврата не заменяется проверкой пустоты.
+#
+# ⚠️ Маркеры `triage-fetch:start` / `triage-fetch:end` очерчивают ровно сетевое получение
+# тел. Фикстура `scripts/tests/finalize-triage-parse.test.sh` извлекает этот блок из скилла
+# и подставляет свои тела вместо сетевого вызова; граница задана явными маркерами, чтобы
+# фикстура не угадывала форму первой строки блока — угадывание формы и есть тот класс
+# дефекта, который чинит разбор ниже. Не удалять и не переименовывать в одностороннем
+# порядке: фикстура проверяет наличие обоих маркеров.
+# triage-fetch:start
+TRIAGE_JSON=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json comments)
+triage_fetch_rc=$?
+if [ "$triage_fetch_rc" -ne 0 ]; then
+  echo "СТОП: не удалось получить triage-комментарии PR (код ${triage_fetch_rc})." >&2
+  exit 1
+fi
+if [ -z "$TRIAGE_JSON" ]; then
+  echo "СТОП: gh pr view вернул пустой результат вместо triage-комментариев." >&2
+  exit 1
+fi
 
-# Каждая строка triage: проверь пятую колонку (Статус) и шестую (Beads ID / Обоснование).
+# Каждое тело завершается байтом 0x1E (Record Separator): разбор ниже читает отчёты как
+# ОТДЕЛЬНЫЕ записи (`RS='\036'`), иначе поотчётная страховка деградирует до проверки суммы
+# тел. Разделитель пишется видимым escape `\u001e`, а не литеральным байтом: литеральный
+# байт не переживает копирование блока агентом.
+TRIAGE_EVIDENCE_SHA="${EVIDENCE_SHA:-$HEAD_COMMIT}"
+REVIEW_BODIES=$(jq -r --arg head "$TRIAGE_EVIDENCE_SHA" '
+    .comments[]
+    | select(.body | test("review-pass|Внутреннее ревью|CODE REVIEW|Внешнее ревью"; "i"))
+    | select(.body | test("\"commit\":\\s*\"" + $head + "\"|Commit:\\s*`?" + $head; "s"))
+    | .body + "\u001e"
+  ' <<< "$TRIAGE_JSON")
+triage_parse_rc=$?
+if [ "$triage_parse_rc" -ne 0 ]; then
+  echo "СТОП: gh pr view вернул невалидный JSON triage-комментариев." >&2
+  exit 1
+fi
+# triage-fetch:end
+
+# ⚠️ Здесь снимается ТОЛЬКО экранирование `\|`. Markdown-выделение нормализуется НИЖЕ, в
+# разборе, и только по КРАЯМ ячейки (функция `unwrap()`), а не по всему телу отчёта.
+# Прежняя редакция удаляла `**`, `__` и обратные кавычки глобально, и это склеивало
+# ОШИБОЧНОЕ значение в допустимый статус: `de**fer to Beads`, `de__fer to Beads` и
+# `de`+обратная кавычка+`fer to Beads` доходили до строгого `case` как `defer to Beads` и
+# при валидном Beads ID проходили гейт молча (внешнее ревью PR #634, P1). Маркер ВНУТРИ
+# значения — признак ошибки, а не оформления: он обязан дожить до ветки «нераспознанный
+# статус».
+# Публикация статуса полужирным (`| **defer to Beads** |`) — обычная практика отчётов, и
+# она по-прежнему разбирается: `unwrap()` снимает ПАРНЫЕ краевые маркеры ячейки.
+# Одиночные `*` и `_` не снимаются нигде, кроме локального опознания: `_` искалечил бы имя
+# файла в ячейке (`spec_gate.md` → `specgate.md`), а `*` — маркер списка. Поэтому курсивный
+# статус (`*defer to Beads*`) допустимым не становится, но молча не проходит НИ В ОДНОЙ из
+# развилок: опознание блока и страховка-сирота снимают выделение ЛОКАЛЬНО (функция `bare()`
+# ниже, только ради опознания), поэтому курсивная строка либо разбирается в опознанном блоке
+# и получает громкий стоп «нераспознанный статус» (строгий `case` видит ячейку как есть, со
+# звёздочками), либо, если блок таблицей замечаний не признан, кричит страховкой-сиротой.
+# Вход подаётся строкой через `<<<`: в прежнем конвейере `printf | sed` записанный ниже код
+# возврата принадлежал только `sed`, а исход писателя терялся. Процесс на шаге один.
+TRIAGE_SOURCE=$(sed "s/\\\\|/${SEP}/g" <<< "$REVIEW_BODIES")
+triage_unescape_rc=$?
+# ⚠️ Отказ снятия экранирования — СТОП, а не пустое сырьё для разбора. Без этой проверки
+# упавший `sed` отдаёт пустую строку, разбор ниже не находит НИ ОДНОЙ таблицы, цикл проверки
+# выполняется ноль раз и гейт возвращает 0: «замечаний нет» вместо «подготовка не состоялась».
+# Инвариант исполнения — раздел «Отказ инструмента ≠ „проверять нечего“» (внешнее ревью PR #634, P1).
+if [ "$triage_unescape_rc" -ne 0 ]; then
+  echo "СТОП: подготовка тел отчётов к разбору не выполнена — sed завершился с кодом ${triage_unescape_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие замечаний: снятие экранирования вертикальной черты не отработало, и разбирать нечего." >&2
+  echo "Чини окружение (доступность sed), а не отчёт, и повтори /finalize-pr." >&2
+  exit 1
+fi
+
+# ⚠️ Таблица замечаний опознаётся ПО СОДЕРЖАНИЮ СТРОК, а не по форме шапки (U2-m5b1,
+# четвёртый проход внутреннего ревью). Прежний признак — первая ячейка ровно `#` плюс
+# ячейка «Статус» — ошибался в ОБЕ стороны и оставлял автору отчёта выбор только между
+# ложным стопом и молчанием:
+#   • посторонняя таблица требований (`| # | Требование | Статус |`) или покрытия
+#     (`| # | Инвариант | Тест | Статус |`) считалась таблицей замечаний, и её «выполнено»
+#     или «покрыт» давали отказ гейта — прямое нарушение инварианта 6 контракта PR;
+#   • настоящая таблица замечаний с шапкой `| № | Заголовок | Статус | Beads ID |` либо
+#     `| ID | Severity | Находка | Место | Статус |` (форма отчёта PR #633) НЕ опознавалась,
+#     и её законные строки уходили в страховку-сироту — гейт наглухо блокировал готовность
+#     на законном отчёте.
+# Теперь решение принимается в два прохода по КАЖДОМУ блоку таблицы.
+# ⚠️ Сначала на шапке блока строится ИНДЕКС КОЛОНОК ПО ИМЕНАМ — статус, платёж (Beads ID /
+# обоснование), номер, ячейка самого замечания. Индекс строится РОВНО ОДИН РАЗ на шапку и
+# живёт до конца блока; смена шапки начинает новый блок и новый индекс. Дальше ВЕСЬ разбор
+# строки обращается к ячейкам ТОЛЬКО через него.
+# Ни смещения («колонка платежа — соседняя со статусом»), ни перебора («колонка статуса —
+# первая ячейка строки с каноническим текстом») в разборе распознанных таблиц нет: обе формы
+# выбирали НЕ ТУ ячейку и давали молчаливый пропуск (внешнее ревью PR #634, два P1 одного
+# корня — платёж через колонку от статуса и исход работы, принятый за решение триажа).
+# Свободные имена колонки решения поддержаны СПИСКОМ (`STATALT_LIST`; примеры — «Решение»,
+# «Итог», «Вердикт», формы отчётов PR #633/#645):
+# без них законная таблица триажа давала громкий стоп на каждой своей
+# строке (проверено на телах PR #645 — 42 ложных стопа). Имя вне списка колонкой статуса не
+# становится — блок получает адресный стоп «колонка статуса не названа», а не подбор соседа.
+# Затем блок признаётся таблицей замечаний, если выполнено одно из:
+#   1. ОПОЗНАНИЕ ПО СОДЕРЖАНИЮ — ПАРА признаков, а не один (внешнее ревью PR #634, проход 10):
+#      (а) хотя бы одна строка блока несёт КАНОНИЧЕСКИЙ статус триажа И
+#      (б) блок подтверждает, что он вообще про триаж, — либо шапка называет САМО ЗАМЕЧАНИЕ
+#          (единственный ИСПОЛНЯЕМЫЙ перечень имён — словарь `FINDHDR_LIST` в разборе ниже;
+#          нормативная копия перечня есть в шаблоне `reviewer.md`, машинной сверки у неё
+#          нет — U2-lbwe), либо канонический статус несёт
+#          КАЖДАЯ содержательная строка данных блока, а не одна из многих. Законная
+#          строка-заглушка («нет замечаний», прочерки) этот признак не роняет: решения она
+#          не несёт и из проверки исключается.
+#      Одного признака (а) не хватает: посторонняя таблица требований с колонкой «Статус», где
+#      одна строка из многих написана как `fix now`, признавалась таблицей замечаний ЦЕЛИКОМ, и
+#      соседняя строка со статусом `выполнено` давала ложный стоп — нарушение инварианта 6
+#      контракта PR. Сужение молчаливым пропуском не оборачивается: строку, ЗАЯВЛЯЮЩУЮ статус
+#      триажа, в непризнанном блоке всё равно ловит страховка-сирота ниже, поэтому блок с
+#      каноническим статусом громко останавливает гейт при любом исходе опознания. Тише
+#      становится ровно то, что статуса не заявляет, — соседние строки посторонней таблицы.
+#      Оба признака считаются ПО ВСЕМУ БЛОКУ, а в признанном блоке проверяются ВСЕ его строки:
+#      нераспознанный статус там даёт громкий стоп (инвариант 2 цел);
+#   2. шапка несёт ПОЛНУЮ ПОДПИСЬ шаблона reviewer.md — ЧЕТЫРЕ признака разом: ячейка-номер
+#      первой (`#`, `№`, `No`, `ID`) И ячейка платежа («Beads ID» / «Обоснование») И ячейка,
+#      называющая само замечание (перечень имён — словарь `FINDHDR_LIST`), И хоть одна
+#      ячейка со СЛОВОМ О РЕШЕНИИ целым словом имени («Статус триажа», «Итоговый статус» набирают
+#      его словом «статус»; словари — те же, что у строгого выбора колонки). СТРОГОГО имени
+#      колонки решения в подписи нет: оно проверяется отдельно и на признание шапки не
+#      влияет — иначе таблица замечаний с незнакомым именем этой колонки («Статус триажа»,
+#      «Вердикт ревью») шапкой не признавалась бы и уходила в молчание (внутреннее ревью
+#      PR #634, итерация 5). Эта ветка держит в громком стопе случай «все строки с неверным
+#      написанием статуса». Признак замечания добавлен по внешнему ревью PR #634: без него
+#      подпись сводилась к «номер + Статус + Обоснование» и накрывала обычную таблицу
+#      требований. Признак слова о решении добавлен по внутреннему ревью, итерация 6: без
+#      него подпись набирали посторонние реестры вовсе без колонки решения
+#      (`| # | Мутация | Файл | Обоснование |` из трейла этого же PR) — жёсткий стоп на
+#      каждой строке, нарушение инварианта 6.
+# Каждый из признаков — часть СОВОКУПНОСТИ: ни одно совпадение одного слова в одной ячейке
+# само по себе не делает блок таблицей замечаний и не выводит строку из проверки.
+# ⚠️ ЗАЯВЛЕННЫЙ ПРЕДЕЛ ОПОЗНАНИЯ (проверено исполнением, внутреннее ревью PR #634, итерация 5).
+# Блок остаётся неопознанным — то есть проверка его строк не выполняется, — когда СРАЗУ:
+# ни одна строка не несёт канонического статуса, СТРОГОЕ имя колонки решения гейту незнакомо
+# И подпись не набрана — хотя бы одна из трёх ячеек подписи названа незнакомо (номер
+# `| Номер | …`, замечание `| # | Пункт | …`, платёж `| # | Находка | … | Комментарий |`)
+# ЛИБО ни одна ячейка шапки не несёт словарного слова о решении целым словом имени
+# (`| # | Находка | Отработка | Обоснование |`). Расширять словари ради этих форм здесь
+# нельзя: каждое новое имя расширяет опознание и на ПОСТОРОННИЕ таблицы отчёта, а их ложный
+# стоп — прямое нарушение инварианта 6 контракта PR. Закрывается это не словарём, а требованием
+# к отчёту (шаблон `reviewer.md`), и предел объявлен, чтобы его не принимали за проверку.
+# Блок, не подошедший ни под одно условие, таблицей замечаний НЕ является и пропускается
+# молча (инвариант 6 восстановлен) — но строку, ЗАЯВЛЯЮЩУЮ статус, в нём всё равно ловит
+# страховка-сирота ниже, так что молчание не распространяется на похожее на статус.
+# Число и порядок колонок ни на что не влияют: и статус, и платёж берутся по ИМЕНИ из
+# индекса шапки ТОГО ЖЕ БЛОКА, поэтому колонка платежа может стоять где угодно, а не только
+# сразу за статусом. Колонок платежа ДВЕ, по числу носителей: идентификатор задачи для
+# `defer to Beads` и текст обоснования для `reject with rationale`. Названа только одна —
+# вторая роль остаётся БЕЗ колонки, и её статус получает адресный стоп «колонка не названа»;
+# подставлять соседнюю колонку запрещено (это и был молчаливый пропуск, PR #634, P1).
+# Нет колонки статуса — стоп на всей таблице. Строгость разбора не ослаблена: в `case`
+# ниже ячейка статуса уходит как есть, а набор допустимых статусов не расширен.
+# Разделитель колонок в выдаче разбора — Group Separator (0x1D). Он не встречается ни в
+# markdown-комментарии, ни среди уже занятых служебных байтов (0x1F — экранированная
+# вертикальная черта, 0x1E — граница отчётов). Объявлен ОДИН раз и передан в awk
+# параметром: две независимые записи одной и той же константы разъезжаются молча.
+GS=$(printf '\035')
+# Вход — строкой через `<<<`, не конвейером: записанный ниже `triage_rows_rc` обязан
+# принадлежать самому разбору, а не последнему звену конвейера.
+TRIAGE_ROWS=$(awk -v RS='\036' -v GS="$GS" -v BLANKS="$BLANK_FORMS" '
+  # Обрезка пробелов по краям ячейки. Неразрывный пробел (U+00A0) НЕ трогаем намеренно:
+  # такая ячейка обязана дойти до ветки «нераспознанный статус», а не притвориться валидной.
+  function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+  # Удаление ВСЕХ вхождений подстроки БЕЗ обращения к регулярным выражениям. Словарь пустых
+  # форм состоит из литералов, часть которых многобайтна (тире, невидимые пробелы): как
+  # регулярное выражение они истолковались бы посимвольно и в побайтовом awk разрезали бы
+  # кириллицу. Поэтому поиск — только `index()`.
+  function striplit(t, what,   p, out) {
+    if (what == "") return t
+    out = ""
+    while ((p = index(t, what)) > 0) { out = out substr(t, 1, p - 1); t = substr(t, p + length(what)) }
+    return out t
+  }
+  # Ячейка ВИЗУАЛЬНО ПУСТА: после удаления всех форм ЕДИНОГО СЛОВАРЯ (`BLANKS`, объявлен
+  # один раз в shell выше) и обычных пробелов в ней ничего не осталось. Единственная точка
+  # решения «здесь ничего не написано» на стороне разбора: прежде тот же перечень был
+  # выписан прямо в условиях и разошёлся с shell-копией (внешнее ревью PR #634, P1).
+  function blankcell(s,   t, i) {
+    t = s
+    for (i = 1; i <= BLANK_N; i++) t = striplit(t, BLANK_LIST[i])
+    gsub(/[ \t]/, "", t)
+    return (t == "")
+  }
+  # Снятие форм словаря по ЛЕВОМУ краю — для опознания статуса (`deframe` ниже). Отличие от
+  # `blankcell` в том, что здесь режется только начало: значение после обрамления обязано
+  # дожить до строгой проверки целиком.
+  function striplead(t,   i, prev) {
+    do {
+      prev = t
+      for (i = 1; i <= BLANK_N; i++) {
+        if (BLANK_LIST[i] != "" && index(t, BLANK_LIST[i]) == 1) t = substr(t, length(BLANK_LIST[i]) + 1)
+      }
+    } while (t != prev)
+    return t
+  }
+  # Нормализация ОБРАМЛЕНИЯ ячейки: снимаются только ПАРНЫЕ краевые маркеры выделения
+  # (`**`, `__`, обратные кавычки). Внутрь значения нормализация не лезет и непарный маркер
+  # не снимает — иначе ошибочное написание склеивается в допустимый статус и проходит
+  # строгий `case` (внешнее ревью PR #634, P1). Сомнение решается в сторону стопа: маркер,
+  # который не является обрамлением, остаётся в значении и доводит строку до ветки
+  # «нераспознанный статус». Цикл нужен для вложенного обрамления (`**`+обратные кавычки).
+  function unwrap(s,   t, L) {
+    t = trim(s)
+    while (1) {
+      L = length(t)
+      if (L >= 4 && substr(t, 1, 2) == "**" && substr(t, L - 1, 2) == "**") t = substr(t, 3, L - 4)
+      else if (L >= 4 && substr(t, 1, 2) == "__" && substr(t, L - 1, 2) == "__") t = substr(t, 3, L - 4)
+      else if (L >= 2 && substr(t, 1, 1) == "`" && substr(t, L, 1) == "`") t = substr(t, 2, L - 2)
+      else break
+      t = trim(t)
+    }
+    return t
+  }
+  # Ячейки строки таблицы. Ведущая и замыкающая вертикальные черты в markdown
+  # НЕОБЯЗАТЕЛЬНЫ (GFM), поэтому снимаем их, если они есть, а не требуем: строка без
+  # ведущей черты — законная разметка, и выпадать из проверки она не должна.
+  # Отступ и цитату (символ цитаты в начале) снимаем по той же причине.
+  function cut(L, arr,   t, n, i) {
+    t = L
+    sub(/^[ \t>]+/, "", t)
+    t = trim(t)
+    if (t == "") return 0
+    if (substr(t, 1, 1) == "|") t = substr(t, 2)
+    if (t != "" && substr(t, length(t), 1) == "|") t = substr(t, 1, length(t) - 1)
+    n = split(t, arr, "\\|")
+    for (i = 1; i <= n; i++) arr[i] = unwrap(arr[i])
+    return n
+  }
+  # Разделитель шапки: ВСЕ ячейки — дефисы с необязательным двоеточием выравнивания.
+  # Условие полное, а не «первая ячейка из дефисов»: иначе строка замечания с прочерком
+  # в первой ячейке считалась бы разделителем и пропадала из проверки.
+  function isdelim(arr, n,   i) {
+    for (i = 1; i <= n; i++) if (arr[i] !~ /^:?-+:?$/) return 0
+    return (n > 0)
+  }
+  # ⚠️ Списки-словари объявлены ЗДЕСЬ И ТОЛЬКО ЗДЕСЬ, по одной записи на каждый: статусы
+  # триажа и синонимы трёх видов ячеек шапки. Все потребители ниже (широкое опознание,
+  # каноническое опознание, поиск колонки статуса, подпись шаблона) читают эти же массивы.
+  # Две независимые записи одного словаря расходятся молча — та же причина, по которой
+  # константа GS объявлена один раз. Расхождение списка статусов со строгим `case` ниже и с
+  # шаблоном reviewer.md ловит структурная проверка фикстуры finalize-triage-parse.test.sh.
+  # Разделитель `;` (а не `|`): одиночная вертикальная черта третьим аргументом split —
+  # пустая альтернатива в ERE, её трактовка разнится между реализациями awk.
+  # Кириллические написания перечислены ОБОИМИ регистрами намеренно: `tolower()` приводит
+  # кириллицу не во всех реализациях awk (BSD/macOS — нет, gawk в UTF-8-локали — да), и
+  # полагаться на приведение регистра для неё нельзя.
+  BEGIN {
+    # Словарь пустых форм приходит ПАРАМЕТРОМ из shell (`BLANKS`) — второй его записи здесь
+    # нет намеренно: ровно две независимые копии этого перечня и разъехались (PR #634, P1).
+    BLANK_N   = split(BLANKS, BLANK_LIST, ";")
+    STATUS_N  = split("fix now;defer to beads;reject with rationale", STATUS_LIST, ";")
+    NUMHDR_N  = split("#;№;no;id", NUMHDR_LIST, ";")
+    STATHDR_N = split("Статус;статус;status", STATHDR_LIST, ";")
+    # Свободные имена колонки решения, которыми живые отчёты называют ту же колонку
+    # («Решение», «Итог», «Вердикт» — формы отчётов PR #633/#645). Список ПОДДЕРЖИВАЕМЫХ
+    # имён, а не догадка: колонка находится по имени и только по нему, поэтому имя, которого
+    # здесь нет, даёт стоп «колонка статуса не названа», а не молчаливый подбор соседа.
+    # `Результат` в список НЕ входит намеренно: в форме PR #645 это исход работы, а не
+    # решение триажа, и принять его за статус — ровно тот дефект, который чинится (P1 №2).
+    STATALT_N = split("Решение;решение;Итог;итог;Вердикт;вердикт;Триаж;триаж;decision;resolution;verdict;triage", STATALT_LIST, ";")
+    # Опоры распознавания границ слова для признака 4 (`anymention` ниже).
+    # MB: проба движка — gawk в UTF-8 меряет строки СИМВОЛАМИ (length("Ё")==1),
+    # BSD/onetrue awk — БАЙТАМИ (==2). Ветвление одно, в момент старта, без локали.
+    MB = (length("Ё") == 1)
+    # BV: значение байта по его символу — для структурного разбора UTF-8 в байтовой ветке.
+    for (bvi = 1; bvi < 256; bvi++) BV[sprintf("%c", bvi)] = bvi
+    # Закрытый алфавит букв слова для символьной ветки: русская кириллица обоих регистров.
+    CYRALL = "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+    # Носителей платежа ДВА, и они РАЗНЫЕ (внешнее ревью PR #634, P1 на голове 639f1fe7):
+    # у `defer to Beads` платёж — идентификатор задачи, у `reject with rationale` — текст
+    # обоснования. Прежде оба имени лежали в одном словаре, колонка выбиралась первой
+    # подошедшей и обслуживала ОБА статуса: шапка, назвавшая обе колонки, отдавала им первую,
+    # и `defer` с идентификатором в обосновании проходил молча, а `reject` при обратном
+    # порядке колонок ложно останавливался. Поэтому словаря два — по одному на носитель.
+    # Составное имя шаблона reviewer.md («Beads ID / Обоснование») подходит обоим словарям
+    # ЧАСТЯМИ, поэтому одна такая ячейка независимо достаётся обеим ролям — это законный
+    # случай, и достраивать роли друг из друга для него не нужно. Шапка, назвавшая только
+    # одну половину, вторую роль оставляет БЕЗ колонки: там адресный стоп, а не подстановка.
+    IDHDR_N   = split("Beads ID;beads id", IDHDR_LIST, ";")
+    RATHDR_N  = split("Обоснование;обоснование", RATHDR_LIST, ";")
+    FINDHDR_N = split("severity;критичность;Критичность;Заголовок;заголовок;Находка;находка;Замечание;замечание;Место;место;Файл;файл", FINDHDR_LIST, ";")
+  }
+  # Ячейка без markdown-выделения и без краевых пробелов — форма для ОПОЗНАНИЯ, не для
+  # проверки. Результат никуда не выводится и ни с чем, кроме словарей выше, не сравнивается,
+  # поэтому здесь снимаются и одиночные `*`/`_`, которые общая нормализация трогать не вправе
+  # (она искалечила бы имя файла в ячейке — `spec_gate.md`).
+  function bare(s,   t) { t = s; gsub(/[*_~`]/, "", t); return trim(t) }
+  # Совпадение ячейки со словарём. `whole=1` — ячейка названа РОВНО так. `whole=0` — ячейка
+  # СОСТАВНАЯ («Beads ID / Обоснование», «Файл:строка»): она разбирается на части по знакам
+  # `/`, `:`, `,`, `;` и целиком сравнивается КАЖДАЯ ЧАСТЬ. Сравниваем и как есть, и в нижнем
+  # регистре — см. оговорку про кириллицу выше.
+  # ⚠️ ВХОЖДЕНИЯ ПОДСТРОКИ ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО (внешнее ревью PR #634, проход 10).
+  # Прежняя редакция при `whole=0` искала словарное слово подстрокой в любом месте ячейки, и
+  # шапка посторонней таблицы требований `| # | Файлы требования | Статус | Обоснование |`
+  # совпадала с признаком замечания «Файл» КУСКОМ СЛОВА. Таблица получала полную подпись
+  # шаблона, разбиралась построчно, и её «выполнено» давало ложный стоп — нарушение
+  # инварианта 6 контракта PR. Часть составного имени — это целое имя колонки; кусок слова —
+  # нет, и права называть колонку он не даёт.
+  # Сужение промахивается в безопасную сторону: имя, которое перестало совпадать, оставляет
+  # роль колонки неназванной, а это адресный стоп («колонка … не названа»), не тишина.
+  function inlist(s, LIST, N, whole,   i, j, np, part, r, t) {
+    r = bare(s); t = tolower(r)
+    for (i = 1; i <= N; i++) if (r == LIST[i] || t == LIST[i]) return 1
+    if (whole) return 0
+    np = split(r, part, "[/:,;]")
+    for (j = 1; j <= np; j++) {
+      part[j] = trim(part[j])
+      for (i = 1; i <= N; i++) if (part[j] == LIST[i] || tolower(part[j]) == LIST[i]) return 1
+    }
+    return 0
+  }
+  # Ячейка НЕСЁТ канонический статус триажа: совпадение ЦЕЛИКОМ. Этим признаком блок
+  # опознаётся как таблица замечаний (проход 1). Он намеренно у́же `looks()`: статус с
+  # припиской («fix now (правкой формулировки)») каноническим не считается — приписке место
+  # в колонке обоснования, так предписывает reviewer.md.
+  function iscanon(s,   t, i) {
+    t = tolower(bare(s))
+    for (i = 1; i <= STATUS_N; i++) if (t == STATUS_LIST[i]) return 1
+    return 0
+  }
+  # ⚠️ ЕДИНСТВЕННЫЙ способ выбрать колонку — ИМЯ ЯЧЕЙКИ ШАПКИ. Ни смещение от другой колонки,
+  # ни перебор «первая подходящая ячейка строки» колонкой не распоряжаются: обе формы выбора
+  # смотрели не в ту ячейку, которую написал автор отчёта, и давали МОЛЧАЛИВЫЙ ПРОПУСК
+  # (внешнее ревью PR #634, два P1 одного корня — несмежная колонка платежа и «первая
+  # каноническая ячейка» вместо колонки решения).
+  # Индекс колонки по имени: сначала совпадение ЦЕЛИКОМ (шапка называет колонку ровно), затем
+  # — при `deep` — совпадение с ЧАСТЬЮ составного имени (шаблон публикует «Beads ID /
+  # Обоснование»). Вхождения подстроки нет ни в одном из двух режимов — см. `inlist` выше.
+  # ⚠️ Разбор составного имени включается не везде: у колонки-номера в словаре есть `id`, и
+  # шапка вида «Задача / ID» отдала бы роль номера колонке идентификатора задачи, подписав
+  # строку чужой ячейкой. Прежнее обоснование этого `deep=0` ссылалось на «Beads ID»,
+  # пойманный подстрокой `id`, — после перехода на целые части оно НЕВЕРНО и заменено:
+  # `inlist("Beads ID", NUMHDR_LIST, NUMHDR_N, 0)` даёт 0, проверено исполнением.
+  function hdrcol(arr, n, LIST, N, deep,   i) {
+    for (i = 1; i <= n; i++) if (inlist(arr[i], LIST, N, 1)) return i
+    if (!deep) return 0
+    for (i = 1; i <= n; i++) if (inlist(arr[i], LIST, N, 0)) return i
+    return 0
+  }
+  # Индекс колонки статуса в строке-шапке; 0 — колонка не названа.
+  # Порядок предпочтений: точное каноническое имя → точное поддерживаемое свободное имя →
+  # те же два по ЧАСТИ составного имени. Каноническое имя главнее свободного при любом
+  # порядке колонок: шапка с обеими ячейками («Статус» и «Решение») не должна зависеть от
+  # того, какая левее.
+  function statuscol(arr, n,   i) {
+    i = hdrcol(arr, n, STATHDR_LIST, STATHDR_N, 0); if (i > 0) return i
+    i = hdrcol(arr, n, STATALT_LIST, STATALT_N, 0); if (i > 0) return i
+    i = hdrcol(arr, n, STATHDR_LIST, STATHDR_N, 1); if (i > 0) return i
+    return hdrcol(arr, n, STATALT_LIST, STATALT_N, 1)
+  }
+  # Строка НЕСЁТ канонический статус хотя бы в одной ячейке. Признак ОПОЗНАНИЯ БЛОКА, и
+  # только он: индекс колонки из него больше не выводится. Прежняя редакция возвращала здесь
+  # НОМЕР первой канонической ячейки и разбирала строку по нему — для строки
+  # `Безопасность | эскалация | fix now` под шапкой `Класс находки | Решение | Результат`
+  # это означало «принять исход за решение» и молча зачесть неразрешённое замечание
+  # (внешнее ревью PR #634, P1). Опознание блока по содержанию сохранено, выбор колонки — нет.
+  function hascanon(arr, n,   i) {
+    for (i = 1; i <= n; i++) if (iscanon(arr[i])) return 1
+    return 0
+  }
+  # Полная подпись шаблона reviewer.md — СОВОКУПНОСТЬ ЧЕТЫРЁХ признаков шапки: ячейка-номер
+  # первой, ячейка платежа («Beads ID» / «Обоснование»), ячейка, называющая САМО ЗАМЕЧАНИЕ
+  # (перечень имён — словарь `FINDHDR_LIST` выше, второй его записи здесь нет), и хоть одна
+  # ячейка со словом о решении целым словом имени (`anymention` ниже).
+  # ⚠️ СТРОГОГО имени колонки решения в подписи НЕТ и быть не должно. Его гейт ищет
+  # отдельно (`statuscol`), и его отсутствие даёт АДРЕСНЫЙ стоп, а не отказ опознания:
+  # требуя его здесь, гейт молчал бы на настоящей таблице замечаний, назвавшей эту колонку
+  # своими словами (внутреннее ревью PR #634, итерация 5).
+  # Третий признак добавлен по внешнему ревью PR #634 (P1): без него подпись сводилась к
+  # «номер + Статус + Обоснование», и обычная таблица требований `| # | Требование | Статус |
+  # Обоснование |` считалась таблицей замечаний — её «выполнено» давало отказ гейта, прямое
+  # нарушение инварианта 6 контракта PR. Строгость при этом не потеряна: настоящая таблица
+  # замечаний ячейку замечания несёт всегда (шаблон reviewer.md, формы отчётов #613–#645),
+  # поэтому случай «все строки с неверным написанием статуса» остаётся в громком стопе.
+  # Ячейки ищутся по ЦЕЛОМУ ИМЕНИ, а у составной ячейки — по целому имени каждой её части
+  # («Beads ID / Обоснование», «Файл:строка»); живые отчёты сокращают до одной половины.
+  # Куском слова признак не набирается: `Файлы требования` не называет колонку «Файл»
+  # (внешнее ревью PR #634, проход 10 — см. `inlist`).
+  # ⚠️ `arr[1]` здесь — НЕ выбор колонки по позиции, а требование к ФОРМЕ ШАПКИ: подпись
+  # шаблона reviewer.md начинается ячейкой-номером. Разбор строки этим индексом не
+  # пользуется: номер для диагностики берёт `rowlabel()` из индекса колонок.
+  function issig(arr, n,   i, pay, fnd) {
+    if (!inlist(arr[1], NUMHDR_LIST, NUMHDR_N, 1)) return 0
+    pay = 0; fnd = 0
+    for (i = 1; i <= n; i++) {
+      if (inlist(arr[i], IDHDR_LIST, IDHDR_N, 0) || inlist(arr[i], RATHDR_LIST, RATHDR_N, 0)) pay = 1
+      if (inlist(arr[i], FINDHDR_LIST, FINDHDR_N, 0)) fnd = 1
+    }
+    return (pay && fnd && anymention(arr, n))
+  }
+  # Четвёртый признак подписи: хоть одна ячейка шапки несёт СЛОВО О РЕШЕНИИ — ЦЕЛЫМ СЛОВОМ
+  # имени, а не целым именем («Статус триажа» и «Итоговый статус» набирают его словом
+  # «статус»). Слово — единица мельче «части составного имени» у признаков 2–3: части режут
+  # только `/,:;`, слова — любые не-буквенные символы. Словари те же, что у строгого выбора
+  # колонки (`STATHDR_LIST`, `STATALT_LIST`): второй записи перечня здесь нет. Признак
+  # колонку НЕ выбирает — только опознаёт блок-кандидат: индекс колонок строится строгим
+  # сопоставлением, и незнакомое строгому разбору имя даёт адресный стоп, а не подбор.
+  # Без признака подпись набирали реестры вовсе без колонки решения (итерация 6); целое
+  # слово вместо вхождения — итерация 7 («Итого строк» зажигал признак куском «итог»).
+  # word-boundary-norm:start
+  # Разделителем слова служит любой символ, не являющийся буквой латиницы, буквой русской
+  # кириллицы или цифрой; перечня разделителей нет.
+  # word-boundary-norm:end
+  # ИНВЕРСИЯ НА ДОПОЛНЕНИЕ — итерация 8, CRITICAL. Прежняя форма ПЕРЕЧИСЛЯЛА
+  # ASCII-разделители, и любой не-ASCII разделитель между словами имени (неразрывный пробел
+  # U+00A0, юникод-дефис U+2011, подчёркивание перечислено не было) выключал признак МОЛЧА:
+  # таблица с полной подписью и неразрешённым замечанием проходила без единой строки — тот
+  # же fail-open, ради которого PR заведён. Перечисление разделителей неисчерпаемо по
+  # построению; дополнение закрывает класс целиком: буквы слова — закрытый алфавит словарей
+  # (ASCII-буквоцифра + русская кириллица), ВСЁ остальное — граница слова автоматически.
+  # Два движка awk без локали: gawk в UTF-8 меряет СИМВОЛАМИ (ветка MB, алфавит CYRALL);
+  # BSD/onetrue — БАЙТАМИ, кириллица различается по СТРУКТУРЕ UTF-8: ведущие байты
+  # 0xD0–0xD3, байт-продолжение классифицируется по СВОЕМУ ведущему (иначе продолжение
+  # U+00A0 (0xA0) неотличимо от продолжения буквы «Р» (0xA0) — реальный промах пробы).
+  # Регистр: `tolower` надёжен только для латиницы, кириллица покрыта двумя регистрами
+  # в самих словарях.
+  function is_lead_cyr(b) { return (b >= 208 && b <= 211) }
+  function is_alnum_b(b) { return ((b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)) }
+  function wordchar_c(c) { return (c ~ /^[0-9A-Za-z]$/ || index(CYRALL, c) > 0) }
+  function bnd_before(t, p,   b, b0) {
+    if (p <= 1) return 1
+    if (MB) return !wordchar_c(substr(t, p - 1, 1))
+    b = BV[substr(t, p - 1, 1)]
+    if (is_alnum_b(b)) return 0
+    if (is_lead_cyr(b)) return 0
+    if (b >= 128 && b <= 191) {
+      if (p >= 3) { b0 = BV[substr(t, p - 2, 1)]; if (is_lead_cyr(b0)) return 0; return 1 }
+      return 1
+    }
+    return 1
+  }
+  function bnd_after(t, q,   b) {
+    if (q > length(t)) return 1
+    if (MB) return !wordchar_c(substr(t, q, 1))
+    b = BV[substr(t, q, 1)]
+    if (is_alnum_b(b)) return 0
+    if (is_lead_cyr(b)) return 0
+    return 1
+  }
+  function wordhit(t, W,   st, p, l) {
+    l = length(W); st = 1
+    while ((p = index(substr(t, st), W)) > 0) {
+      p += st - 1
+      if (bnd_before(t, p) && bnd_after(t, p + l)) return 1
+      st = p + 1
+    }
+    return 0
+  }
+  # ⚠️ Без `bare()` намеренно: она стирает `_*~` В НУЛЬ и склеивает слова —
+  # «Итоговый_статус» превращался в «Итоговыйстатус», слово исчезало, признак молчал
+  # (проверено исполнением). Инверсии украшения не мешают: `*`, `_`, кавычки — не буквы,
+  # то есть границы слова сами по себе. Остаток: украшение ВНУТРИ слова («Ста*тус»)
+  # рвёт слово и уводит блок в предел 1 — промах в сторону молчания на экзотике,
+  # которой ни один живой отчёт не показывал.
+  function anymention(arr, n,   i, j, t) {
+    for (i = 1; i <= n; i++) {
+      t = tolower(arr[i])
+      for (j = 1; j <= STATHDR_N; j++) if (wordhit(t, STATHDR_LIST[j])) return 1
+      for (j = 1; j <= STATALT_N; j++) if (wordhit(t, STATALT_LIST[j])) return 1
+    }
+    return 0
+  }
+  # Признак «ячейка ПРЕТЕНДУЕТ на статус триажа»: совпадение ВХОЖДЕНИЕМ. НАМЕРЕННО ШИРЕ и
+  # строгого разбора, и канонического опознания, потому что отвечает на третий вопрос: не
+  # «статус валиден?» и не «это таблица замечаний?», а «строка заявляет статус?». Ячейку,
+  # которую человек прочитает как статус — с markdown-выделением (`*defer to Beads*`), в
+  # кавычках или скобках, с припиской, в ином регистре, — гейт обязан ДОВЕСТИ ДО ПРОВЕРКИ.
+  # Если разбор её не проверил, он обязан кричать: молчаливый пропуск такой строки — ровно
+  # тот fail-open, ради которого гейт и существует (U2-m5b1).
+  # Строгость этим НЕ ослабляется: внутри опознанного блока ячейка уходит в `case` как есть
+  # и получает стоп «нераспознанный статус» — широкое опознание не делает статус валидным и
+  # набор допустимых статусов не расширяет.
+  # ⚠️ Заявка на статус читается по СОВОКУПНОСТИ признаков ЯЧЕЙКИ: статус обязан ОТКРЫВАТЬ
+  # ячейку — перед ним допускается только обрамление (кавычки, скобки, тире, двоеточие,
+  # маркер списка). Прежнее «слово встречается где угодно в ячейке» останавливало гейт на
+  # посторонней таблице, где `fix now` упомянут ВНУТРИ фразы требования («замечания класса
+  # fix now закрыты») — ложный стоп, инвариант 6 контракта PR (внешнее ревью PR #634, P1).
+  # Приписка ПОСЛЕ статуса опознание не ломает — она и есть тот случай, ради которого
+  # признак шире канонического («fix now (правкой формулировки)», «fix now — позже»).
+  function looks(s,   t, i) {
+    t = deframe(tolower(bare(s)))
+    for (i = 1; i <= STATUS_N; i++) if (index(t, STATUS_LIST[i]) == 1) return 1
+    return 0
+  }
+  # Снятие ОБРАМЛЕНИЯ по левому краю: кавычки, скобки, тире, двоеточия, маркер списка, а
+  # также ВСЕ формы единого словаря пустоты (`striplead`) — невидимый пробел перед статусом
+  # опознанию не мешает. Только левый край: опознание ниже смотрит на начало значения.
+  # Многобайтные кавычки снимаются отдельными подстановками, а не символьным классом: в awk
+  # с побайтовым сопоставлением класс из многобайтных символов режет кириллицу по байту.
+  # ⚠️ Тире здесь НЕ перечисляются вторым списком — их даёт `striplead` из того же словаря,
+  # что и проверка пустоты. Прежде тире были выписаны и тут, и в проверке обоснования, и
+  # списки разошлись (внешнее ревью PR #634, P1).
+  function deframe(t,   prev) {
+    do {
+      prev = t
+      sub(/^[ \t"'"'"'(\[{<:;,.!?*_~`]+/, "", t)
+      sub(/^«/, "", t); sub(/^„/, "", t); sub(/^“/, "", t)
+      t = striplead(t)
+    } while (t != prev)
+    return t
+  }
+  # Легитимная пустота: строка-заглушка «нет замечаний» или строка целиком из прочерков.
+  # ⚠️ Глушение строки — исключение её из проверки, поэтому признак заглушки построен на
+  # СОВОКУПНОСТИ и каждое сомнение решается в сторону разбора (то есть в сторону стопа):
+  #   1. ячейка статуса непуста и не прочерк — строка ЗАЯВЛЯЕТ статус и глушению не подлежит
+  #      ни при какой фразе в соседних ячейках;
+  #   2. ни одна ячейка не претендует на статус триажа (обоснование `reject with rationale` —
+  #      свободный текст, и фраза «нет замечаний» в нём естественна; признак проверяется по
+  #      ВСЕМ ячейкам, ранний возврат не давал увидеть статус в следующей ячейке);
+  #   3. в строке нет НИ ОДНОЙ значащей ячейки помимо самой фразы-заглушки. Прежняя редакция
+  #      глушила строку по одной лишь фразе в любой ячейке: заголовок «по архитектуре нет
+  #      замечаний, но тест сломан» при статусе `эскалация` выключал обязательный стоп на
+  #      нераспознанном статусе (внешнее ревью PR #634, P1). Настоящая заглушка несёт прочерки
+  #      во всех остальных колонках — осмысленный номер, severity, файл или идентификатор
+  #      означают строку замечания, а не заглушку.
+  # ⚠️ Сама фраза опознаётся СЕМАНТИЧЕСКОЙ ПАРОЙ, а не буквальной подстрокой «нет замечаний»
+  # (итерация 8, блокер F1): пять боевых заглушек PR #612 написаны «нет блокирующих
+  # замечаний» — буквальное вхождение отсутствует, строка считалась значащей и получала
+  # громкий стоп с диагнозом «впиши статус», подталкивающим выдумать статус на заглушке.
+  # stub-phrase-norm:start
+  # Фразой-заглушкой считается ячейка, несущая слово «нет» и слово с началом «замечани»;
+  # любая другая формулировка отсутствия замечаний фразой-заглушкой не считается.
+  # stub-phrase-norm:end
+  # Пара покрывает живые формы («нет замечаний», «замечаний нет», «нет блокирующих
+  # замечаний», «нет данных о замечаниях») и НЕ покрывает содержательный текст: строка со
+  # значащей ячейкой рядом или с заявленным статусом глушению по-прежнему не подлежит
+  # (условия 1–3 выше главнее фразы).
+  # ⚠️ «Пусто или прочерк» здесь спрашивается у `blankcell()` — единого словаря, того же,
+  # которым построчная проверка обоснования ниже меряет пустоту. Прежде перечень прочерков
+  # был выписан прямо в этих двух условиях, и вторая копия в shell от него отстала
+  # (внешнее ревью PR #634, P1).
+  # Слово с данным НАЧАЛОМ от границы слова: для фразы-заглушки хвост слова свободен
+  # («замечаний», «замечания», «замечаниях»), поэтому проверяется только левая граница.
+  function wordpfx(t, P,   st, p) {
+    st = 1
+    while ((p = index(substr(t, st), P)) > 0) {
+      p += st - 1
+      if (bnd_before(t, p)) return 1
+      st = p + 1
+    }
+    return 0
+  }
+  function stubphrase(c) {
+    if (!(wordhit(c, "нет") || wordhit(c, "Нет"))) return 0
+    return (wordpfx(c, "замечани") || wordpfx(c, "Замечани"))
+  }
+  function isstub(arr, n, scol,   i, meaningful, st) {
+    st = (scol >= 1 && scol <= n) ? bare(arr[scol]) : ""
+    if (!blankcell(st)) return 0
+    for (i = 1; i <= n; i++) if (looks(arr[i])) return 0
+    meaningful = 0
+    for (i = 1; i <= n; i++) {
+      if (stubphrase(arr[i])) continue
+      if (!blankcell(arr[i])) meaningful++
+    }
+    return (meaningful == 0)
+  }
+  # Хотя бы одна ячейка строки ПРЕТЕНДУЕТ на статус триажа. Признак «строку нельзя молча
+  # исключить из проверки»: им закрыты обе развилки, где строка вычёркивалась как шапка.
+  function anylooks(arr, n,   i) {
+    for (i = 1; i <= n; i++) if (looks(arr[i])) return 1
+    return 0
+  }
+  # Ячейка, которой строка подписывается в диагностике. Тоже ПО ИМЕНИ: колонка-номер, если
+  # шапка её назвала; иначе колонка, называющая само замечание; иначе — первая ячейка (у
+  # свободных шапок вроде `Класс находки | …` она и есть опознавательная).
+  function rowlabel(arr, n, ncol, tcol) {
+    if (ncol > 0 && ncol <= n) return arr[ncol]
+    if (tcol > 0 && tcol <= n) return arr[tcol]
+    return arr[1]
+  }
+  # Следующая строка записи — разделитель шапки GFM. Это второй признак настоящей шапки:
+  # по GFM разделитель идёт сразу за ней.
+  function nextisdelim(j, n,   d, k) {
+    if (j > n) return 0
+    if (index(line[j], "|") == 0) return 0
+    k = cut(line[j], d)
+    if (k == 0) return 0
+    return isdelim(d, k)
+  }
+  {
+    # Записи — отдельные отчёты (разделитель из jq выше). Состояние сбрасывается на каждой
+    # записи: шапка одного отчёта не делает разобранными строки другого.
+    n = split($0, line, "\n")
+    split("", lblk); split("", lrow)
+    split("", bscol); split("", bidcol); split("", bwcol); split("", bncol); split("", btcol)
+    split("", bsig); split("", bcanon); split("", bdata); split("", bdelim); split("", ballcanon); split("", bhfnd); split("", bhdr)
+    nb = 0; cur = 0; prev = 0
+
+    # ПРОХОД 1 — разметка блоков, ПОСТРОЕНИЕ ИНДЕКСА КОЛОНОК и решение «таблица замечаний или
+    # нет». Решение принимается ПО ВСЕМУ БЛОКУ, поэтому его нельзя принять на той же строке,
+    # где строка разбирается: каноническая строка может стоять последней.
+    # ⚠️ Индекс колонок строится РОВНО ОДИН РАЗ — на шапке блока — и живёт до конца блока.
+    # Смена шапки (вторая шапка подряд) начинает новый блок и, значит, новый индекс.
+    # На блок копится: `bscol` — колонка статуса, `bidcol` — колонка идентификатора задачи,
+    # `bwcol` — колонка обоснования, `bncol` — колонка-номер, `btcol` — колонка, называющая
+    # замечание. Все пять — ПО ИМЕНИ ЯЧЕЙКИ ШАПКИ. Колонок платежа именно ДВЕ, а не одна:
+    # носитель зависит от СТАТУСА строки (идентификатор у `defer`, текст у `reject`), и одна
+    # колонка на оба статуса давала молчаливый пропуск — внешнее ревью PR #634, P1. Отдельно копится `bcanon` — несёт ли хоть одна строка
+    # блока канонический статус (признак ОПОЗНАНИЯ блока, не источник индекса) — и `bsig`,
+    # несёт ли шапка полную подпись шаблона.
+    # ⚠️ ПОЛОЖЕНИЕ строки в блоке считают два счётчика, и только они решают, может ли строка
+    # быть шапкой: `bdata` — сколько строк ДАННЫХ блок уже дал, `bdelim` — прошёл ли блок свой
+    # разделитель. По GFM таблица несёт РОВНО ОДНУ шапку и РОВНО ОДИН разделитель, стоящий
+    # второй строкой, поэтому после первого разделителя или после первой строки данных шапки
+    # в блоке больше быть не может — ни при каком содержимом ячеек.
+    for (i = 1; i <= n; i++) {
+      lblk[i] = 0; lrow[i] = 0
+      if (index(line[i], "|") == 0) { cur = 0; continue }   # не строка таблицы — блок кончился
+      m = cut(line[i], c)
+      if (m == 0) { cur = 0; continue }
+      if (cur == 0) { nb++; cur = nb; bscol[cur] = 0; bidcol[cur] = 0; bwcol[cur] = 0; bncol[cur] = 0; btcol[cur] = 0; bsig[cur] = 0; bcanon[cur] = 0; ballcanon[cur] = 1; bhfnd[cur] = 0; bhdr[cur] = 0; bcnt[cur] = 0; bdata[cur] = 0; bdelim[cur] = 0; prev = 0 }
+      lblk[i] = cur
+      if (isdelim(c, m)) {
+        # Разделитель шапки блок не рвёт и данных не несёт. Но он ЗАДАЁТ, где шапка: по GFM
+        # разделитель идёт сразу за ней, поэтому предыдущая строка блока — шапка, даже если
+        # её ячейки названы не по шаблону («Класс находки | Результат» — форма, где имени
+        # колонки решения гейт не знает вовсе). Без этого правила такая шапка уходила в разбор
+        # как строка данных и давала ложный стоп «нераспознанный статус».
+        # ⚠️ Признак шапки здесь СТРУКТУРНЫЙ И ДВОЙНОЙ: разделитель обязан быть ПЕРВЫМ в блоке
+        # (`bdelim`), а вычёркиваемая строка — ЕДИНСТВЕННОЙ строкой блока на этот момент
+        # (`bcnt == 1 && bdata == 1`: ни шапки выше, ни других строк данных). Прежний признак
+        # требовал лишь однократности и вычёркивал ЛЮБУЮ строку перед первым разделителем, где
+        # бы тот ни стоял; теперь строка данных внутри уже открытого блока шапкой стать не может.
+        # ⚠️ Строку, ЗАЯВЛЯЮЩУЮ статус триажа, шапкой не считаем и из проверки не вычёркиваем
+        # ни при каком разделителе под ней: шапка статусов не несёт. Иначе первая же строка
+        # замечаний, за которой автор поставил лишний разделитель, исчезала молча (сплошной
+        # проход по классу «исключение строки из проверки», внешнее ревью PR #634).
+        if (bdelim[cur] == 0) {
+          bdelim[cur] = 1
+          if (prev > 0 && bcnt[cur] == 1 && bdata[cur] == 1) {
+            hm = cut(line[prev], hc)
+            if (!anylooks(hc, hm)) { lrow[prev] = 0; bdata[cur] = 0 }
+          }
+        }
+        prev = 0
+        continue
+      }
+      h = statuscol(c, m)
+      # Признак «шапка называет САМО ЗАМЕЧАНИЕ» (перечень имён — словарь `FINDHDR_LIST`)
+      # снимается с ПОЗИЦИОННОЙ шапки блока и НЕ зависит от того, назвала ли она
+      # колонку статуса: блок без имени колонки статуса обязан опознаваться таблицей замечаний
+      # так же, иначе вместо адресного стопа «колонка статуса не названа» он уходил бы в
+      # страховку-сироту с чужим диагнозом. Условия — те же структурные, что у признания шапки
+      # ниже, минус требование имени колонки статуса: строка, ЗАЯВЛЯЮЩАЯ статус, шапкой не
+      # считается и здесь.
+      # ⚠️ У `!anylooks` В ЭТОМ правиле адресного кейса нет намеренно — проверено исполнением,
+      # что его снятие молчаливого пропуска не даёт (внутреннее ревью PR #634, итерация 5).
+      # Признак `bhfnd` работает только В СТОРОНУ ОПОЗНАНИЯ: его лишняя единица делает `isfind`
+      # истинным чаще, а не реже. Строка же, ЗАЯВЛЯЮЩАЯ статус, шапкой не признаётся правилом
+      # ниже, поэтому колонка статуса у такого блока остаётся неназванной — и опознанный блок
+      # уходит в адресный стоп «колонка статуса не названа», а не в разбор. Мутация меняет
+      # текст диагноза, но не вердикт: и с ней, и без неё гейт останавливается.
+      hfnd = 0
+      if (!anylooks(c, m) && bdata[cur] == 0 && bdelim[cur] == 0 && (bcnt[cur] == 0 || nextisdelim(i + 1, n))) {
+        hfnd = (hdrcol(c, m, FINDHDR_LIST, FINDHDR_N, 1) > 0)
+        bhfnd[cur] = hfnd
+      }
+      # ⚠️ Шапкой строка становится ПО ПОЛОЖЕНИЮ В БЛОКЕ, а не по словам в ячейках (внешнее
+      # ревью PR #634, два прохода по одному классу). Слово «Статус» стоит и в строке ДАННЫХ
+      # (заголовок замечания «Статус»), поэтому содержание ячейки права вычеркнуть строку из
+      # проверки не даёт. Условия перехода «строка → шапка», все структурные:
+      #   • блок ещё не прошёл свой разделитель (`bdelim == 0`) — по GFM разделитель стоит
+      #     второй строкой таблицы, значит после него шапки в этом блоке уже не будет;
+      #   • блок ещё не дал ни одной строки данных (`bdata == 0`) — шапка не может стоять
+      #     ПОСЛЕ данных, а значит строка на месте данных шапкой не становится ни при каком
+      #     содержимом (это и есть закрываемая находка: строка данных со словом «Статус» и
+      #     лишним разделителем под ней);
+      #   • строка либо ОТКРЫВАЕТ блок (`bcnt == 0`), либо непосредственно предшествует
+      #     разделителю (`nextisdelim`) — оба признака о положении строки, не о её тексте;
+      #   • ни одна её ячейка не заявляет статус триажа (`!anylooks`) — шапка статусов не
+      #     несёт, а промах здесь означал бы молчаливое исключение строки замечания.
+      # Содержательных требований ДВА, и они по ИЛИ: либо шапка называет колонку статуса
+      # (`h > 0`), либо несёт полную подпись шаблона (`issig`). Ни одно из них не вычёркивает
+      # строку из проверки — они лишь дают ПРИЗНАТЬ шапку и построить по ней индекс колонок.
+      # ⚠️ Второе слагаемое обязательно (внутреннее ревью PR #634, итерация 5). Прежде
+      # требовалось только `h > 0`, и шапка настоящей таблицы замечаний с незнакомым именем
+      # колонки решения («Статус триажа», «Итоговый статус», «Вердикт ревью», «Решение по
+      # замечанию»; сплошной перебор четырнадцати живых написаний дал молчание на КАЖДОМ)
+      # шапкой НЕ признавалась. Дальше она либо уходила
+      # в разбор как строка данных, либо вычёркивалась разделителем GFM — и блок оставался
+      # без подписи шаблона: `bsig` не вычислялся, `isfind` не набирался, а обе страховки
+      # печатали только на ячейке, написанной каноническим статусом. Статус, записанный
+      # своими словами, не подходил и под них — гейт МОЛЧАЛ и возвращал 0.
+      # От ложного стопа на посторонних таблицах подпись держит ЧЕТВЁРТЫЙ признак
+      # (`anymention`): реестр без единого слова о решении в шапке
+      # (`| # | Мутация | Файл | Обоснование |` из трейла этого же PR) подписи не набирает
+      # и в блок замечаний не превращается. Прежняя редакция утверждала «ложного стопа это
+      # не вносит», опираясь на один пример таблицы требований, — утверждение было неверным,
+      # реестры трёх признаков набирали (внутреннее ревью PR #634, итерация 6).
+      # Промах решается в безопасную сторону: непризнанная шапка разбирается как строка
+      # данных и даёт громкий стоп, тогда как ложно признанная — молчание. Поэтому две
+      # таблицы, склеенные без пустой строки между ними, читаются как одна (так их читает и
+      # GFM): шапка второй попадает в разбор и краснеет, а не выключает проверку.
+      if ((h > 0 || issig(c, m)) && !anylooks(c, m) && bdata[cur] == 0 && bdelim[cur] == 0 && (bcnt[cur] == 0 || nextisdelim(i + 1, n))) {
+        # Вторая шапка подряд — начало соседней таблицы: её строки не должны читаться по
+        # шапке предыдущей, то есть и по её ИНДЕКСУ КОЛОНОК тоже.
+        # ⚠️ «Шапка у блока уже была» спрашивается у ОТДЕЛЬНОГО признака `bhdr`, а не у
+        # `bscol > 0`. Шапка без имени колонки статуса теперь тоже признаётся, и её `bscol`
+        # остаётся нулевым: по прежнему условию вторая такая шапка склеилась бы с первой в
+        # один блок и получила бы чужой индекс колонок.
+        # Адресного кейса у этой правки НЕТ намеренно, и это проверено исполнением: сегодня
+        # откат `bhdr` → `bscol` не меняет ни одного исхода. Причина — вторая шапка подряд
+        # возможна только при `bdata == 0`, то есть у первого блока ещё нет ни одной строки
+        # данных, а весь индекс колонок присваивается ниже заново. Правка сделана как
+        # устранение ЛАТЕНТНОЙ ловушки: условие проверяло следствие («колонка статуса
+        # найдена») вместо факта («шапка уже была»), и первое перестало совпадать со вторым.
+        if (bhdr[cur] > 0) { nb++; cur = nb; bsig[cur] = 0; bcanon[cur] = 0; ballcanon[cur] = 1; bhfnd[cur] = hfnd; bcnt[cur] = 0; bdata[cur] = 0; bdelim[cur] = 0; bhdr[cur] = 0; lblk[i] = cur }
+        bhdr[cur] = 1
+        bscol[cur] = h
+        # Две колонки платежа ищутся НЕЗАВИСИМО, каждая своим словарём: `defer to Beads`
+        # обязан читать идентификатор задачи, `reject with rationale` — обоснование.
+        bidcol[cur] = hdrcol(c, m, IDHDR_LIST, IDHDR_N, 1)
+        bwcol[cur]  = hdrcol(c, m, RATHDR_LIST, RATHDR_N, 1)
+        # Колонка платежа, совпавшая с колонкой статуса (составное имя вида «Статус /
+        # Обоснование»), платежом не считается: иначе обоснованием оказался бы сам статус, и
+        # `defer` без идентификатора прошёл бы молча. Отсутствие колонки — пустое значение,
+        # то есть стоп на `defer`/`reject`, а не тишина.
+        if (bidcol[cur] == bscol[cur]) bidcol[cur] = 0
+        if (bwcol[cur]  == bscol[cur]) bwcol[cur]  = 0
+        # ⚠️ ВЗАИМНОГО ОТКАТА КОЛОНОК ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО (внешнее ревью PR #634, P1).
+        # Прежняя редакция достраивала недостающую колонку соседней (`bidcol = bwcol` и
+        # наоборот). Замысел был законный — не стопить второй статус на шапке, назвавшей одну
+        # половину, — но исполнение снимало РАЗЛИЧИЕ НОСИТЕЛЕЙ: шапка, назвавшая только
+        # «Beads ID», отдавала идентификатор в роли обоснования, и строка
+        # `reject with rationale | U2-abcd` проходила гейт молча; зеркально шапка, назвавшая
+        # только «Обоснование», давала свободный текст в роли идентификатора задачи.
+        # Носитель платежа определяется СТАТУСОМ строки и подменяться не вправе.
+        # Составное имя («Beads ID / Обоснование») отката НЕ требует: одна и та же ячейка
+        # подходит обоим словарям ЧАСТЯМИ, поэтому обе роли получают её независимо.
+        # Названа только одна половина — вторая роль остаётся без колонки, и это НЕ тишина:
+        # разбор помечает роль как неназванную, а проверка ниже даёт адресный стоп
+        # «колонка … в шапке не названа» вместо зачёта чужой колонкой.
+        bncol[cur] = hdrcol(c, m, NUMHDR_LIST, NUMHDR_N, 0)
+        btcol[cur] = hdrcol(c, m, FINDHDR_LIST, FINDHDR_N, 1)
+        bsig[cur] = issig(c, m); bcnt[cur]++; prev = 0
+        continue
+      }
+      bcnt[cur]++
+      bdata[cur]++
+      lrow[i] = 1
+      prev = i
+      rowcanon = hascanon(c, m)
+      if (!bcanon[cur]) bcanon[cur] = rowcanon
+      # Второй признак опознания по содержанию: канонический статус несёт КАЖДАЯ строка блока,
+      # а не одна из многих. Он отделяет таблицу триажа со свободной шапкой (там решение
+      # триажа стоит в каждой строке) от посторонней таблицы, где такая строка одна среди
+      # чужих. Признак опознаёт БЛОК и колонкой не распоряжается: разбор строки по-прежнему
+      # берёт статус только из индекса шапки — выбор колонки по содержанию строки и был
+      # молчаливым пропуском (внешнее ревью PR #634, P1).
+      # ⚠️ Законная строка-заглушка признак НЕ роняет (внутреннее ревью PR #634, итерация 5).
+      # Её благословляет сам скилл (`isstub`), из проверки она исключается, решения не несёт
+      # — и при этом обнуляла `ballcanon`, из-за чего настоящая таблица триажа со свободной
+      # шапкой («Решение» / «Итог» / «Вердикт») переставала опознаваться и получала ложный
+      # стоп «строка со статусом триажа вне таблицы замечаний». Строгости не теряем: заглушка
+      # определяется по совокупности, и строка, заявляющая статус хоть одной ячейкой, ею не
+      # считается.
+      if (!rowcanon && !isstub(c, m, bscol[cur])) ballcanon[cur] = 0
+    }
+
+    # ПРОХОД 2 — разбор строк опознанных блоков и страховка для всего остального.
+    # Блок — таблица замечаний, если он это подтвердил ОДНИМ ИЗ ДВУХ способов:
+    #   • полная подпись шаблона в шапке (`bsig`) — ячейка-номер, ячейка платежа и ячейка
+    #     замечания разом;
+    #   • ЛИБО ПАРА признаков содержания: канонический статус хотя бы в одной строке
+    #     (`bcanon`) И второй признак — ячейка замечания в шапке (`bhfnd`) либо решение
+    #     триажа в КАЖДОЙ строке блока (`ballcanon`).
+    # Один лишь канонический статус в одной строке из многих опознанием НЕ является: под ним
+    # ложно останавливалась посторонняя таблица (внешнее ревью PR #634, проход 10).
+    # Дальше исход зависит от индекса:
+    #   • колонка статуса названа — строка разбирается ЧЕРЕЗ ИНДЕКС, ячейка за ячейкой;
+    #   • не названа — стоп с адресным сообщением на КАЖДОЙ строке данных. Угадывать колонку
+    #     по содержанию строки гейт не вправе: это и был второй P1 внешнего ревью PR #634.
+    for (i = 1; i <= n; i++) {
+      if (!lrow[i]) continue
+      b = lblk[i]
+      m = cut(line[i], c)
+      scol = bscol[b]
+      # Опознание блока считается ОДИН раз и одинаково для обеих веток ниже: подпись шаблона
+      # либо ПАРА признаков содержания (канонический статус + подтверждение, что колонка
+      # решения блока триажная). Второе слагаемое пары — против ложного стопа на посторонней
+      # таблице, где `fix now` стоит в одной строке из многих (внешнее ревью PR #634, проход 10).
+      isfind = (bsig[b] || (bcanon[b] && (bhfnd[b] || ballcanon[b])))
+      # Законная строка-заглушка («нет замечаний», прочерки во всех остальных ячейках)
+      # исключается из проверки ОДИН раз и для ОБЕИХ веток опознанного блока. Прежде её
+      # снимала только ветка с названной колонкой статуса, и в блоке без такой колонки
+      # заглушка получила бы стоп ни о чём. Признак заглушки строгий (`isstub`): строка,
+      # заявляющая статус хоть одной ячейкой, заглушкой не считается ни при какой фразе.
+      if (isfind && isstub(c, m, scol)) continue
+      if (isfind && scol == 0) {
+        # Таблица замечаний опознана, а колонки статуса в её шапке нет. Промах решается в
+        # безопасную сторону — лишний стоп, а не молчаливый пропуск: это гейт публикации.
+        # ⚠️ Стоп даётся на КАЖДОЙ строке данных опознанного блока, а не только на той, чья
+        # ячейка написана каноническим статусом (внутреннее ревью PR #634, итерация 5).
+        # Прежняя редакция печатала лишь при `looks()`, и таблица, у которой И имя колонки
+        # решения незнакомо, И решения записаны своими словами («эскалация», «перенесено»),
+        # проходила МОЛЧА: оба признака промахивались разом. Ячейка-кандидат при этом
+        # выдаётся, когда она есть, — с ней диагноз адреснее.
+        said = 0
+        for (k = 1; k <= m; k++) if (looks(c[k])) { print "NOSTATCOL" GS rowlabel(c, m, bncol[b], btcol[b]) GS c[k]; said = 1; break }
+        if (!said) print "NOSTATCOL" GS rowlabel(c, m, bncol[b], btcol[b]) GS ""
+      } else if (scol > 0 && isfind) {
+        # Ячейки берутся ПО ИНДЕКСУ ШАПКИ, позиция не угадывается ни в одной ветке.
+        # ⚠️ Выдаются ОБА носителя, а выбор между ними делает `case` по статусу ниже: набор
+        # статусов перечислен там один раз, и второй его разбор здесь разошёлся бы молча.
+        # ⚠️ Вместе со значениями выдаются ДВА ПРИЗНАКА НАЗВАННОСТИ колонок (`id_named`,
+        # `rat_named`). Без них «колонки нет в шапке» и «колонка есть, но ячейка пуста»
+        # неразличимы, и стоп получал бы чужой адрес починки: PM правил бы ячейку там, где
+        # надо назвать колонку. Ни один из признаков не заменяет второй колонкой: отсутствие
+        # колонки своей роли — стоп, а не подстановка соседней (внешнее ревью PR #634, P1).
+        # ⚠️ Имена ВСЕХ ПЯТИ выдаваемых значений здесь ТЕ ЖЕ, что у переменных `read` в цикле
+        # ниже (`status`, `id_named`, `rat_named`, `bead_id`, `rationale`). Чтение позиционное:
+        # порядок полей ничем, кроме глаз, не сверить, а разные имена по разные стороны границы
+        # прятали бы и перестановку двух соседних полей местами, и подмену одного другим.
+        status = ""; bead_id = ""; rationale = ""
+        id_named  = (bidcol[b] > 0) ? 1 : 0
+        rat_named = (bwcol[b]  > 0) ? 1 : 0
+        if (scol <= m) status = c[scol]
+        if (bidcol[b] > 0 && bidcol[b] <= m) bead_id = c[bidcol[b]]
+        if (bwcol[b]  > 0 && bwcol[b]  <= m) rationale = c[bwcol[b]]
+        print "ROW" GS rowlabel(c, m, bncol[b], btcol[b]) GS status GS id_named GS rat_named GS bead_id GS rationale
+      } else {
+        # Страховка-сирота: строка, ЗАЯВЛЯЮЩАЯ статус триажа, в блоке, который таблицей
+        # замечаний не признан, означает отказ опознания — молчать на ней нельзя. Опознание
+        # здесь широкое (`looks`) именно потому, что проверять нечего: выбор тут не «валиден
+        # ли статус», а «кричать или промолчать».
+        for (k = 1; k <= m; k++) if (looks(c[k])) { print "ORPHAN" GS c[1] GS c[k]; break }
+      }
+    }
+  }
+' <<< "$TRIAGE_SOURCE")
+triage_rows_rc=$?
+# ⚠️ КОД ВОЗВРАТА РАЗБОРА ПРОВЕРЯЕТСЯ ОТДЕЛЬНО ОТ ЕГО РЕЗУЛЬТАТА (внешнее ревью PR #634, P1).
+# Пустой `TRIAGE_ROWS` имеет ДВА разных смысла, и без кода возврата они неразличимы:
+#   • awk отработал и не нашёл ни одной строки замечаний — законный исход (в отчёте нет
+#     таблицы замечаний). Он остаётся прежним: цикл ниже не выполняется, гейт идёт дальше;
+#     предел этого исхода заявлен отдельно (`U2-t233`) и здесь не меняется;
+#   • awk НЕ ОТРАБОТАЛ (нет команды, упал, убит) — разбор не состоялся, и о содержимом
+#     отчётов не известно НИЧЕГО. Прежняя редакция читала этот исход как первый: цикл
+#     выполнялся ноль раз, и гейт возвращал 0 на неразобранном отчёте с `defer to Beads`.
+# Промах решается в сторону стопа: это гейт публикации, и непроверенный отчёт он не засчитывает.
+if [ "$triage_rows_rc" -ne 0 ]; then
+  echo "СТОП: разбор таблиц замечаний не выполнен — awk завершился с кодом ${triage_rows_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие замечаний: пустой разбор здесь означает «строки не читались», а не «строк нет»." >&2
+  echo "Чини окружение (доступность awk), а не отчёт, и повтори /finalize-pr." >&2
+  exit 1
+fi
+
+# Каждая разобранная строка блока замечаний: проверяем колонку статуса и ОБЕ колонки платежа
+# — идентификатор задачи и обоснование. Все три взяты выше ПО ИМЕНИ ЯЧЕЙКИ ШАПКИ, поэтому
+# здесь позиция колонок не угадывается и смещение «соседняя со статусом» не применяется ни в
+# одной ветке. Какой из двух носителей платежа спрашивать — решает СТАТУС строки, каждый в
+# своей ветке `case` ниже: у `defer to Beads` носитель один (идентификатор), у
+# `reject with rationale` другой (текст обоснования), и одна колонка на оба статуса давала
+# молчаливый пропуск (внешнее ревью PR #634, P1 на голове 639f1fe7).
 #
 # ⚠️ Используем here-string `<<<`, не pipe `echo "$TRIAGE_ROWS" |`, чтобы
 # `exit 1` завершал родительский процесс скилла, а не только subshell
@@ -397,38 +1434,349 @@ TRIAGE_ROWS=$(timeout 10 gh pr view <PR_NUMBER> --json comments \
 # `## ✅ Готов к merge` несмотря на невалидный Beads ID / пустой rationale.
 # Это fake gate (GPT-5.4 round 13 CRITICAL).
 TRIAGE_FAILED=0
-while IFS='|' read -r _ num severity title loc status payload _; do
-  [ -z "$num" ] && continue   # пропускаем пустые строки (шапки/separators)
-  # Восстанавливаем экранированные `|` в каждой колонке (см. sed выше).
-  status=$(printf '%s' "$status" | tr '\037' '|' | xargs)   # trim + unescape
-  payload=$(printf '%s' "$payload" | tr '\037' '|' | xargs)
+while IFS="$GS" read -r kind num status id_named rat_named bead_id rationale; do
+  # Пропускаем ТОЛЬКО пустой ввод (here-string при отсутствии разобранных строк).
+  # Прежний пропуск по пустому номеру замечания глушил проверку строки с пустой первой
+  # ячейкой: разбор строку выдавал, а цикл до неё не доходил — ложная уверенность (U2-m5b1).
+  [ -z "$kind" ] && continue
+  # Восстанавливаем экранированные `|` в каждой колонке (см. sed выше). Байт-разделитель
+  # берётся из переменной `SEP`, объявленной один раз выше: вторая независимая запись той же
+  # константы разъезжается молча — тот же класс, ради которого `GS` передан в awk параметром.
+  # Обрезку пробелов делает awk выше, поэтому прежний `xargs` не нужен: он дополнительно
+  # снимал кавычки и на непарном апострофе в обосновании валился, подменяя диагноз стопа.
+  # ⚠️ Вход подаётся строкой через `<<<`, и код возврата `tr` проверяется на КАЖДОЙ из четырёх
+  # колонок. Отказ `tr` (нет команды, ошибка) обнулял бы колонку: пустой статус уходил бы в
+  # ветку «нераспознанный статус», пустой идентификатор — в «невалидный Beads ID». Стоп был бы,
+  # но с диагнозом про ОТЧЁТ там, где сломано ОКРУЖЕНИЕ, — PM правил бы таблицу вместо PATH.
+  num=$(tr "$SEP" '|' <<< "$num")
+  num_rc=$?
+  status=$(tr "$SEP" '|' <<< "$status")
+  status_rc=$?
+  bead_id=$(tr "$SEP" '|' <<< "$bead_id")
+  bead_id_rc=$?
+  rationale=$(tr "$SEP" '|' <<< "$rationale")
+  rationale_rc=$?
+  if [ "$num_rc" -ne 0 ] || [ "$status_rc" -ne 0 ] || [ "$bead_id_rc" -ne 0 ] || [ "$rationale_rc" -ne 0 ]; then
+    echo "СТОП: колонки строки замечания не восстановлены — tr завершился с кодом ${num_rc}/${status_rc}/${bead_id_rc}/${rationale_rc} (номер/статус/идентификатор/обоснование)." >&2
+    echo "Это отказ ИНСТРУМЕНТА, а не дефект отчёта: пустая колонка здесь означает «не читалась», а не «не заполнена»." >&2
+    echo "Чини окружение (доступность tr), а не отчёт, и повтори /finalize-pr." >&2
+    exit 1
+  fi
+  [ -z "$num" ] && num="без номера"
+
+  if [ "$kind" = "NOSTATCOL" ]; then
+    # Два адреса одной причины. Ячейка-кандидат есть — называем её; ячейки-кандидата нет
+    # (решение записано своими словами, и опознать его нечем) — говорим об этом прямо, а не
+    # печатаем пустые кавычки. Молчания здесь нет ни в одном из двух случаев: таблица
+    # опознана, значит строка обязана быть проверена, а проверять её не по чему.
+    if [ -n "$status" ]; then
+      echo "СТОП: в review-pass на $HEAD_COMMIT таблица замечаний опознана, но колонки статуса у неё нет: шапка не найдена либо ни одна её ячейка не названа именем колонки статуса (замечание #$num, статус '$status' стоит в колонке без известного гейту имени)."
+    else
+      echo "СТОП: в review-pass на $HEAD_COMMIT таблица замечаний опознана, но колонки статуса у неё нет: шапка не найдена либо ни одна её ячейка не названа именем колонки статуса (замечание #$num; какая ячейка строки несёт решение триажа, гейту тоже неизвестно — ни одна не написана статусом шаблона)."
+    fi
+    echo "Соседнюю колонку гейт не угадывает и по содержанию строки колонку не выбирает: проверялась бы не та ячейка, которую написал автор отчёта."
+    echo "Назови колонку статуса в шапке одним из поддерживаемых имён — «Статус», «Status», «Решение», «Итог», «Вердикт», «Триаж», «decision», «resolution», «verdict», «triage» — и повтори /finalize-pr."
+    TRIAGE_FAILED=1
+    continue
+  fi
+
+  if [ "$kind" = "ORPHAN" ]; then
+    echo "СТОП: в review-pass на $HEAD_COMMIT есть строка со статусом триажа '$status' вне таблицы замечаний (замечание #$num)."
+    echo "Блок, в котором она стоит, таблицей замечаний не признан: шапка не несёт подписи шаблона reviewer.md (ячейка-номер + ячейка платежа «Beads ID / Обоснование» + ячейка замечания «Severity / Критичность / Заголовок / Находка / Замечание / Место / Файл» + хоть одна ячейка со словом о решении — «Статус», «Status», «Решение», «Итог», «Вердикт», «Триаж», «decision», «resolution», «verdict», «triage» — целым словом имени, как в «Статус триажа»), и опознание по содержанию тоже не набралось — для него нужны канонический статус хотя бы в одной строке И второй признак (ячейка замечания в шапке либо канонический статус в КАЖДОЙ содержательной строке блока)."
+    echo "Приведи шапку таблицы к шаблону reviewer.md, а приписку к статусу унеси в колонку обоснования, и повтори /finalize-pr."
+    TRIAGE_FAILED=1
+    continue
+  fi
 
   case "$status" in
     "defer to Beads")
-      # 1) Приоритет: проверка существования через bd show (с timeout — защита от зависания)
-      if command -v bd >/dev/null 2>&1; then
-        if ! timeout 10 bd show "$payload" >/dev/null 2>&1; then
-          bd_exit=$?
-          if [ "$bd_exit" -eq 124 ]; then
-            echo "СТОП: defer-замечание #$num — timeout при проверке Beads ID '$payload'. Проверь окружение Beads и повтори /finalize-pr."
-            TRIAGE_FAILED=1
+      # 0) НОСИТЕЛЬ ПЛАТЕЖА У ЭТОГО СТАТУСА ОДИН — колонка идентификатора задачи. Если шапка
+      #    её не назвала, читать идентификатор НЕОТКУДА, и колонка обоснования его не
+      #    заменяет: прежний взаимный откат колонок отдавал `defer` свободный текст из
+      #    обоснования и засчитывал его за идентификатор (внешнее ревью PR #634, P1).
+      #    Диагноз адресный — чинить надо ШАПКУ, а не ячейку.
+      if [ "$id_named" != "1" ]; then
+        echo "СТОП: defer-замечание #$num проверить нечем — в шапке таблицы не названа колонка идентификатора задачи («Beads ID»; при составном имени — «Beads ID / Обоснование»)."
+        echo "Колонку обоснования гейт вместо неё не берёт: у defer носитель платежа — идентификатор задачи, и подмена носителя закрывала замечание молча."
+        echo "Назови колонку в шапке и повтори /finalize-pr."
+        TRIAGE_FAILED=1
+        continue
+      fi
+      # 1) ФОРМА идентификатора проверяется ПЕРВОЙ и БЕЗУСЛОВНО — до любого внешнего вызова
+      #    и независимо от того, установлен ли `bd`.
+      #    ⚠️ Значение приходит из ТЕЛА ОТЧЁТА, то есть его пишет автор комментария. Прежний
+      #    порядок отдавал его первым позиционным аргументом `bd show`, где `bd` разбирает его
+      #    как ОПЦИЮ: `--help`, `-h`, `--version` печатают справку и возвращают 0, и гейт
+      #    засчитывал несуществующую задачу как существующую — молчаливый пропуск defer-замечания
+      #    (внешнее ревью PR #634, P1). Проверка формы закрывает весь класс сразу: любое значение
+      #    с ведущим дефисом до внешней команды не доходит НИ В ОДНОЙ ветке.
+      #    Регулярное выражение то же, что было в запасной ветке, — радиус гейта не меняется:
+      #    буква, далее буквы/цифры/дефисы, дефис, далее строчные буквы/цифры. Реальные
+      #    идентификаторы проекта (`U2-t233`, `U2-h9hh`, `U2-m5b1`, `U2-a08`, `U2-9nz8`,
+      #    `U2-1gfa`) ему удовлетворяют, как и исторические `big-heroes-*`.
+      #    Значение уходит `grep` на СТАНДАРТНЫЙ ВВОД (`<<<`), а не аргументом какой бы то ни
+      #    было команды: в позиции аргумента (`echo "$bead_id"`, `printf` с чужим форматом и
+      #    так далее) оно читается как опция (`-n`, `-e`) — тот же класс, что и у `bd show`.
+      #    Стандартный ввод опциями не разбирается, поэтому граница `--` здесь не нужна.
+      #    Исход `≥2` («grep не отработал») отсекается ДО ветвления:
+      #    в прежней форме `if ! printf … | grep -q …` он попадал в ветку «невалидный
+      #    идентификатор» — стоп верный, диагноз чужой.
+      grep -qE '^[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+$' <<< "$bead_id"
+      bead_form_rc=$?
+      if [ "$bead_form_rc" -ge 2 ]; then
+        echo "СТОП: форма Beads ID замечания #$num не проверена — grep завершился с кодом ${bead_form_rc}." >&2
+        echo "Это отказ ИНСТРУМЕНТА, а не невалидный идентификатор: чини окружение (доступность grep), а не отчёт." >&2
+        exit 1
+      fi
+      if [ "$bead_form_rc" -ne 0 ]; then
+        echo "СТОП: defer-замечание #$num имеет невалидный Beads ID '$bead_id' (проверка формы идентификатора)."
+        TRIAGE_FAILED=1
+      # 2) Форма верна — проверяем СУЩЕСТВОВАНИЕ задачи. Маршрутов ТРИ, ровно по числу
+      #    документированных классов окружения (ADR-0042, `.claude/rules/beads.md`):
+      #      1. прямой `bd show`          — канон ОСНОВНОГО checkout;
+      #      2. `scripts/bd-wt.sh show`   — канон СВЯЗАННОЙ git-worktree: обёртка подставляет
+      #                                     явный `--db` к базе основного checkout, потому что
+      #                                     прямой auto-discover открывает там ПУСТУЮ базу;
+      #      3. `scripts/bd-read.sh show` — канон ОБЛАЧНОГО контейнера: снимок
+      #                                     `origin/beads-backup`, без `bd` и без базы.
+      #    ⚠️ Отказ ОДНОГО маршрута — не ответ «задачи нет». Прежняя редакция останавливала
+      #    гейт на первом же ненулевом коде прямого `bd`, и в обычной git-worktree (пустая
+      #    auto-discover база отвечает «нет» на ЛЮБОЙ идентификатор) любое законное
+      #    `defer to Beads` ложно блокировало публикацию — внешнее ревью PR #634, P2. Поэтому
+      #    маршруты пробуются по очереди, и стоп наступает, только когда задачу не нашёл ни один.
+      #    ⚠️ Обратная сторона сохраняется: непроверенный идентификатор гейт НЕ засчитывает.
+      #    Ответом «задачи нет» считается отказ лишь того маршрута, про который известно, что он
+      #    ДЕЙСТВИТЕЛЬНО опросил базу задач: прямой `bd` — в основном checkout, снимок — при
+      #    успешной отдельной проверке его читаемости. Во всех прочих случаях исход — «проверить
+      #    нечем»: тоже стоп, но адрес починки другой (окружение Beads, а не отсутствующая задача).
+      #    Корень репозитория берём у git, а не относительным путём: гейт запускается из
+      #    разных рабочих каталогов (та же причина, что у помощника ограничения времени выше).
+      else
+        # ⚠️ Код возврата `git` проверяется, а не только его вывод (внешнее ревью PR #634,
+        # P1). Прежняя форма сохраняла лишь стандартный вывод: при отказе git корень
+        # оказывался пустым, все три маршрута Beads искались по путям вида `/scripts/…`,
+        # ни один не находился, и защита выдавала диагноз «маршрутов нет» вместо «git не
+        # отработал» — PM чинил бы Beads там, где сломано окружение git. Заглушка `git`,
+        # печатающая верный корень и возвращающая 5, доводила гейт до GATE_SUCCESS.
+        # ⚠️ Сообщение самого `git` НЕ подавляется (`2>/dev/null` снят, внутреннее ревью
+        # PR #634). Код возврата говорит «git не отработал», но НЕ говорит почему; починка у
+        # «not a git repository», «dubious ownership» и повреждённого индекса разная, и
+        # заглушённый stderr оставлял PM без единственного адресного диагноза.
+        BD_REPO_ROOT=$(git rev-parse --show-toplevel)
+        bd_repo_root_rc=$?
+        if [ "$bd_repo_root_rc" -ne 0 ]; then
+          echo "СТОП: корень репозитория не определён — git завершился с кодом ${bd_repo_root_rc}." >&2
+          echo "Это отказ ИНСТРУМЕНТА, а не отсутствие задачи '$bead_id': маршруты Beads ищутся относительно корня, и без него проверить существование нечем." >&2
+          echo "Чини окружение (доступность git, целостность репозитория) и повтори /finalize-pr." >&2
+          exit 1
+        fi
+        BD_WT_ROUTE="${BD_REPO_ROOT}/scripts/bd-wt.sh"
+        BD_READ_SNAPSHOT="${BD_REPO_ROOT}/scripts/bd-read.sh"
+        BD_ENV_LIB="${BD_REPO_ROOT}/scripts/lib/bd-env.sh"
+
+        # Класс окружения определяет КАНОНИЧЕСКАЯ функция `bd_env_is_main_checkout`, а не вторая
+        # её копия здесь: две копии одного критерия расходятся молча и дают разный класс на одном
+        # дереве.
+        # ⚠️ ИСХОДОВ У ОПРЕДЕЛЕНИЯ ТРИ, А НЕ ДВА (внешнее ревью PR #634, проход 10). Функция
+        # возвращает `0` — основной checkout, `1` — не основной, `≥2` — ОПРЕДЕЛИТЬ НЕ УДАЛОСЬ
+        # (внутри неё не отработал `git`). Прежняя редакция звала её в позиции условия, и все
+        # ненулевые коды сливались в один ответ «не основной checkout»: заглушка `git`, которая
+        # печатает верный корень, а внутри определения класса падает кодом 5, доводила гейт до
+        # GATE_SUCCESS — отказ инструмента поглощался успешным ответом следующего маршрута.
+        # Тот же исход у «канон-библиотеки нет» и «функция не объявилась»: класс НЕИЗВЕСТЕН.
+        # Неизвестный класс — ОТКАЗ, а не ответ: от класса зависит, чей ответ о задаче
+        # авторитетен, поэтому дальше по маршрутам он не идёт, а останавливает гейт.
+        beads_main_checkout=0
+        beads_env_rc=0
+        beads_env_note=""
+        if [ ! -r "$BD_ENV_LIB" ]; then
+          beads_env_rc=126
+          beads_env_note="канон-библиотека ${BD_ENV_LIB} не читается"
+        else
+          # shellcheck source=scripts/lib/bd-env.sh
+          . "$BD_ENV_LIB"
+          # `command -v` — оболочечная встроенная: внешнего процесса она не порождает, отказ
+          # окружения ей не грозит, и её код возврата и есть ответ «функция объявлена или нет».
+          if command -v bd_env_is_main_checkout >/dev/null 2>&1; then
+            bd_env_is_main_checkout
+            beads_env_rc=$?
+            [ "$beads_env_rc" -ge 2 ] && beads_env_note="git не отработал внутри bd_env_is_main_checkout (код ${beads_env_rc})"
           else
-            echo "СТОП: defer-замечание #$num ссылается на Beads ID '$payload', но bd show не находит задачу."
-            TRIAGE_FAILED=1
+            beads_env_rc=126
+            beads_env_note="функция bd_env_is_main_checkout не объявлена канон-библиотекой"
           fi
         fi
-      # 2) Fallback: regex без хардкода префикса
-      elif ! echo "$payload" | grep -qE '^[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+$'; then
-        echo "СТОП: defer-замечание #$num имеет невалидный Beads ID '$payload' (regex fallback)."
-        TRIAGE_FAILED=1
+        if [ "$beads_env_rc" -ge 2 ]; then
+          echo "СТОП: класс окружения Beads не определён — ${beads_env_note}." >&2
+          echo "Это отказ ОПРЕДЕЛЕНИЯ КЛАССА, а не ответ «не основной checkout»: класс решает, чей ответ о задаче '$bead_id' авторитетен, и подставлять вместо него следующий маршрут гейт не вправе." >&2
+          echo "Чини окружение (доступность git, целостность репозитория, наличие scripts/lib/bd-env.sh) и повтори /finalize-pr." >&2
+          exit 1
+        fi
+        [ "$beads_env_rc" -eq 0 ] && beads_main_checkout=1
+
+        beads_found=0        # хоть один маршрут ответил «задача есть»
+        beads_absent_via=""  # маршрут, опросивший базу и ответивший «задачи нет»
+        beads_routes=0       # сколько маршрутов вообще удалось запустить
+        beads_note=""        # уточнение для диагноза «проверить нечем»
+
+        # Маршрут 1 — прямой `bd show`. `--` закрывает список опций: вторая граница к проверке
+        # формы выше (значение пишет автор отчёта). Порядок «сначала форма, потом граница» даёт
+        # обе защиты, а не одну из них.
+        # ⚠️ АВТОРИТЕТНОСТЬ прямого `bd` СИММЕТРИЧНА и зависит ТОЛЬКО от класса окружения:
+        # вне основного checkout не засчитывается ни его отказ, ни его УСПЕХ. Прежняя редакция
+        # была несимметрична — отказ уже не считался ответом, а успех считался безусловно, и
+        # это давало молчаливый пропуск (внешнее ревью PR #634, P1 на голове 639f1fe7): в
+        # связанной worktree auto-discover открывает НЕКАНОНИЧЕСКУЮ базу (ADR-0042,
+        # `.claude/rules/beads.md`), и найденный в ней идентификатор ничего не говорит о
+        # канонической. Там канон — обёртка `scripts/bd-wt.sh` (маршрут 2), затем снимок
+        # (маршрут 3); ответ прямого `bd` в этом классе окружения — только подсказка диагноза.
+        if command -v bd >/dev/null 2>&1; then
+          beads_routes=$((beads_routes + 1))
+          run_with_timeout 10 bd show -- "$bead_id" >/dev/null 2>&1
+          bd_exit=$?
+          if [ "$beads_main_checkout" != "1" ]; then
+            beads_note="прямой bd вне основного checkout не авторитетен ни в успехе, ни в отказе: auto-discover открывает там неканоническую базу"
+          elif [ "$bd_exit" -eq 0 ]; then
+            beads_found=1
+          elif [ "$bd_exit" -eq 124 ]; then
+            beads_note="прямой bd не уложился в отведённое время"
+          else
+            # ⚠️ Ненулевой код `bd show` САМ ПО СЕБЕ не различает «задачи нет» и «база задач не
+            # ответила»: отказ Dolt (мёртвый сервер, повреждённая или пустая база, нет прав)
+            # тоже возвращает 1 (внешнее ревью PR #634, проход 10). Авторитетный отрицательный
+            # ответ гейт вправе дать, только когда положительно известно, что база ОТВЕТИЛА.
+            # Приём тот же, что у снимка ниже, и заведён он там же: раз по коду возврата
+            # исходы не различить — работоспособность инструмента выясняется ОТДЕЛЬНЫМ вызовом,
+            # который не спрашивает про эту задачу. Не ответила — маршрут отрицательного ответа
+            # не даёт вовсе, и слово остаётся за снимком (ниже) либо за диагнозом «проверить
+            # нечем»: адрес починки там окружение Beads, а не отсутствующая задача.
+            run_with_timeout 10 bd list --json >/dev/null 2>&1
+            bd_probe_exit=$?
+            if [ "$bd_probe_exit" -eq 0 ]; then
+              beads_absent_via="bd"
+            else
+              beads_note="прямой bd не отвечает: проба «bd list» завершилась кодом ${bd_probe_exit}, поэтому его отказ на show ответом «задачи нет» не считается"
+            fi
+          fi
+        fi
+
+        # Маршрут 2 — обёртка связанной worktree. В основном checkout она прозрачный
+        # pass-through к тому же `bd`, поэтому там второй раз не запускается. Ненулевой код
+        # обёртки авторитетным ответом НЕ считается: кодом 1 она отвечает и на «задачи нет»
+        # (от `bd`), и на собственные отказы (нет базы основного checkout, мёртвый dolt-сервер),
+        # а разбирать её сообщения гейт не станет — дальше отвечает снимок.
+        if [ "$beads_found" = "0" ] && [ -z "$beads_absent_via" ] \
+           && [ "$beads_main_checkout" = "0" ] \
+           && command -v bd >/dev/null 2>&1 && [ -f "$BD_WT_ROUTE" ]; then
+          beads_routes=$((beads_routes + 1))
+          # Код возврата пишется в ИМЕНОВАННУЮ переменную сразу после вызова — форма из
+          # раздела «Как это исполняется: один шаг — один процесс». Голый `$?` в условии
+          # читается верно лишь до первой вставленной между ними команды, а вставка не
+          # краснеет ничем: следующая правка молча меняла бы предмет проверки.
+          run_with_timeout 15 bash "$BD_WT_ROUTE" show -- "$bead_id" >/dev/null 2>&1
+          bd_wt_exit=$?
+          if [ "$bd_wt_exit" -eq 0 ]; then
+            beads_found=1
+          fi
+        fi
+
+        # Маршрут 3 — снимок `origin/beads-backup`. Он же единственный маршрут облачного
+        # контейнера, где `bd` и база отсутствуют ПО УСТРОЙСТВУ (ADR-0042): запрет «нет bd —
+        # стоп всегда» заблокировал бы там любую публикацию, поэтому существование проверяется
+        # тем же путём, которым задачи читают в облаке.
+        # Предел времени здесь больше, чем у `bd show`: первый вызов ОБНОВЛЯЕТ снимок по сети
+        # (fetch ветки beads-backup), и десяти секунд на это может не хватить.
+        if [ "$beads_found" = "0" ] && [ -z "$beads_absent_via" ] && [ -f "$BD_READ_SNAPSHOT" ]; then
+          beads_routes=$((beads_routes + 1))
+          run_with_timeout 30 bash "$BD_READ_SNAPSHOT" show "$bead_id" >/dev/null 2>&1
+          bd_read_exit=$?
+          if [ "$bd_read_exit" -eq 0 ]; then
+            beads_found=1
+          # ⚠️ Истечение времени разбирается ОТДЕЛЬНО и ДО пробы читаемости — так же, как у
+          # маршрута 1 (`bd show`). Иначе убитый по времени запрос уходил в пробу, проба
+          # отвечала «читатель работает», и гейт печатал «задачи с таким идентификатором нет
+          # в снимке» о задаче, про которую снимок вообще не спрашивали: диагноз называл
+          # ОТЧЁТ там, где не уложилось ОКРУЖЕНИЕ (внутреннее ревью PR #634, итерация 5).
+          elif [ "$bd_read_exit" -eq 124 ]; then
+            beads_note="${beads_note:+${beads_note}; }читатель снимка origin/beads-backup не уложился в отведённое время"
+          # `bd-read.sh` отвечает кодом 1 и на «задачи в снимке нет», и на «снимок не читается».
+          # Исходы разные, и чинить их PM будет по-разному, поэтому читаемость снимка выясняется
+          # отдельным вызовом — без повторного обновления по сети (`BD_READ_NO_FETCH=1`):
+          # обновить снимок уже пытался вызов выше.
+          # проба-условия: вопрос вызова — «читатель снимка вообще работает?», и его код
+          # возврата и есть ответ. Промах уводит в безопасную ветку: не ответил — маршрут
+          # отрицательного ответа не даёт вовсе, остаётся диагноз «проверить нечем».
+          elif run_with_timeout 30 env BD_READ_NO_FETCH=1 bash "$BD_READ_SNAPSHOT" list --json >/dev/null 2>&1; then
+            beads_absent_via="snapshot"
+          else
+            # Уточнение ДОПИСЫВАЕТСЯ, а не затирает предыдущее: отказать могли оба маршрута
+            # сразу (мёртвый dolt-сервер и нет git-доступа к origin), и адресов починки тогда
+            # тоже два. Затирание оставляло PM половину диагноза.
+            beads_note="${beads_note:+${beads_note}; }снимок origin/beads-backup не читается"
+          fi
+        fi
+
+        # Три исхода — три разных адреса починки. Молчаливого зачёта нет ни в одном.
+        if [ "$beads_found" = "0" ]; then
+          if [ "$beads_absent_via" = "bd" ]; then
+            echo "СТОП: defer-замечание #$num ссылается на Beads ID '$bead_id', но bd show не находит задачу."
+            echo "Заведи задачу либо исправь идентификатор в отчёте и повтори /finalize-pr."
+          elif [ "$beads_absent_via" = "snapshot" ]; then
+            echo "СТОП: defer-замечание #$num ссылается на Beads ID '$bead_id', но задачи с таким идентификатором нет в снимке origin/beads-backup (её не нашёл ни один доступный маршрут Beads)."
+            echo "Если задача заведена только что — опубликуй снимок (scripts/bd-sync-export.sh из основного checkout) и повтори /finalize-pr."
+          elif [ "$beads_routes" = "0" ]; then
+            echo "СТОП: defer-замечание #$num ссылается на Beads ID '$bead_id', а проверить его существование нечем: в окружении нет ни bd, ни читателя снимка scripts/bd-read.sh."
+            echo "Выполни /finalize-pr там, где доступен bd, либо восстанови scripts/bd-read.sh — гейт публикации не вправе засчитывать непроверенный идентификатор."
+          else
+            echo "СТОП: defer-замечание #$num — существование Beads ID '$bead_id' проверить нечем: ни один из опробованных маршрутов Beads не смог ответить (${beads_note:-маршруты Beads недоступны})."
+            echo "Проверь окружение Beads: для scripts/bd-wt.sh нужен живой dolt-сервер основного checkout, для снимка — git-доступ к origin. Непроверенный идентификатор гейт публикации не засчитывает."
+          fi
+          TRIAGE_FAILED=1
+        fi
       fi
       ;;
     "reject with rationale")
-      # Пустое обоснование = неразрешённое замечание
-      if [ -z "$payload" ] || [ "$payload" = "—" ] || [ "$payload" = "-" ]; then
-        echo "СТОП: reject-замечание #$num не имеет обоснования в шестой колонке."
+      # Носитель платежа здесь — ОБОСНОВАНИЕ, а не идентификатор задачи: колонка «Beads ID»,
+      # если шапка назвала её отдельно, к отклонению отношения не имеет и закрыть пустое
+      # обоснование не вправе (внешнее ревью PR #634, P1 на голове 639f1fe7).
+      # Два разных отказа — два разных адреса починки, и склеивать их нельзя:
+      #   • колонки обоснования нет в шапке — чинить ШАПКУ (подстановка колонки «Beads ID»
+      #     вместо неё засчитывала идентификатор за обоснование, PR #634, P1);
+      #   • колонка есть, а ячейка визуально пуста — чинить ОТЧЁТ.
+      if [ "$rat_named" != "1" ]; then
+        echo "СТОП: reject-замечание #$num проверить нечем — в шапке таблицы не названа колонка обоснования («Обоснование»; при составном имени — «Beads ID / Обоснование»)."
+        echo "Колонку «Beads ID» гейт вместо неё не берёт: у reject носитель платежа — текст обоснования, и подмена носителя закрывала замечание молча."
+        echo "Назови колонку в шапке и повтори /finalize-pr."
+        TRIAGE_FAILED=1
+      # Пустое обоснование = неразрешённое замечание. «Пусто» меряется ЕДИНЫМ СЛОВАРЁМ
+      # (`payload_is_blank`, `BLANK_FORMS` выше): прочерки всех начертаний и невидимые
+      # пробелы. Прежняя редакция перечисляла формы здесь во второй раз и знала только `-`
+      # и `—`: ячейка из короткого тире `–` либо из неразрывного пробела давала
+      # `GATE_SUCCESS` — визуально пустое обоснование закрывало замечание (PR #634, P1).
+      # проба-условия: `payload_is_blank` — функция самого скилла, внешнего процесса она не
+      # порождает, поэтому отказа окружения у неё нет и её код возврата — чистый ответ.
+      elif payload_is_blank "$rationale"; then
+        echo "СТОП: reject-замечание #$num не имеет обоснования в колонке обоснования («Обоснование»; при составном имени шапки — «Beads ID / Обоснование»), названной шапкой таблицы."
+        echo "Ячейка визуально пуста: в ней нет ничего, кроме прочерков и невидимых пробелов."
         TRIAGE_FAILED=1
       fi
+      ;;
+    "fix now")
+      # Автопроверять здесь нечего: связь с закрывающим APPROVED-аспектом PM смотрит
+      # вручную (см. ниже). Но ветка нужна явная — иначе `fix now` неотличим от статуса,
+      # который сопоставление не поняло, и ветка по умолчанию давала бы на нём ложный стоп.
+      ;;
+    *)
+      # ⚠️ Ветка по умолчанию обязательна (U2-m5b1, второй проход внутреннего ревью).
+      # Сюда приходит ВСЁ, что разбор привязал к колонке «Статус», но шаблон reviewer.md
+      # такого статуса не знает: невидимый символ в ячейке (неразрывный пробел после
+      # статуса — его не срезает обрезка пробелов), иное написание, статус с припиской,
+      # статус не из трёх разрешённых. Без этой ветки такая строка проходила МОЛЧА вместе
+      # с невалидным Beads ID: ровно тот fail-open, ради которого гейт и существует.
+      # Молчать на нераспознанном статусе нельзя ни в какой форме.
+      echo "СТОП: замечание #$num имеет нераспознанный статус '$status' — строка разобрана, но не проверена."
+      echo "Приведи ячейку статуса к одному из трёх значений шаблона reviewer.md (приписку унеси в колонку обоснования) и проверь её на невидимые символы."
+      TRIAGE_FAILED=1
       ;;
   esac
 done <<< "$TRIAGE_ROWS"
@@ -441,12 +1789,26 @@ fi
 **PM-вручную (после автопроверок выше):**
 
 - Для каждого `fix now` пройдись по review-pass на `$HEAD_COMMIT` и убедись, что аспект, к которому относится замечание, имеет `APPROVED` (это ловит регрессии: фикс «починил архитектуру», но reviewer вернул `CHANGES_REQUESTED` по гигиене).
-- Для каждого `reject with rationale` прочитай payload и убедись, что обоснование осмысленное, а не «no» / «later». Автопроверка ловит только пустоту/прочерк.
+- Для каждого `reject with rationale` прочитай его обоснование (колонка «Обоснование»; при составном имени шапки — «Beads ID / Обоснование») и убедись, что оно осмысленное, а не «no» / «later». Автопроверка ловит только пустоту/прочерк.
 
-> **Почему не хардкодим `bd-*`:** в репозитории фактические Beads ID имеют префикс `U2-*` (см. `.memory-bank/activeContext.md`, в исходном big-heroes префикс был `big-heroes-*`). Regex `bd-[a-z0-9]+` прошлой версии не покрывал их — все defer были бы ложно отвергнуты как «без ID». Правильный порядок проверки:
-> 1. Попробовать `bd show <id>` (если доступен) → если issue существует → OK.
-> 2. Если `bd` недоступен → regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+` как fallback (case-insensitive проверка формата, не существования; покрывает `U2-*` и `big-heroes-*`).
-> 3. Если ни то, ни другое не прошло → замечание считается неразрешённым.
+> **Почему не хардкодим `bd-*`:** префикс Beads ID определяется установленным проектом, например `project-*` (см. `.memory-bank/activeContext.md`, в исходном big-heroes префикс был `big-heroes-*`). Regex `bd-[a-z0-9]+` прошлой версии не покрывал их — все defer были бы ложно отвергнуты как «без ID». Порядок проверки:
+> 1. **Форма — всегда и первой**, независимо от наличия `bd`: regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+` (покрывает `project-*` и `big-heroes-*`). Не прошла — замечание неразрешено, дальше не идём.
+> 2. Форма прошла → существование задачи проверяется по маршрутам того класса окружения, в котором гейт запущен (ADR-0042, `.claude/rules/beads.md`). Сам класс определяет каноническая `bd_env_is_main_checkout`, и исходов у неё **три**: основной checkout, не основной, **не определён** — последнее отказ, а не ответ, и он останавливает гейт с собственным диагнозом. В **основном checkout** авторитетен прямой `bd show -- <id>` (граница опций `--` — вторая защита к проверке формы): его «есть» — ответ сразу; его «нет» — ответ **только после отдельной пробы `bd list`**, доказывающей, что база вообще отвечает (отказ Dolt тоже возвращает 1, и без пробы он был неотличим от «задачи нет»).
+> 3. **Вне основного checkout прямой `bd` не авторитетен НИ В УСПЕХЕ, НИ В ОТКАЗЕ**: auto-discover открывает там неканоническую базу, поэтому и найденная в ней задача, и ненайденная ничего не говорят о канонической. Там спрашиваются `scripts/bd-wt.sh show -- <id>` (связанная worktree, явный `--db` к базе основного checkout), затем снимок `scripts/bd-read.sh show <id>`.
+> 4. Снимок `origin/beads-backup` — маршрут облачного контейнера и общий запасной: задачи в нём нет → замечание неразрешено (если задача заведена только что — сначала опубликуй снимок).
+> 5. Ни один маршрут не смог ОТВЕТИТЬ → **СТОП** с другим адресом починки: существование не проверено, и гейт публикации непроверенный идентификатор не засчитывает.
+>
+> **Почему не «стоп всегда, когда нет `bd`».** В изолированном облачном контейнере `bd` и база
+> Dolt отсутствуют по устройству (ADR-0042) — такой стоп заблокировал бы там работу целиком.
+> Снимок `origin/beads-backup` в том же контейнере читается штатно, тем же `scripts/bd-read.sh`,
+> которым агент читает задачи. Прежний пропуск проверки принимал любой синтаксически верный
+> идентификатор (`U2-thisissuedoesnotexist` доходил до `GATE_SUCCESS`) — внешнее ревью PR #634, P1.
+>
+> **Почему форма проверяется до вызова, а не после.** Значение берётся из тела отчёта, то есть его
+> пишет автор комментария. Прежний порядок отдавал его первым позиционным аргументом `bd show`, где
+> он разбирался как **опция**: `--help`, `-h`, `--version` возвращают 0, и гейт засчитывал
+> несуществующую задачу как существующую (внешнее ревью PR #634, P1). Проверка формы отсекает любое
+> значение с ведущим дефисом до внешней команды — во всех ветках сразу, а не в одной.
 
 Если хотя бы одно замечание без статуса/ID/обоснования — **СТОП**:
 ```
@@ -470,17 +1832,110 @@ PR может быть откладывается «на потом» вмест
 
 Warning публикуется в финальном комментарии и в чат оператору. Не блокирует merge — это сигнал для оператора, не hard gate (план v3.3 секция 1.4 «Защита от defer-abuse»).
 
+### Шаг 8: заявленные пределы и принятие риска
+
+> Live policy — ADR 3.29 + сохранённые ADR 3.28. ACCEPTED_RISK нужен только для реально известного Important/Critical риска, явно названного `DECLARED_LIMIT`/risk evidence; advisory не требует принятия риска.
+
+**Проверки по порядку.**
+
+1. **Источник списка пределов:** `DECLARED_LIMIT` уровня Critical/Important из тела PR или эквивалентный явно опубликованный known-risk record. Нет таких — шаг пройден.
+
+   Compatibility severity: `WARNING` → `IMPORTANT`, `INFO` → `MINOR`. Единая шкала — ADR 3.28.
+
+2. **Запись `ACCEPTED_RISK`** — отдельный комментарий PR, первая строка `## ACCEPTED_RISK`; шаблон и
+   требование дословной цитаты — ADR 3.28. Нет записи или невалидна → готовность не
+   выдаётся, публикуется условный паспорт:
+
+   ```markdown
+   ## ⏳ Условный паспорт приёмки — PR #<N>
+
+   1. **Польза:** <что добавляет, какому плану/линии соответствует — или честно «ничему актуальному»>
+   2. **Непротиворечивость:** <«противоречий с каноном нет» или список>
+   3. **Качество:** <вердикт: Acceptance/QA/Code Review evidence + current deterministic `/verify`; для known risk — валидный ACCEPTED_RISK>
+   4. **Привязка:** base `<SHA>`, head `<SHA>`, отпечаток конверта `<SHA-256>`, отпечаток содержания `<SHA-256>`, CI-run `<ссылка>`
+   5. **Рекомендация:** готово **при условии** принятия рисков `<Beads-ID>` — до записи
+      `## ACCEPTED_RISK` от Product Owner merge не подаётся.
+
+   **Что именно предлагается принять** (простым языком, по одному пункту на риск):
+   - `<Beads-ID>`: <что может пойти не так и что тогда будет — без технических терминов>
+
+   $RISK_NOTE
+
+   ⚠️ Это **не** готовность к merge. Риск/evidence протухает при изменении bound content fingerprint или risk surface; base-only movement само по себе не инвалидирует.
+
+   — PM (<модель>), /finalize-pr
+   ```
+
+   `$RISK_NOTE` всегда относится к **финальному merge-candidate**. Для PR с landing-фазой
+   landing уже обязан быть закоммичен до вызова `/finalize-pr`:
+
+   ```bash
+   RISK_NOTE="❓ **Это вопрос к тебе: прими риск или отклони.** Состояние финальное — твоё решение открывает merge."
+   ```
+
+3. **Валидность записи** — сверь ADR 3.28 с уточнением ADR 3.29: определяющим является content fingerprint + risk surface; base/head — audit metadata. Любое содержательное расхождение → СТОП; протухшую запись агент не переиздаёт — новую выдаёт Product Owner.
+
+4. **Порядок выдачи:** `/finalize-pr` запускается только на состоянии, которое пойдёт в merge.
+   Если PR имеет landing/bookkeeping-фазу, она завершена до finalize. При заранее известном
+   `DECLARED_LIMIT` PM запрашивает решение оператора на этом финальном состоянии до штатного finalize;
+   если missing risk обнаружен только внутри finalize, условный паспорт останавливает merge до решения
+   оператора и допускает повторный запуск уже после этого решения — это exception по human input, не
+   обязательный второй landing-pass.
+
+**Требования к тестам** (сами тесты — задача `отдельная автоматизация вне RC`):
+
+- парный: предел Critical/Important без записи → отказ; тот же конверт с валидной записью → проходит;
+- отрицательные по каждому отменяющему полю таблицы ADR 3.28 → отказ;
+- информационные поля: изменение `base`/`head`/отпечатка конверта при неизменных частях 2 и 3 →
+  **не** отказ (модельный случай — `git commit --allow-empty`);
+- разделение отпечатков: два состояния, отличающиеся только `head`, дают разный отпечаток конверта и
+  одинаковый отпечаток содержания;
+
+> **Честный статус:** accepted-risk шаг исполняется PM вручную; полная машинная автоматизация вне RC. За автоматический
+> гейт не выдавать.
+
+
 ### Сбор данных для финального шаблона
 
 ```bash
+# rc-исключение: `$(...)` здесь — ТЕКСТОВАЯ ЗАГЛУШКА шаблона, а не вызов процесса. Значение
+# PM подставляет из результата фазы 2; строка целиком не исполняется.
 UNRESOLVED=$(...)              # 0 при штатном ходе после фазы 2
+# --- Поля паспорта приёмки (ADR 3.28, амендмент 2026-08-11, пункт К) ---
+# Паспорт издаётся при КАЖДОЙ финализации, не только при условной: без него
+# оператор получает технический вердикт без продуктового основания для merge.
+# ⚠️ `base` — поле привязки паспорта: по нему сверяется замороженное состояние. Отказ чтения
+# давал ПУСТОЕ поле, и паспорт выходил с пустой привязкой, то есть без того, ради чего он издан.
+# Здесь нет пустого-guard'а ниже по тексту, поэтому проверяются оба исхода — и код, и пустота.
+BASE_SHA=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json baseRefOid -q '.baseRefOid')
+base_sha_rc=$?
+if [ "$base_sha_rc" -ne 0 ]; then
+  echo "СТОП: base commit PR не прочитан — gh завершился с кодом ${base_sha_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА: паспорт приёмки с пустой привязкой издавать нельзя." >&2
+  exit 1
+fi
+if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "null" ]; then
+  echo "СТОП: base commit PR пуст — привязка паспорта приёмки не заполняется." >&2
+  exit 1
+fi
+ENVELOPE_FINGERPRINT=...       # оба отпечатка — по референс-команде ADR 3.28
+CONTENT_FINGERPRINT=...        # по нему проверяется актуальность ACCEPTED_RISK (ADR 3.28)
+CI_RUN_URL=...                 # ссылка на последний зелёный run на $HEAD_COMMIT
+PASSPORT_VALUE=...             # что PR даёт, какому плану/линии соответствует
+PASSPORT_CANON=...             # «противоречий с каноном нет» или список
+PASSPORT_QUALITY=...           # вердикт: заморозка + чистый проход; для кода — тесты и /verify
+PASSPORT_RECOMMENDATION=...    # влить / влить с ограничениями (Beads-ID) / вернуть / закрыть
 DEFERRED_LIST="bd-001, bd-042" # ID из таблицы триажа
 DEFER_RATIO=42                 # % defer от общего числа замечаний
 ```
 
 ## Финальный комментарий
 
-> **Безопасность токена:** `FINALIZE_PR_TOKEN` передаётся как **inline-переменная** в один вызов `gh pr comment` и живёт только для этого процесса. Не используй `export` + `unset` — если скилл упадёт между ними, токен останется в окружении, и следующий ручной `gh pr comment --body "готов к merge"` обойдёт блокировку. Inline-форма `VAR=val cmd ...` устанавливает переменную только для подпроцесса `cmd`, это гарантия очистки без `trap`.
+> **Безопасность токена:** `FINALIZE_PR_TOKEN` передаётся как **inline-переменная**
+> только процессу доверенного publisher. Отдельный PreToolUse-процесс не наследует
+> inline env из текста Bash-команды, поэтому штатный readiness-маршрут не вызывает
+> `gh` напрямую: publisher сам видит token, проверяет точные bytes и отправляет их.
+> Не используй `export` + `unset` — при сбое token остался бы в окружении.
 
 ### Re-check HEAD перед публикацией (защита от race condition)
 
@@ -489,7 +1944,16 @@ DEFER_RATIO=42                 # % defer от общего числа замеч
 Перед публикацией финального комментария **обязательно** перепроверь HEAD:
 
 ```bash
-HEAD_NOW=$(timeout 10 gh pr view <PR_NUMBER> --json headRefOid --jq '.headRefOid' 2>/dev/null)
+HEAD_NOW=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json headRefOid --jq '.headRefOid')
+head_now_rc=$?
+# Отказ чтения даёт пустой HEAD_NOW, сравнение ниже не совпадает, и стоп приходит с диагнозом
+# «HEAD изменился» — PM пошёл бы перезапускать гейт на несуществующем новом commit. Диагноз
+# обязан называть отказ инструмента.
+if [ "$head_now_rc" -ne 0 ]; then
+  echo "СТОП: повторное чтение HEAD перед публикацией не выполнено — gh завершился с кодом ${head_now_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не смена HEAD: без подтверждённого HEAD финальный комментарий не публикуется." >&2
+  exit 1
+fi
 
 if [ "$HEAD_NOW" != "$HEAD_COMMIT" ]; then
   echo "СТОП: HEAD изменился во время выполнения /finalize-pr."
@@ -502,103 +1966,137 @@ fi
 
 Если HEAD не изменился — переходи к публикации. Если изменился — **СТОП**, нужен новый запуск скилла на актуальном commit.
 
-### Dual-invocation pattern (pre-merge landing, v3.4+)
+### Single-invocation landing contract
 
-> С v3.4 skill вызывается **дважды** за жизненный цикл PR Sprint Final:
->
-> 1. Первый вызов — на HEAD после review cycle. Hard gate APPROVED →
->    публикация первого `## ✅ Готов к merge`.
-> 2. PM в той же ветке делает `chore(landing):` commit (`.memory-bank/activeContext.md` + plan archive
->    + bd close + memory entry — см. `sprint-pr-cycle/SKILL.md` Фаза 4.5).
->    HEAD меняется.
-> 3. Второй вызов — на новом HEAD (landing commit). Hard gate прогоняется
->    заново; existing HEAD re-check (шаг 1 + protection re-check перед публикацией)
->    корректно обрабатывает смену SHA.
->
-> Второй вызов требует **свежего review-pass** на landing commit — это
-> Фаза 4.5.6 в sprint-pr-cycle (doc-only Light tier review).
+`/finalize-pr` вызывается **один раз на финальном HEAD** после всех обязательных landing/bookkeeping
+изменений. Для Sprint Final порядок задаёт `sprint-pr-cycle`:
 
-Skill поддерживает dual-invocation **без специальной логики**: каждый запуск
-строит hard gate с нуля от `HEAD_COMMIT = gh pr view --json headRefOid`. Если
-ветка сменила HEAD между вызовами — второй запуск видит новый commit как
-«текущий», все 5 шагов (verify + internal + external + triage + re-check)
-работают штатно.
+1. landing artifacts входят в ту же PR-ветку;
+2. deterministic checks повторяются на landing HEAD;
+3. QA/CODE REVIEW evidence сохраняется при совпавшем content fingerprint;
+4. если landing изменил reviewed/tested surface — выполняется только affected QA + scoped re-review;
+5. после этого запускается `/finalize-pr <PR_NUMBER>`, который публикует единственный merge-ready
+   сигнал для оператора.
 
-**Что это НЕ означает:**
-
-- НЕ означает, что skill должен «запомнить» первый вызов. Второй запуск
-  идемпотентен в смысле гейта, не в смысле state.
-- НЕ означает, что landing commit освобождает от external review для
-  Sprint Final. Если tier = sprint-final, external review обязателен **и на
-  landing HEAD тоже** (хотя изменения чисто документация, допустима degraded
-  Mode A-hybrid / A-legacy / C / D с operator-approved rationale).
-
-См. `.claude/skills/sprint-pr-cycle/SKILL.md` Фаза 4.5 для полного flow
-landing commit.
-
-### Pre-landing warning (для `--pre-landing` флага)
-
-Если skill вызван с `--pre-landing`, в шаблон финального комментария добавляется строка-предупреждение, чтобы оператор не мержил PR до landing commit + второго `/finalize-pr`:
-
-```bash
-# Argument parsing: set PRE_LANDING=1, если флаг --pre-landing передан.
-# По умолчанию 0 — warning не печатается.
-# Обрабатываем список аргументов из slash-command invocation
-# (`/finalize-pr 14 --pre-landing` → $@ = "14 --pre-landing").
-PRE_LANDING=0
-for arg in "$@"; do
-  if [ "$arg" = "--pre-landing" ]; then
-    PRE_LANDING=1
-    break
-  fi
-done
-
-if [ "$PRE_LANDING" = "1" ]; then
-  LANDING_WARNING="⏳ Pre-merge landing commit впереди — жди второй /finalize-pr, не мерджи сейчас. См. .claude/skills/sprint-pr-cycle/SKILL.md Фаза 4.5."
-else
-  LANDING_WARNING=""
-fi
-```
-
-Подстановка через bash `${VAR:+...}` — текст печатается только если переменная не пуста.
+Skill не хранит pre-landing state и не публикует промежуточный `✅ Готов к merge`.
+Повторный запуск допустим только после реального внешнего изменения финального состояния:
+HEAD changed, affected recheck либо явное решение оператора по `ACCEPTED_RISK`. Это не
+ритуальный second pass.
 
 ### Шаблон фазы 1 (до внедрения triage-протокола)
 
 ```bash
-FINALIZE_PR_TOKEN=1 gh pr comment <PR_NUMBER> --body "## ✅ Готов к merge
+BODY="## ✅ Готов к merge
 
 Commit: $HEAD_COMMIT
 Verify: ✅
 Internal review: ✅ (commit $HEAD_COMMIT)
-External review: <✅ (commit $HEAD_COMMIT) | N/A>${LANDING_WARNING:+
+External review: <✅ (commit $HEAD_COMMIT) | N/A>
 
-$LANDING_WARNING}
+## Паспорт приёмки
 
-— PM (Claude Opus 4.6), /finalize-pr"
+1. **Польза:** $PASSPORT_VALUE
+2. **Непротиворечивость:** $PASSPORT_CANON
+3. **Качество:** $PASSPORT_QUALITY
+4. **Привязка:** base \`$BASE_SHA\`, head \`$HEAD_COMMIT\`, отпечаток конверта \`$ENVELOPE_FINGERPRINT\`, отпечаток содержания \`$CONTENT_FINGERPRINT\`, CI-run $CI_RUN_URL
+5. **Рекомендация:** $PASSPORT_RECOMMENDATION
+
+⚠️ Паспорт недействителен при любом движении ветки или базы после выдачи — при движении перевыпускается.
+
+— PM (Claude Opus), /finalize-pr"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+repo_root_rc=$?
+if [ "$repo_root_rc" -ne 0 ]; then
+  echo "СТОП: корень репозитория не определён — git завершился с кодом ${repo_root_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие publisher'а: чини окружение (доступность git)." >&2
+  exit 1
+fi
+PUBLISHER="$REPO_ROOT/.claude/tools/publish-pr-comment.py"
+if [ ! -f "$PUBLISHER" ]; then
+  echo "СТОП: доверенный publisher .claude/tools/publish-pr-comment.py отсутствует." >&2
+  exit 1
+fi
+PYTHON_LAUNCHER="$REPO_ROOT/.claude/tools/run-python.sh"
+if [ ! -x "$PYTHON_LAUNCHER" ]; then
+  echo "СТОП: переносимый launcher .claude/tools/run-python.sh отсутствует или не исполним." >&2
+  exit 1
+fi
+# Тело подаётся строкой через `<<<`: в конвейере `printf | publisher` писатель — отдельный
+# процесс, и его отказ (в том числе обрыв на SIGPIPE) отдал бы publisher'у усечённое тело,
+# а код возврата шага принадлежал бы только publisher'у. Здесь процесс на шаге один.
+FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER" "$PUBLISHER" <PR_NUMBER> - <<< "$BODY"
+publish_rc=$?
+# ⚠️ Код возврата публикации проверяется (внешнее ревью PR #634, P1). Молчание об этом
+# отказе — самое дорогое из возможных: скилл сообщил бы оператору «финальный комментарий
+# опубликован», а комментария в PR нет, и решение о merge принималось бы по пустоте.
+if [ "$publish_rc" -ne 0 ]; then
+  echo "СТОП: финальный комментарий НЕ опубликован — publisher завершился с кодом ${publish_rc}." >&2
+  echo "PR не финализирован. Устрани причину (доступность gh и сети, права, валидность тела) и повтори /finalize-pr." >&2
+  exit 1
+fi
 ```
 
 ### Шаблон фазы 2 (после внедрения triage-протокола)
 
 ```bash
-FINALIZE_PR_TOKEN=1 gh pr comment <PR_NUMBER> --body "## ✅ Готов к merge
+BODY="## ✅ Готов к merge
 
 Commit: $HEAD_COMMIT
 Verify: ✅
 Internal review: ✅ (commit $HEAD_COMMIT)
 External review: <✅ (commit $HEAD_COMMIT) | N/A>
 Unresolved findings: $UNRESOLVED
-Deferred to Beads: $DEFERRED_LIST${LANDING_WARNING:+
+Deferred to Beads: $DEFERRED_LIST
 
-$LANDING_WARNING}
+## Паспорт приёмки
+
+1. **Польза:** $PASSPORT_VALUE
+2. **Непротиворечивость:** $PASSPORT_CANON
+3. **Качество:** $PASSPORT_QUALITY
+4. **Привязка:** base \`$BASE_SHA\`, head \`$HEAD_COMMIT\`, отпечаток конверта \`$ENVELOPE_FINGERPRINT\`, отпечаток содержания \`$CONTENT_FINGERPRINT\`, CI-run $CI_RUN_URL
+5. **Рекомендация:** $PASSPORT_RECOMMENDATION
+
+⚠️ Паспорт недействителен при любом движении ветки или базы после выдачи — при движении перевыпускается.
 
 <если defer_ratio > 50%>
 ⚠️ ВНИМАНИЕ: $DEFER_RATIO% замечаний отложены в Beads. Проверь перед merge.
 </если>
 
-— PM (Claude Opus 4.6), /finalize-pr"
+— PM (Claude Opus), /finalize-pr"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+repo_root_rc=$?
+if [ "$repo_root_rc" -ne 0 ]; then
+  echo "СТОП: корень репозитория не определён — git завершился с кодом ${repo_root_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие publisher'а: чини окружение (доступность git)." >&2
+  exit 1
+fi
+PUBLISHER="$REPO_ROOT/.claude/tools/publish-pr-comment.py"
+if [ ! -f "$PUBLISHER" ]; then
+  echo "СТОП: доверенный publisher .claude/tools/publish-pr-comment.py отсутствует." >&2
+  exit 1
+fi
+PYTHON_LAUNCHER="$REPO_ROOT/.claude/tools/run-python.sh"
+if [ ! -x "$PYTHON_LAUNCHER" ]; then
+  echo "СТОП: переносимый launcher .claude/tools/run-python.sh отсутствует или не исполним." >&2
+  exit 1
+fi
+# Тело подаётся строкой через `<<<`: в конвейере `printf | publisher` писатель — отдельный
+# процесс, и его отказ (в том числе обрыв на SIGPIPE) отдал бы publisher'у усечённое тело,
+# а код возврата шага принадлежал бы только publisher'у. Здесь процесс на шаге один.
+FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER" "$PUBLISHER" <PR_NUMBER> - <<< "$BODY"
+publish_rc=$?
+# ⚠️ Тот же класс, что и в шаблоне фазы 1: неопубликованный комментарий, о котором молчат,
+# читается оператором как успешная финализация (внешнее ревью PR #634, P1).
+if [ "$publish_rc" -ne 0 ]; then
+  echo "СТОП: финальный комментарий НЕ опубликован — publisher завершился с кодом ${publish_rc}." >&2
+  echo "PR не финализирован. Устрани причину (доступность gh и сети, права, валидность тела) и повтори /finalize-pr." >&2
+  exit 1
+fi
 ```
 
-Этот вызов обходит hook блокировки «ready to merge» только для одной команды. После завершения `gh pr comment` переменная автоматически исчезает из окружения — гарантия, которой `export`/`unset` не даёт при сбое между ними.
+Этот вызов даёт capability только одному процессу publisher. После его завершения
+переменная автоматически исчезает из окружения — гарантия, которой `export`/`unset`
+не даёт при сбое между ними. Без token тот же publisher readiness-body отклоняет.
 
 ## Emergency override `--force`
 
@@ -609,26 +2107,86 @@ $LANDING_WARNING}
 
 Условия использования:
 - **Только** по явной команде оператора в чате («запусти /finalize-pr 42 --force»);
-- ИЛИ при зафиксированной ошибке самого скилла (например, GitHub API не отвечает).
+- При этом должна быть зафиксирована ошибка самой автоматической валидации. Один сбой инструмента без команды оператора этот маршрут не разрешает.
 
 PM **не имеет права** инициировать `--force` самостоятельно.
 
 При `--force`:
-1. Скилл **не пропускает** проверки 1–5, а **публикует их состояние вручную**:
+1. Скилл **не пропускает** проверки 1–5, а **публикует их состояние вручную** через доверенный publisher. Перед запуском замени `<причина>` и `<обязательное обоснование оператора>` дословным текстом из команды оператора:
    ```bash
-   gh pr comment <PR_NUMBER> --body "## ⚠️ Force finalize: <причина>
+   BODY=$(cat <<'GH_BODY_<RAND>'
+## ⚠️ Force finalize: <причина>
 
-Commit: $HEAD_COMMIT
+Commit: __HEAD_COMMIT__
 Verify: <✅/❌/не проверено>
 Internal review: <состояние>
 External review: <состояние>
 
 Force-причина: <обязательное обоснование оператора>
 
-— PM (Claude Opus 4.6), /finalize-pr --force"
+## Паспорт приёмки
+
+1. **Польза:** <что PR даёт, какому плану/линии соответствует>
+2. **Непротиворечивость:** <«противоречий с каноном нет» или список>
+3. **Качество:** <вердикт; при --force явно указать, какая проверка не прогонялась и почему>
+4. **Привязка:** base `__BASE_SHA__`, head `__HEAD_COMMIT__`, отпечаток конверта `__ENVELOPE_FINGERPRINT__`, отпечаток содержания `__CONTENT_FINGERPRINT__`, CI-run __CI_RUN_URL__
+5. **Рекомендация:** <влить / влить с записанными ограничениями (Beads-ID) / вернуть / закрыть>
+
+⚠️ Паспорт требует повторной deterministic проверки на current HEAD; LLM evidence инвалидируется только при изменении bound content/surface, а не при base-only movement.
+
+— PM (Claude Opus), /finalize-pr --force
+GH_BODY_<RAND>
+)
+body_rc=$?
+# ⚠️ Код возврата сборки тела проверяется (внешнее ревью PR #634, P1). Отказ `cat` даёт
+# ПУСТОЕ тело, и дальше publisher опубликовал бы force-комментарий без причины обхода и без
+# паспорта — оператор решал бы о merge по пустому сообщению.
+if [ "$body_rc" -ne 0 ]; then
+  echo "СТОП: тело force-комментария не собрано — cat завершился с кодом ${body_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не пустое обоснование: публиковать нечего, чини окружение." >&2
+  exit 1
+fi
+BODY="${BODY//__HEAD_COMMIT__/$HEAD_COMMIT}"
+BODY="${BODY//__BASE_SHA__/$BASE_SHA}"
+BODY="${BODY//__ENVELOPE_FINGERPRINT__/$ENVELOPE_FINGERPRINT}"
+BODY="${BODY//__CONTENT_FINGERPRINT__/$CONTENT_FINGERPRINT}"
+BODY="${BODY//__CI_RUN_URL__/$CI_RUN_URL}"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+repo_root_rc=$?
+if [ "$repo_root_rc" -ne 0 ]; then
+  echo "СТОП: корень репозитория не определён — git завершился с кодом ${repo_root_rc}." >&2
+  echo "Это отказ ИНСТРУМЕНТА, а не отсутствие publisher'а: чини окружение (доступность git)." >&2
+  exit 1
+fi
+PUBLISHER="$REPO_ROOT/.claude/tools/publish-pr-comment.py"
+if [ ! -f "$PUBLISHER" ]; then
+  echo "СТОП: доверенный publisher .claude/tools/publish-pr-comment.py отсутствует." >&2
+  exit 1
+fi
+PYTHON_LAUNCHER="$REPO_ROOT/.claude/tools/run-python.sh"
+if [ ! -x "$PYTHON_LAUNCHER" ]; then
+  echo "СТОП: переносимый launcher .claude/tools/run-python.sh отсутствует или не исполним." >&2
+  exit 1
+fi
+# Тело подаётся строкой через `<<<`: в конвейере `printf | publisher` писатель — отдельный
+# процесс, и его отказ (в том числе обрыв на SIGPIPE) отдал бы publisher'у усечённое тело,
+# а код возврата шага принадлежал бы только publisher'у. Здесь процесс на шаге один.
+FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER" "$PUBLISHER" <PR_NUMBER> - <<< "$BODY"
+publish_rc=$?
+# ⚠️ Под `--force` проверка кода возврата нужна не меньше, а больше: именно здесь оператор
+# ждёт видимую метку «Force finalize» в PR и по ней принимает решение (PR #634, P1).
+if [ "$publish_rc" -ne 0 ]; then
+  echo "СТОП: force-комментарий НЕ опубликован — publisher завершился с кодом ${publish_rc}." >&2
+  echo "Метки ⚠️ Force finalize в PR нет, обход остался невидимым. Устрани причину и повтори /finalize-pr --force." >&2
+  exit 1
+fi
    ```
+   Делимитер `GH_BODY_<RAND>` должен иметь свежий случайный суффикс и заранее отсутствовать в body отдельной строкой. Inline token видит только publisher; перед запуском `gh` publisher удаляет token из окружения.
 2. Метка `⚠️ Force finalize` обязательна — оператор по этой метке решает, мержить или нет.
-3. `--force` bypass-ит только сломанный механизм автоматической валидации, не сами проверки. Если оператор знает, что какой-то gate не пройден — он берёт ответственность на себя.
+3. Результаты проверок оформляются вручную при сбое автоматики; сами проверки сохраняются. Непройденный gate остаётся блокирующим, known risks требуют отдельного ACCEPTED_RISK. Hooks/permissions не обходятся.
+4. ⛔ **Шаг 8 (принятие риска) `--force` НЕ отменяет.** Заявленный `DECLARED_LIMIT` уровня
+   Critical/Important без валидной записи `ACCEPTED_RISK` даёт отказ и под `--force`: `--force`
+   обходит сломанную автоматику, а не отсутствующее решение человека.
 
 ## Шаг финального gate (после публикации)
 
@@ -640,7 +2198,7 @@ Force-причина: <обязательное обоснование опер�
 
 - Не проверяет статус замечаний (fix now / defer / reject) — это фаза 2 (после внедрения triage-протокола).
 - Не проверяет defer >50% warning — это фаза 2.
-- Не обновляет Memory Bank — это делает PM в шаге Landing the Plane (`PM_ROLE.md` 2.5).
+- Не обновляет Memory Bank — это делает PM до finalize (`.agents/PM_ROLE.md` §7).
 
 ## Защита от обхода
 
@@ -650,3 +2208,7 @@ Force-причина: <обязательное обоснование опер�
 | `gh pr merge` | Заблокирован deny-правилом в `settings.json` |
 | `/finalize-pr` без проверок | Скилл сам обеспечивает порядок проверок; короткий путь невозможен |
 | `--force` PM-ом самостоятельно | Запрещено правилом скилла; обязательная пометка `⚠️ Force finalize` делает обход видимым оператору |
+| `--force` вместо `ACCEPTED_RISK` | Не проходит: Шаг 8 неотменяем флагом. `--force` обходит сломанную автоматику, а не отсутствующее решение человека |
+| Расплывчатое «принимаю риски» вместо перечня | Не проходит: список Beads-ID записи обязан покрывать **каждую** незакрытую блокирующую находку |
+| PM самовольно переименовывает reviewer BLOCKER в advisory | Запрещено: классификацию BLOCKER/ADVISORY делает Reviewer; после настоящего BLOCKER fix нужен affected QA + scoped re-review. Отдельный confirming pass после advisory-only triage не требуется |
+| Занижение уровня `DECLARED_LIMIT`, чтобы обойти Шаг 8 | Reviewer проверяет честность contract limit (ADR 3.28, пункт Д) |

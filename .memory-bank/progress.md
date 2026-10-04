@@ -1,5 +1,24 @@
 # Progress
 
+В работе: PR #7 / `og-uw7`, approved refresh frozen source `c450fa7b`.
+Generic шесть owners и пять skills сохранены; добавлен Claude dispatcher и точные previous-RC
+managed identities, native Windows CI, real installed project verifier/budget fixtures.
+QA-F1/F2 fixes сохранены. Verification: `bash scripts/verify-reference.sh`; exact tested SHA/logs
+публикуются в PR. Platform/live results остаются pending до фактического evidence.
+Budget 5/6: actual OPUS CODE_REVIEW 5 — CHANGES_REQUESTED, Codex source deviation blocker.
+В работе source-equivalent один Codex repository guard + previous-RC migration/custom hook regression.
+QA slot 6/6 и addressed RV recheck с explicit дополнительным бюджетом управляет PM.
+Finalization/merge/release pending; Developer tests не являются independent acceptance.
+Windows recovery для spaces/Cyrillic/parentheses + косметический prefix cleanup — следующий `og-7sr`.
+Outside-Git placeholder принят оператором 2026-10-03 как `DECLARED_LIMIT` rc.1, block2
+обязателен, root restart ожидаем; literal hint также `og-7sr`. Own-subdirectory literal recovery сохраняется.
+Адресные native fixtures: cleanup readonly Git objects, snapshot POSIX keys и LF frozenblob
+эталон при clean CRLF checkout. Полный native Windows PASS требует нового exact-SHA CI.
+Required main check включает оператор; protection/finalization/publication остаются pending.
+Stable/beta identities не изменяются; installer сохраняет overrides и rollback snapshot.
+
+## История до v4 RC (reference only)
+
 **Сделано:** канонический reference OverGate (отчуждён из dogfood-проекта U2) + **первый публичный beta `v3.9.0-beta.1`** (PR #5).
 **Дальше:** GitHub release `v3.9.0-beta.1` (prerelease) после merge оператором; публичная beta-обкатка адаптерами через `.agents/INSTALL.md`.
 

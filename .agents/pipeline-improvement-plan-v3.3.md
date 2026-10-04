@@ -9,6 +9,9 @@ related:
   - .agents/PIPELINE_ADR.md
 ---
 
+> HISTORICAL / reference only. Не active lifecycle или setup instruction. Current: `.agents/PIPELINE.md`, ADR §3.29–3.31.
+
+
 # План прокачки агентного пайплайна (v3.3)
 
 **Дата:** 2026-04-13

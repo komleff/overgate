@@ -4,8 +4,7 @@ Hook: блокировка фраз merge-readiness в `gh pr comment` вне /f
 
 Принимает на stdin JSON с payload tool_input от Claude Code, извлекает команду
 и проверяет, содержит ли она запрещённую формулировку («готов к merge» /
-«ready to merge» / «merge-ready» и вариации) при отсутствии переменной
-окружения FINALIZE_PR_TOKEN.
+«ready to merge» / «merge-ready» и вариации).
 
 Защита от обхода:
 - Case-insensitive по кириллице и латинице (re.IGNORECASE корректно работает
@@ -15,98 +14,175 @@ Hook: блокировка фраз merge-readiness в `gh pr comment` вне /f
 - Переносы строк отдельно не нормализуются: жадный `\\s*` между словами
   паттерна сам матчит пробелы, табы и переносы строк как whitespace.
 
+Про FINALIZE_PR_TOKEN. Переменная читается из ОКРУЖЕНИЯ самого hook-процесса.
+Приписать её к команде нельзя: PreToolUse hook исполняется отдельным процессом
+ДО Bash-команды и inline-присваивания внутри её текста не видит. Поэтому запись
+`FINALIZE_PR_TOKEN=1 gh pr comment …` рабочим маршрутом НЕ является и остаётся
+заблокированной (.agents/PIPELINE_ADR.md §3.23). Штатный маршрут публикации —
+доверенный `.claude/tools/publish-pr-comment.py`: он зовёт `gh` сам, минуя Bash
+и его hook, а token живёт только в окружении его собственного процесса. Проверка
+здесь — safety guard, а не security boundary.
+
 Возвращает:
-- exit 0  — команда разрешена (нет совпадения ИЛИ установлен FINALIZE_PR_TOKEN)
-- exit 1  — блокировка (найдена запрещённая фраза)
+- exit 0  — команда разрешена (запрещённой формулировки в доказанном body нет)
+- exit 2  — блокировка. Именно 2: по контракту hooks Claude Code блокирует
+           PreToolUse только код 2; код 1 считается неблокирующей ошибкой,
+           и действие выполняется. См. .claude/rules/ и план PR-1.
 """
-import json
-import html
 import os
-import re
 import sys
-import unicodedata
+
+# Код блокировки PreToolUse. Только 2 блокирует вызов инструмента;
+# 1 — неблокирующая ошибка, команда выполнится (контракт hooks Claude Code).
+# Константа объявлена до импортов: любой отказ загрузки обязан завершиться
+# именно этим кодом, а не всплыть трассировкой с неблокирующим кодом 1.
+EXIT_BLOCK = 2
+
+# Каталог обработчиков не имеет права участвовать в разрешении имён модулей.
+# Python сам ставит каталог запускаемого скрипта первым в sys.path, поэтому
+# одноимённый файл рядом подменяет модуль стандартной библиотеки, и предикат
+# гейта отключается молча — с кодом «пропустить». Убираем каталог из пути ДО
+# первого импорта стандартной библиотеки; соседние модули пакета грузятся ниже
+# по явному пути файла.
+#
+# Очистка здесь безусловна: файл — точка входа обработчика и в бою ниоткуда не
+# импортируется. У классификатора коммитов та же очистка привязана к запуску
+# скриптом: он ещё и библиотека для тестов, и там разрешение имён — забота
+# вызывающего.
+#
+# Сверка идёт по разрешённым путям: интерпретатор кладёт в пути поиска путь с
+# раскрытыми символьными ссылками, а `abspath` их сохраняет. Без общего вида
+# каталог остаётся в путях всюду, где до него ведёт символьная ссылка.
+_HOOK_DIR = os.path.dirname(os.path.abspath(__file__))
+_EXCLUDED_DIR = os.path.realpath(_HOOK_DIR)
+sys.path[:] = [
+    entry
+    for entry in sys.path
+    if os.path.realpath(entry or os.getcwd()) != _EXCLUDED_DIR
+]
+
+try:
+    import importlib.util
+    import json
+    import time
+
+    def _load_sibling(name: str):
+        """Загрузить соседний модуль пакета обработчиков по явному пути файла.
+
+        Уже загруженный ТОТ ЖЕ файл берётся повторно: политика формулировки
+        обязана быть одним объектом на процесс, иначе публикатор и гейт разойдутся
+        в вердикте, оставаясь «одинаковыми по тексту». Совпадение проверяется по
+        файлу, а не по имени, — чужой одноимённый модуль так не подхватится.
+        """
+
+        path = os.path.join(_HOOK_DIR, name + ".py")
+        existing = sys.modules.get(name)
+        if existing is not None and getattr(existing, "__file__", None):
+            try:
+                if os.path.samefile(existing.__file__, path):
+                    return existing
+            except OSError:
+                pass
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"не найден модуль пакета обработчиков: {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    _parser = _load_sibling("shell_comment_parser")
+    _policy = _load_sibling("readiness_policy")
+    DEFAULT_MAX_SUBSTITUTION_DEPTH = _parser.DEFAULT_MAX_SUBSTITUTION_DEPTH
+    ShellParseLimitExceeded = _parser.ShellParseLimitExceeded
+    analyze_shell = _parser.analyze_shell
+    ReadinessCheckLimitExceeded = _policy.ReadinessCheckLimitExceeded
+    is_forbidden = _policy.is_forbidden
+except BaseException as _import_error:  # noqa: BLE001 — отказ обязан быть громким
+    # Неисправный или подменённый модуль пакета — это НЕ доказательство
+    # безопасности команды. Трассировка дала бы код 1, а он для PreToolUse
+    # неблокирующий: команда ушла бы в работу без проверки.
+    sys.stderr.write(
+        "БЛОКИРОВКА: гейт публикации не смог загрузить собственные модули "
+        f"({_import_error}). Команда не пропускается: проверить тело "
+        "публикации нечем.\n"
+    )
+    raise SystemExit(EXIT_BLOCK)
+
+# Собственный предел фазы РАЗБОРА, секунды.
+#
+# Почему свой, а не только объявленный диспетчеру в .claude/settings.json:
+# по своему пределу диспетчер снимает обработчик, а снятый обработчик кода
+# выхода не возвращает — блокирует же только код 2. То есть публикация уходила бы
+# БЕЗ проверки тела ровно там, где разбор дорог. Стоимость разбора растёт
+# экспоненциально по глубине вложенных подстановок: замер 2026-08-12 (macOS)
+# 16 уровней — 0,61 с, 18 — 2,43 с, 19 — 4,87 с, 21 — 19,4 с при длине команды
+# 111 символов.
+#
+# Арифметика бюджета обработчика: запуск интерпретатора (~0,2 с) + разбор
+# (≤ 2 с) + печать причины (~0,01 с) ≈ 2,3 с при объявленном диспетчеру пределе
+# 5 с. Запас более чем двукратный, а предел разбора строго меньше объявленного.
+# Соответствие чисел проверяется тестом scripts/tests/merge-gate-parse-budget.test.sh.
+PARSE_TIME_LIMIT_SECONDS = 2.0
+
+# Предел вложенности разбора. Он же — основная защита: 8 уровней покрывают любую
+# рабочую запись с запасом, а глубже разбор всё равно ничего не доказывает.
+# Предел времени остаётся внешней страховкой на случай, когда дорога не глубина,
+# а ширина (много подстановок подряд).
+PARSE_MAX_DEPTH = DEFAULT_MAX_SUBSTITUTION_DEPTH
 
 
-# Паттерны маркера финального комментария readiness.
-#
-# GPT-5.4 external review (round 12) показал CRITICAL bypass прежнего
-# H2-only варианта: `gh pr comment 1 --body 'ready to merge'` проходил.
-# Теперь две стадии:
-#
-#   1) _MERGE_READY_CANDIDATE — ловит фразу на своей строке (с опциональным
-#      ## и ✅). Разрешает префикс перед фразой на той же строке, чтобы не
-#      расщеплять «The PR is ready to merge».
-#   2) _NEGATION_WORDS — постфильтр: если префикс содержит отрицание / «почти»,
-#      это обсуждение, не декларация готовности. Пропускаем.
-#
-# Терминатор фразы проверяется в is_forbidden через unicodedata.category
-# (systemic Unicode approach, dolt-0di, Pass 2 G1+G2). Regex ловит только
-# саму phrase + prefix; символ сразу после phrase (с пропуском horizontal
-# whitespace + combining marks) проверяется на принадлежность категориям
-# Po (Other punctuation) и Pf (Final quote) — минимальное семантически-
-# корректное множество terminator punctuation. Pass 4 E-1 сузил класс с
-# прежнего `startswith('P')`, потому что Ps (Open), Pi (Initial quote),
-# Pe (Close), Pc (Connector), Pd (Dash) — не sentence terminators:
-# `ready to merge (if CI passes)` / «после review» — narrative continuation,
-# не declaration. Любая буква/цифра → narrative continuation (discussion,
-# not declaration).
-#
-# Историю enumeration-подхода см. в `Addresses: dolt-ihl` / Copilot round 22
-# (ASCII `.!?`) / big-heroes-ase (`,`) / big-heroes-nw5 (`;` + `…`). Все эти
-# кейсы закрываются systemic-проверкой без конкретизации classа, вместе с
-# 12+ symmetric Unicode terminators из Pass 2 Tester gate (ideographic comma,
-# full-width colon/semicolon, Arabic comma/question/semicolon, Hebrew sof
-# pasuq, Mongolian comma, Armenian full stop, Japanese middle dot,
-# full-width period) и G2 combining diacritic bypass (нормализацией NFKD
-# с последующим strip Mn/Mc/Me — см. is_forbidden для подробностей).
-_MERGE_READY_CANDIDATE = re.compile(
-    r"(?im)^(?P<prefix>[^\n]*?)"
-    r"(?:##\s*(?:✅\s*)?)?"
-    r"(?P<phrase>"
-    r"готов[оа]?\s*к\s*merge"
-    r"|ready\s*(?:to|for)\s*merge"
-    r"|merge\s*ready"
-    r"|merge\s*is\s*ready"
-    r")",
-)
+def _test_narrowed_parse_limit() -> float:
+    """Действующий предел разбора с учётом тестового крючка.
 
-# Слова-отрицания перед фразой — снимают блокировку. Покрывают частые паттерны
-# обсуждений: «не готов», «not ready», «почти готов», «almost ready»,
-# «still not», «PR будет готов», «not yet ready».
-_NEGATION_WORDS = re.compile(
-    r"(?i)\b("
-    r"не(?:\s+ещё|\s+еще)?"
-    r"|нет"
-    r"|почти"
-    r"|not(?:\s+yet)?"
-    r"|still\s+not"
-    r"|almost"
-    r"|будет"
-    r"|yet\s+to"
-    r")\b"
-)
+    Крючок умеет только СУЖАТЬ окно: берётся минимум с рабочим пределом, поэтому
+    он не может превратить блокирующий гейт в пропускающий. Значение вне формата
+    «положительное число секунд» игнорируется — остаётся рабочий предел.
+    """
+    override = os.environ.get("OVERGATE_MERGE_GATE_TEST_MAX_PARSE_SECONDS")
+    if not override:
+        return PARSE_TIME_LIMIT_SECONDS
+    try:
+        requested = float(override)
+    except (TypeError, ValueError):
+        return PARSE_TIME_LIMIT_SECONDS
+    if requested <= 0:
+        return PARSE_TIME_LIMIT_SECONDS
+    return min(PARSE_TIME_LIMIT_SECONDS, requested)
 
 
-# Markdown blockquote — цитата из обсуждения/ревью, не декларация готовности.
-# GPT-5.4 external review round 15: prefix `> ` перед фразой readiness выдавал
-# false positive и блокировал легитимные review-комментарии, которые цитировали
-# предыдущие вердикты или обсуждения («> Reviewer cited: ready to merge»).
+# Собственный предел фазы ПРОВЕРКИ ФОРМУЛИРОВКИ, секунды.
 #
-# Два варианта blockquote:
-#   1) Строка многострочного body начинается с `>` (опциональные пробелы, один
-#      или несколько `>` для nested quotes, затем пробел).
-#   2) Однострочный body, открывающийся сразу с blockquote: `--body '> ...`.
-# Важно: is_forbidden работает на normalized строке, где `-_` уже заменены
-# на пробелы. `--body` → `  body`, `--body=` → `  body=`. Поэтому в regex
-# ищем литерал `body` без `--`, с разделителем `=`/пробел и кавычкой.
-_BLOCKQUOTE_MARKER = re.compile(
-    r"""
-    ^\s*>+\s                          # строка-цитата в multi-line body
-    |
-    body(?:=|\s+)['"]\s*>+\s           # single-line body: кавычка + `>` + пробел
-    """,
-    re.VERBOSE,
-)
+# Предел разбора выше защищал только первую фазу. Вторая фаза шла после него без
+# предела — и на длинном входе выходила за бюджет обработчика целиком: диспетчер
+# снимал обработчик, а снятый обработчик кода выхода не возвращает и блокирует
+# только код 2. Инвариант простой: ограничена КАЖДАЯ фаза, и истечение предела
+# любой из них — блокировка.
+#
+# Бюджет обработчика: запуск интерпретатора (~0,2 с) + разбор (≤ 2 с) + проверка
+# формулировки (≤ 1 с) + печать причины (~0,01 с) ≈ 3,3 с при объявленном
+# диспетчеру пределе 5 с. Соответствие чисел проверяется тестом
+# scripts/tests/merge-gate-parse-budget.test.sh.
+READINESS_TIME_LIMIT_SECONDS = 1.0
+
+
+def _test_narrowed_readiness_limit() -> float:
+    """Действующий предел проверки формулировки с учётом тестового крючка.
+
+    Крючок, как и у фазы разбора, умеет только СУЖАТЬ окно: берётся минимум с
+    рабочим пределом. Значение вне формата «положительное число секунд»
+    игнорируется — остаётся рабочий предел.
+    """
+    override = os.environ.get("OVERGATE_MERGE_GATE_TEST_MAX_READINESS_SECONDS")
+    if not override:
+        return READINESS_TIME_LIMIT_SECONDS
+    try:
+        requested = float(override)
+    except (TypeError, ValueError):
+        return READINESS_TIME_LIMIT_SECONDS
+    if requested <= 0:
+        return READINESS_TIME_LIMIT_SECONDS
+    return min(READINESS_TIME_LIMIT_SECONDS, requested)
 
 
 class HookError(Exception):
@@ -117,479 +193,47 @@ def extract_command(raw_stdin: str) -> str:
     """Получить текст команды из payload hook'а Claude Code.
 
     Fail-secure: если JSON невалиден, бросаем исключение → hook блокирует
-    команду (exit 1). Отсутствие `tool_input.command` — тоже HookError:
-    hook привязан matcher'ом `Bash(gh pr comment*)`, поэтому `command`
-    обязан присутствовать. Пустая строка была бы fail-open при изменении
-    формата payload.
+    команду (exit 2). Отсутствие `tool_input.command` — тоже HookError:
+    broad matcher `Bash` доставляет hook все Bash-команды, а общий
+    `shell_comment_parser.py` отделяет кандидаты публикации от quoted data.
+    Поле `command` обязано присутствовать; пустая строка была бы fail-open
+    при изменении формата payload.
+
+    Значение нестрокового типа — тоже HookError, а не путь до разбора: разбор
+    строки на числе или списке падал бы трассировкой, а трассировка даёт код 1,
+    который для PreToolUse НЕ блокирует. Проверка типа переводит этот случай в
+    обычную блокировку.
     """
     try:
         payload = json.loads(raw_stdin)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise HookError(
             f"check-merge-ready: невалидный JSON на stdin ({exc}). "
             "Hook блокирует команду fail-secure."
         ) from exc
+    if not isinstance(payload, dict):
+        raise HookError(
+            "check-merge-ready: payload hook'а не является объектом. "
+            "Hook блокирует команду fail-secure."
+        )
     tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        raise HookError(
+            "check-merge-ready: tool_input в payload не является объектом. "
+            "Hook блокирует команду fail-secure."
+        )
     command = tool_input.get("command")
+    if not isinstance(command, str):
+        raise HookError(
+            "check-merge-ready: tool_input.command отсутствует или не является "
+            "строкой. Hook блокирует команду fail-secure."
+        )
     if not command:
         raise HookError(
             "check-merge-ready: в payload отсутствует tool_input.command. "
             "Hook блокирует команду fail-secure."
         )
     return command
-
-
-# Детект `gh pr comment` через regex по токенам с любыми whitespace
-# между ними (пробелы, табы, переносы строк). Подстрочный поиск
-# `"gh pr comment" in command` обходился через `gh\tpr\tcomment ...`,
-# и hook пропускал команду без проверки --body-file / dangerous subst.
-_GH_PR_COMMENT = re.compile(r"\bgh\s+pr\s+comment\b")
-
-
-# Флаги gh pr comment, передающие body через файл или stdin — hook не может
-# надёжно провалидировать содержимое файла. Блокируем их полностью вне
-# /finalize-pr (защита инварианта hard gate от bypass'а).
-_BODY_FILE_FLAGS = re.compile(
-    r"(^|\s)(--body-file|-F)(\s|=|$)",
-)
-
-# Флаг --edit-last открывает редактор для последнего комментария —
-# содержимое вводится вне строки команды и скрыто от hook'а.
-# Copilot round 31: fail-secure блокировка.
-_EDIT_LAST_FLAG = re.compile(
-    r"(^|\s)--edit-last(\s|$)",
-)
-
-# Флаги, явно передающие body в командной строке: --body / -b.
-# Используется для детекта «gh pr comment <N>» без body (editor mode).
-_EXPLICIT_BODY_FLAGS = re.compile(
-    r"(^|\s)(--body|-b)(\s|=|$)",
-)
-
-
-# Паттерны bash-subst, скрывающие реальное содержимое --body от hook'а.
-# Legitimate heredoc `$(cat <<'EOF' ... EOF)` НЕ блокируется: содержимое
-# инлайн в команде, hook его видит. А `$(cat /tmp/x)` и ``cat /tmp/x`` —
-# block, потому что читают внешний файл, который hook не видит.
-# Обычные markdown-backticks не блокируем: они легитимны в отчётах
-# (inline-код в PR-комментариях встречается повсеместно).
-#
-# Why не блокируем `<<<` (here-string): `gh pr comment` не читает stdin без
-# `--body-file -` (который уже блокируется выше _BODY_FILE_FLAGS). Значит
-# `<<<` не создаёт реального bypass, а любая подстрока `<<<` в самом body
-# (например, в обсуждении bash-синтаксиса) давала бы ложные блокировки.
-_DANGEROUS_SUBST = re.compile(
-    r"""(
-        \$\(\s*cat\s+[^<\s]                      # $(cat /path/…) или $(cat  file)
-        |
-        \$\(\s*<                                 # $(<file) — file redirection
-        |
-        (?<!\\)`\s*cat\s+[^<\s`][^`]*(?<!\\)`    # `cat /path` — backtick subst с чтением файла
-        |
-        (?<!\\)`\s*<\s*[^`\s][^`]*(?<!\\)`       # `<file` — backtick subst с редиректом
-    )""",
-    re.VERBOSE,
-)
-
-
-# Bypass через переменную: `--body "$BODY"` / `--body $BODY` / `--body "${BODY}"`
-# и конкатенации вроде `--body "Prefix: $BODY"`, `--body=foo$BODY`.
-# Hook видит только литерал `$BODY`, не содержимое переменной, — запрещённая
-# фраза «готов к merge» в $BODY останется невидимой, и блокировка не сработает.
-# Блокируем любое double-quoted или unquoted значение флага --body, где
-# встречается shell-переменная ($var, ${var}, ${var:-default}) В ЛЮБОЙ позиции.
-# Command substitution `$(...)` НЕ матчится: после `$` regex ждёт `{` или
-# букву/подчёркивание.
-# Single-quoted аргументы НЕ матчим: в shell `'$BODY'` — литерал без раскрытия.
-# Copilot round 24: расширен с «только начало» до «в любой позиции».
-_OPAQUE_VAR_BODY = re.compile(
-    r"""
-    (?:^|\s)(?:--body|-b)(?:=|\s+)       # флаг --body/-b, затем `=` или пробел
-    (?:
-        "(?:[^"\\]|\\.)*?               # double-quoted: любой префикс до $
-        |
-        [^\s'"]*                         # unquoted: любой префикс (без кавычек/пробелов)
-    )
-    \$                                    # доллар — начало переменной
-    (?:
-        \{[^}]+\}                         # ${VAR} / ${VAR:-default}
-        |
-        [A-Za-z_]\w*                      # $VAR
-    )
-    """,
-    re.VERBOSE,
-)
-
-
-# Извлечение имени переменной из --body "...$VAR..." / --body "${VAR}" / --body $VAR.
-# Нужно для привязки heredoc-исключения к конкретной переменной (round 21 fix).
-# Copilot round 24: расширен для поиска переменной в любой позиции (конкатенации).
-_BODY_VAR_NAME = re.compile(
-    r"""
-    (?:^|\s)(?:--body|-b)(?:=|\s+)       # флаг --body/-b
-    (?:
-        "(?:[^"\\]|\\.)*?               # double-quoted: любой префикс до $
-        |
-        [^\s'"]*                         # unquoted: любой префикс
-    )
-    \$                                    # доллар
-    (?:
-        \{([A-Za-z_]\w*)                 # ${VAR} → группа 1
-        |
-        ([A-Za-z_]\w*)                    # $VAR → группа 2
-    )
-    """,
-    re.VERBOSE,
-)
-
-
-def _body_var_has_heredoc(command: str) -> bool:
-    """True если переменная из --body "$VAR" присвоена через heredoc $(cat <<TOKEN).
-
-    Copilot round 21 CRITICAL: прежний глобальный _HEREDOC_PRESENT снимал
-    opaque-блокировку при наличии ЛЮБОГО $(cat <<TOKEN) в команде. Bypass:
-    X=$(cat <<'EOF'\ninnocent\nEOF\n)\ngh pr comment 1 --body "$BODY"
-    — heredoc кормит X, а $BODY остаётся непрозрачным.
-
-    Теперь проверяем, что heredoc присваивается ИМЕННО переменной из --body.
-    """
-    m = _BODY_VAR_NAME.search(command)
-    if not m:
-        return False
-    var_name = m.group(1) or m.group(2)
-    if not var_name:
-        return False
-    # Ищем VAR=$(cat <<TOKEN — heredoc присваивается именно этой переменной
-    pattern = re.compile(
-        rf"(?:^|\n)\s*{re.escape(var_name)}=\$\(\s*cat\b\s*<<-?\s*[\"']?[A-Za-z_][A-Za-z0-9_]*"
-    )
-    return bool(pattern.search(command))
-
-
-# Heredoc-cat непосредственно в позиции --body: --body "$(cat <<'EOF'...)"
-# Содержимое heredoc'а инлайн в команде — hook видит его через raw текст,
-# is_forbidden проверит на запрещённые фразы.
-_BODY_DIRECT_HEREDOC_CAT = re.compile(
-    r"""
-    (?:^|\s)(?:--body|-b)(?:=|\s+)       # флаг --body/-b
-    "?\$\(\s*cat\b\s*                     # $(cat
-    <<-?\s*[\"']?[A-Za-z_][A-Za-z0-9_]*  # heredoc-маркер
-    """,
-    re.VERBOSE,
-)
-
-
-# Bypass через ЛЮБОЙ command substitution `$(...)` в позиции --body:
-# `--body "$(echo $BODY)"`, `--body "$(printf %s $BODY)"`, `--body "$(head
-# /tmp/x)"`, `--body "$(tail /tmp/x)"`, и т.д. — всё что раскрывает
-# содержимое через shell, скрыто от hook'а.
-#
-# Whitelist-подход: блокируем любой `$(` сразу после --body (с опциональной
-# кавычкой). Heredoc-исключение: если --body сам является heredoc-cat
-# (`--body "$(cat <<'EOF'...)"`) — содержимое видно hook'у инлайн,
-# is_forbidden проверит. Посторонний heredoc для другой переменной
-# НЕ снимает блокировку (Copilot round 21 CRITICAL fix).
-#
-# Это закрывает класс атак целиком (не только head/tail/sed/awk, но и
-# echo $VAR, printf, process substitution, любой future command).
-# Источник: GPT-5.3-Codex round 14 CRITICAL + D-02 из round 13 deferred.
-# Copilot round 27: расширен с «только начало» до «в любой позиции» (аналог
-# round 24 fix для _OPAQUE_VAR_BODY). `--body "Prefix $(head /tmp/x)"`
-# раньше проходил, теперь блокируется.
-_OPAQUE_COMMAND_SUBST_BODY = re.compile(
-    r"""
-    (?:^|\s)(?:--body|-b)(?:=|\s+)      # флаг --body/-b
-    (?:
-        "(?:[^"\\]|\\.)*?               # double-quoted: любой префикс до $(
-        |
-        [^\s'"]*                         # unquoted: любой префикс
-    )
-    \$\(                                  # $( — начало command substitution
-    """,
-    re.VERBOSE,
-)
-
-
-def uses_body_file(command: str) -> bool:
-    """True — если команда gh pr comment передаёт body через файл/stdin."""
-    if not _GH_PR_COMMENT.search(command):
-        return False
-    return bool(_BODY_FILE_FLAGS.search(command))
-
-
-def uses_edit_last(command: str) -> bool:
-    """True — если gh pr comment использует --edit-last (editor mode).
-
-    Copilot round 31: --edit-last открывает редактор для последнего
-    комментария, содержимое скрыто от hook'а — fail-secure блокировка.
-    """
-    if not _GH_PR_COMMENT.search(command):
-        return False
-    return bool(_EDIT_LAST_FLAG.search(command))
-
-
-def uses_no_body(command: str) -> bool:
-    """True — если gh pr comment вызван без --body / -b / --body-file / -F.
-
-    Copilot round 31: без явного флага body gh открывает редактор —
-    содержимое вводится интерактивно и скрыто от hook'а. Fail-secure
-    блокировка.
-    """
-    if not _GH_PR_COMMENT.search(command):
-        return False
-    if _BODY_FILE_FLAGS.search(command):
-        return False  # --body-file / -F: обрабатывается отдельно
-    if _EXPLICIT_BODY_FLAGS.search(command):
-        return False  # --body / -b: содержимое видно hook'у
-    return True
-
-
-def uses_dangerous_substitution(command: str) -> bool:
-    """True — если команда gh pr comment использует file-read конструкции
-    внутри command substitution, скрывающие реальное содержимое body.
-
-    Закрывает bypass: `--body "$(cat /tmp/x)"` — hook видит только литерал
-    `$(cat /tmp/x)`, не содержимое файла. Легитимный heredoc
-    `$(cat <<'EOF' ... EOF)` остаётся разрешённым: содержимое инлайн в
-    команде и попадает в regex `_MERGE_READY_CANDIDATE`.
-    """
-    if not _GH_PR_COMMENT.search(command):
-        return False
-    return bool(_DANGEROUS_SUBST.search(command))
-
-
-def uses_opaque_variable_body(command: str) -> bool:
-    """True — если `--body` получает значение из непрозрачной переменной.
-
-    Закрывает bypass: `BODY="## ✅ Готов к merge"; gh pr comment 1 --body "$BODY"`.
-    В payload tool_input.command виден только литерал `$BODY` — фраза «готов
-    к merge» лежит в переменной и hook её не увидит. Чтобы hard gate
-    оставался реальным, для `gh pr comment` без FINALIZE_PR_TOKEN запрещено
-    подставлять body из переменной — допустимы только inline string или
-    heredoc `$(cat <<'EOF' ... EOF)`, где содержимое физически в команде.
-
-    Exception: heredoc в той же команде делает содержимое видимым hook'у
-    (even через переменную — BODY=$(cat <<'EOF' ... EOF); --body "$BODY").
-    Именно эту форму используют шаблоны review-pass в sprint-pr-cycle
-    и external-review — без исключения hook ломает pipeline целиком.
-    Фраза merge-ready в heredoc поймается is_forbidden по raw команде.
-    """
-    if not _GH_PR_COMMENT.search(command):
-        return False
-    if _body_var_has_heredoc(command):
-        # Heredoc кормит ИМЕННО переменную из --body — содержимое видно hook'у.
-        # Copilot round 21: привязка к имени переменной закрывает alien-heredoc bypass.
-        return False
-    return bool(_OPAQUE_VAR_BODY.search(command))
-
-
-def uses_opaque_command_substitution_body(command: str) -> bool:
-    """True — если `--body` получает значение из command substitution `$(...)`.
-
-    Закрывает bypass через любую shell-команду, скрывающую содержимое:
-    `$(echo $BODY)`, `$(printf %s $BODY)`, `$(head /tmp/x)`, `$(tail ...)`,
-    `$(sed ...)`, `$(awk ...)`, `$(xxd ...)`, `$(perl ...)`, `$(python ...)`
-    и любой будущий инструмент. Whitelist-подход: блокируем любой `$(`
-    сразу после `--body`.
-
-    Exception: --body "$(cat <<'EOF' ... EOF)" — heredoc-cat непосредственно
-    в позиции --body, содержимое инлайн в команде, is_forbidden проверит.
-    Посторонний heredoc для другой переменной НЕ снимает блокировку
-    (Copilot round 21 CRITICAL fix).
-
-    Источник: GPT-5.3-Codex round 14 CRITICAL + D-02 deferred.
-    """
-    if not _GH_PR_COMMENT.search(command):
-        return False
-    if _BODY_DIRECT_HEREDOC_CAT.search(command):
-        # --body "$(cat <<TOKEN...)" — heredoc-cat IS the body, content visible.
-        # Copilot round 21: посторонний heredoc для другой переменной НЕ снимает block.
-        return False
-    return bool(_OPAQUE_COMMAND_SUBST_BODY.search(command))
-
-
-def is_forbidden(command: str) -> bool:
-    """True — если команда содержит запрещённый заголовок readiness.
-
-    Нормализуем только `_` и `-` в пробелы — это закрывает обход через
-    `ready_to_merge`, `ready-to-merge`. Переносы строк НЕ нормализуем:
-    паттерн использует multiline-якоря `^`/`$`, которые должны видеть
-    реальные `\\n` в команде (shell-heredoc, multiline body).
-
-    Copilot round 28: дополнительно удаляем zero-width символы и
-    декодируем HTML entities, чтобы `ready&#x200b;to merge` и подобные
-    обходы не проходили.
-
-    dolt-0di (v3.5, Pass 2 G1+G2): NFKD normalization + strip Mn/Mc/Me +
-    systemic terminator check через `unicodedata.category`. NFKD (в
-    отличие от NFKC) декомпозирует compatibility forms и precomposed
-    символы на base + combining marks (например `mergé` → `merge` +
-    U+0301); последующий фильтр `category not in ("Mn","Mc","Me")`
-    удаляет combining marks, возвращая чистую base-form phrase для
-    regex. Post-match проверка: первый non-whitespace символ после
-    phrase → если категория `Po` (Other punctuation) или `Pf` (Final
-    quote) → terminator, declaration блокируется. Pass 4 E-1 сузил
-    класс: Ps/Pi/Pe/Pc/Pd НЕ включаются как terminator (`(`, `[`, `{`,
-    «, ', ), ], }, ‒, —, ‿ — narrative continuation, не sentence
-    terminators). Letter/digit → narrative continuation, skip.
-    Rationale NFKC → NFKD: NFKC *composes* base+mark обратно в
-    precomposed codepoint (для `é` regex всё равно рассыпется, если в
-    phrase есть combining), NFKD *decomposes* до атомов, что даёт
-    возможность strip'нуть marks и привести phrase к каноничной
-    base-форме. Это закрывает whole class Unicode-punctuation bypass'ов
-    (12+ векторов) без enumeration terminator-символов, плюс G2
-    orthographic bypass (combining accent на последней букве phrase).
-
-    Двухстадийный matcher (см. комментарий к _MERGE_READY_CANDIDATE):
-    candidate → проверка префикса на отрицание → True только если
-    префикс чист И за phrase идёт terminator (punctuation/EOL/shell-quote).
-    """
-    # Декодируем HTML entities: &#x200b; → символ, &nbsp; → пробел и т.д.
-    normalized = html.unescape(command)
-    # Удаляем zero-width и невидимые Unicode символы, которые GitHub рендерит
-    # как пустое место, но regex не видит.
-    normalized = re.sub(r"[\u200b-\u200f\u2028-\u202f\ufeff\u00ad\u2060]", "", normalized)
-    # NFKD + удаление combining marks: combining diacritics разносятся на
-    # base + mark, затем Mn/Mc/Me вычищаются. `ready to merge\u0301:landing`
-    # после NFKD = `ready to merge\u0301:landing`, после strip marks =
-    # `ready to merge:landing` → regex матчит phrase, `:` триггерит
-    # terminator. Без этого combining acute на последней `e` в `merge` (или
-    # precomposed `mergé` после NFC) рассыпал regex — bypass (Pass 2 G2).
-    # NFKD также нормализует compatibility forms: `\uFE55` (small colon) →
-    # `:` (Po, уже terminator по unicodedata.category). Effect: G2 закрыт
-    # whole class — любая комбинация base+mark в phrase сводится к base.
-    normalized = unicodedata.normalize("NFKD", normalized)
-    normalized = "".join(
-        ch for ch in normalized if unicodedata.category(ch) not in ("Mn", "Mc", "Me")
-    )
-    normalized = re.sub(r"[_\-]+", " ", normalized)
-    for match in _MERGE_READY_CANDIDATE.finditer(normalized):
-        prefix = match.group("prefix") or ""
-        if _NEGATION_WORDS.search(prefix):
-            # «не готов к merge», «почти ready to merge», «PR будет готов…»
-            # — это обсуждение, не декларация. Продолжаем искать другие
-            # кандидаты в той же команде.
-            continue
-        if _BLOCKQUOTE_MARKER.search(prefix):
-            # markdown blockquote (`> ...`) — цитата из ревью/обсуждения, не
-            # объявление. Финальный комментарий /finalize-pr публикуется как
-            # `## ✅ Готов к merge`, без blockquote — реального bypass не создаёт.
-            continue
-        # Systemic terminator check: что идёт сразу после phrase?
-        tail = normalized[match.end():]
-        # Пропускаем horizontal whitespace + combining/modifier codepoints.
-        # Вертикальный whitespace (\n, \r) — terminator (EOL → declaration),
-        # его пропускать нельзя. Всё остальное horizontal whitespace
-        # (SPACE, TAB, NBSP U+00A0, em-space U+2003, и любая Zs-категория,
-        # уцелевшая после NFKD) — безопасно пропустить.
-        #
-        # Pass 3 CP-1 (Copilot MEDIUM): прежний класс `c in " \t"` пропускал
-        # только ASCII SPACE/TAB. После html.unescape `&nbsp;` → U+00A0;
-        # NFKD обычно декомпозирует его в ` `, но defense-in-depth требует
-        # explicit handling — любой Unicode horizontal whitespace должен
-        # быть прозрачен для terminator-check'а, независимо от нормализации.
-        # `c.isspace() and c not in "\n\r"` покрывает whole class Zs/Zl/Zp
-        # плюс ASCII \t/\v/\f, исключая вертикальные separator'ы.
-        #
-        # Combining marks (Mn/Mc/Me) — «невидимые» диакритики, которые
-        # visually сливаются с phrase и не являются sentence terminators.
-        #
-        # Pass 5 E-5 (WARNING): прежняя версия включала Sk (Symbol modifier)
-        # и Lm (Letter modifier) в skip-set для покрытия G2 bypass через
-        # U+00B4 (ACUTE ACCENT, Sk). Но backtick U+0060 — тоже Sk, и skip-
-        # loop проглатывал closing backtick после phrase в легитимных
-        # командах вроде `gh pr comment 1 --body 'Use \`ready to merge\`'`
-        # (inline code span в обсуждении). После Sk-backtick скипался и
-        # shell-quote `'` триггерил terminator-check → false block
-        # легитимного comment.
-        #
-        # Теперь Sk/Lm НЕ включаются. G2 combining diacritic bypass всё
-        # ещё закрыт через NFKD normalization выше: precomposed `mergé`
-        # → `merge` + U+0301 (Mn) → strip marks → clean phrase, regex
-        # match → terminator check видит чистое `:`/`.` после NFKD-
-        # декомпозированного текста. U+00B4 acute accent под NFKD
-        # декомпозируется в U+0020 + U+0301 → space+mark → после strip
-        # marks остаётся space, который isspace() пропускает. Pathway
-        # через нормализацию работает для всего класса G2 без включения
-        # Sk в skip-set.
-        i = 0
-        n = len(tail)
-        while i < n:
-            c = tail[i]
-            if c in "\n\r":
-                # Вертикальный whitespace — terminator, выход из skip-loop.
-                break
-            if c.isspace():
-                # Горизонтальный whitespace (ASCII + NBSP/em-space/прочее Zs).
-                i += 1
-                continue
-            cat = unicodedata.category(c)
-            # Только combining marks — семантически «невидимые» диакритики.
-            # Spacing modifier symbols (Sk, включая backtick) и modifier
-            # letters (Lm) НЕ skip — они могут быть legitimate delimiters
-            # или закрывающими quotes в shell-команде.
-            if cat in ("Mn", "Mc", "Me"):
-                i += 1
-                continue
-            break
-        if i >= n:
-            # EOF сразу после phrase — declaration (no continuation possible).
-            return True
-        ch = tail[i]
-        if ch in "\n\r":
-            # Newline — declaration (phrase в конце строки).
-            return True
-        if ch in "\"'":
-            # Закрывающая shell-quote — declaration (`--body 'ready to merge'`).
-            return True
-        # Unicode punctuation category — только closing/other punctuation
-        # семантически отделяет declaration от продолжения. Opening punctuation
-        # (Ps, Pi) начинает subordinate clause / цитату — narrative continuation.
-        #
-        # Pass 4 E-1 (WARNING): прежний `cat.startswith('P')` блокировал
-        # легитимные `(`, `[`, `{`, `'`, `"`, `«` — фразы типа «ready to merge
-        # (if CI passes)» ложно считались декларацией. Opening-bracket/quote
-        # подкатегории Ps (Open punctuation) и Pi (Initial quote) —
-        # openers clause, НЕ sentence terminators.
-        #
-        # v3.5 Option B revert (10cdf47 E-7 reverted): класс ограничен Po+Pf.
-        # Pass 6 E-7 расширение до Po+Pf+Pe+Pd создало overmatch surface:
-        #   - Pe overmatch: `(ready to merge)` closing `)` — legitimate, но
-        #     в связке с Po (`:` в inline backtick quote) открыл bypass surface
-        #     `big-heroes-16e` (E-14);
-        #   - Pd overmatch: `/` и `.` внутри paths/branches — ASCII hyphen уже
-        #     normalized pre-strip, Unicode en/em-dash `—` `–` в narrative
-        #     «ready to merge — landing follows» остаётся ambiguous между
-        #     declaration и narrative. Породил `big-heroes-3ed` (E-15).
-        # Option B: вернули Po+Pf как минимальный proven-safe класс (Pass 4 E-1
-        # baseline). Pe/Pd overmatch (E-7) и сопутствующие E-14/E-15 defer'ятся
-        # до Python rewrite в v3.6 (`big-heroes-55m`, `big-heroes-ytx`).
-        #
-        # Включаем:
-        #   Po — Other punctuation (`.`, `!`, `?`, `:`, `;`, CJK `。`, `、`,
-        #        full-width `．`, `！`, `？`, `，`, Arabic `،`, `؛`, `؟`,
-        #        Hebrew `׃`, Mongolian `᠂`, Armenian `։`, Japanese `・`);
-        #   Pf — Final quote (`”`, `»`, `’`) — closing quote может быть
-        #        terminator для narrative «цитата закончилась, continuation».
-        #
-        # НЕ включаем:
-        #   Ps — Open punctuation (`(`, `[`, `{`) — начинает clause, narrative;
-        #   Pi — Initial quote (`“`, `«`, `‘`) — открывающая цитата, narrative;
-        #   Pe — Close punctuation (`)`, `]`, `}`) — reverted v3.5 Option B
-        #        (E-7 tactical overfit → E-14 surface, deferred v3.6);
-        #   Pd — Dash (`-`, `—`, `–`) — reverted v3.5 Option B (E-7 →
-        #        E-15 surface, deferred v3.6);
-        #   Pc — Connector (`_`, `‿`) — не sentence separator.
-        #
-        # Минимальный proven-safe terminator класс: Po + Pf (Pass 4 E-1 baseline).
-        cat = unicodedata.category(ch)
-        if cat in ("Po", "Pf"):
-            return True
-        # Letter, digit, space-like separator (Z*, но только Zs после strip
-        # whitespace выше не должен появиться), symbol — narrative continuation.
-        # `готов к merge after X` / `ready to merge in the future` — пропускаем.
-        continue
-    return False
 
 
 def main() -> int:
@@ -603,44 +247,98 @@ def main() -> int:
         command = extract_command(raw)
     except HookError as exc:
         sys.stderr.write(str(exc) + "\n")
-        return 1
+        return EXIT_BLOCK
+
+    # Единый stateful-проход связывает реальные top-level публикации с body.
+    # Маскирование heredoc до лексического доказательства не используется.
+    # Разбор идёт под собственными пределами: незавершённый разбор — не
+    # доказательство инертности, поэтому его истечение блокирует команду.
+    try:
+        analysis = analyze_shell(
+            command,
+            time_limit_seconds=_test_narrowed_parse_limit(),
+            max_depth=PARSE_MAX_DEPTH,
+        )
+    except ShellParseLimitExceeded as exc:
+        sys.stderr.write(
+            f"БЛОКИРОВКА: разбор команды не завершён ({exc}), поэтому команда "
+            "не пропускается: доказать отсутствие публикации с запрещённой "
+            "формулировкой невозможно.\n"
+            "Упрости команду — вложенные подстановки в разборе не нужны; "
+            "для большого review-body используй "
+            "`.claude/tools/publish-pr-comment.py`.\n"
+        )
+        return EXIT_BLOCK
+    publications = analysis.publications
+
+    # Разбор, который система не смогла завершить полностью и однозначно, по
+    # определению не доказывает инертность входа. Такой вход блокируется НЕЗАВИСИМО
+    # от того, найдены ли в нём публикации: если разбор оборвался ДО того, как
+    # публикация могла быть обнаружена, пустой список публикаций — не
+    # доказательство их отсутствия. Признак поднимается только при реально
+    # незавершённом разборе (оборванная конструкция, незакрытая группа,
+    # рассогласованная скобка), а не при штатных разобранных конструкциях
+    # (подоболочка, группа, подстановка процесса, extglob, backtick).
+    if analysis.global_ambiguous:
+        sys.stderr.write(
+            "БЛОКИРОВКА: команду не удалось разобрать полностью и однозначно, "
+            "поэтому отсутствие публикации с запрещённой формулировкой доказать "
+            "нельзя.\n"
+            "Упрости команду; для большого review-body используй "
+            "`.claude/tools/publish-pr-comment.py`.\n"
+        )
+        return EXIT_BLOCK
+
+    # Hard gate доверяет только top-level прямолинейной последовательности.
+    # Для ветвлений, функций, подстановок и иных неоднозначных контекстов
+    # фактическую достижимость публикации доказать нельзя — fail-closed.
+    if any(publication.ambiguous for publication in publications):
+        sys.stderr.write(
+            "БЛОКИРОВКА: публикация находится вне поддержанной "
+            "прямолинейной shell-последовательности; её итоговое body "
+            "невозможно доказуемо проверить.\n"
+        )
+        return EXIT_BLOCK
 
     # Блокируем --body-file / -F для gh pr comment вне /finalize-pr: body
     # передаётся файлом/stdin и hook не может надёжно проверить содержимое.
     # Это bypass hard gate (нашёл Copilot auto-reviewer). Для легитимных
     # длинных отчётов используется /finalize-pr с FINALIZE_PR_TOKEN.
-    if uses_body_file(command):
+    if any(publication.body_kind == "body_file" for publication in publications):
         sys.stderr.write(
             "БЛОКИРОВКА: для `gh pr comment` флаги --body-file / -F "
             "запрещены без FINALIZE_PR_TOKEN, потому что hook не может "
             "провалидировать содержимое файла.\n"
-            "Используй inline --body '...' ИЛИ /finalize-pr <PR_NUMBER>.\n"
+            "Для большого review-body используй "
+            "`.claude/tools/publish-pr-comment.py`; для readiness — "
+            "/finalize-pr <PR_NUMBER>.\n"
         )
-        return 1
+        return EXIT_BLOCK
 
     # Блокируем --edit-last: редактирует последний комментарий через
     # интерактивный редактор, содержимое скрыто от hook'а.
     # Copilot round 31: fail-secure блокировка.
-    if uses_edit_last(command):
+    if any(publication.body_kind == "edit_last" for publication in publications):
         sys.stderr.write(
             "БЛОКИРОВКА: для `gh pr comment` флаг --edit-last запрещён "
             "без FINALIZE_PR_TOKEN — содержимое редактируется вне "
             "командной строки и hook не может его проверить.\n"
             "Используй inline --body '...' ИЛИ /finalize-pr <PR_NUMBER>.\n"
         )
-        return 1
+        return EXIT_BLOCK
 
     # Блокируем вызов без явного --body / -b / --body-file / -F:
     # gh открывает интерактивный редактор, содержимое скрыто от hook'а.
     # Copilot round 31: fail-secure блокировка editor mode.
-    if uses_no_body(command):
+    if any(publication.body_kind == "missing" for publication in publications):
         sys.stderr.write(
             "БЛОКИРОВКА: `gh pr comment` без флага --body / -b / "
             "--body-file / -F запрещён без FINALIZE_PR_TOKEN — "
             "gh откроет редактор и hook не сможет проверить содержимое.\n"
-            "Используй inline --body '...' ИЛИ /finalize-pr <PR_NUMBER>.\n"
+            "Используй inline --body '...', доверенный publish-pr-comment.py "
+            "или /finalize-pr <PR_NUMBER>.\n"
         )
-        return 1
+        return EXIT_BLOCK
 
     # Блокируем command substitution, скрывающие реальное содержимое body
     # от hook'а: `$(cat /file)`, `$(<file)`, backticks с чтением файла.
@@ -648,56 +346,96 @@ def main() -> int:
     # (содержимое инлайн, regex его видит). Here-string `<<<` НЕ блокируется
     # отдельно: `gh pr comment` не читает stdin без `--body-file -`,
     # который уже блокируется выше.
-    if uses_dangerous_substitution(command):
+    if any(
+        publication.body_kind == "opaque_substitution"
+        for publication in publications
+    ):
         sys.stderr.write(
             "БЛОКИРОВКА: для `gh pr comment` запрещены конструкции, "
             "скрывающие содержимое body от hook'а: "
             "`$(cat file)`, `$(<file)`, backticks `cat file`.\n"
             "Используй inline --body '...', heredoc `$(cat <<'EOF' ... EOF)` "
-            "или /finalize-pr <PR_NUMBER>.\n"
+            "либо доверенный publish-pr-comment.py; readiness — только "
+            "через /finalize-pr <PR_NUMBER>.\n"
         )
-        return 1
+        return EXIT_BLOCK
 
     # Блокируем `--body "$VAR"` / `--body $VAR` / `--body "${VAR}"` —
     # body берётся из переменной, hook видит только литерал имени переменной,
     # а реальный текст ему недоступен. Это bypass: запрещённая фраза легко
     # прячется в переменную (`BODY="## ✅ Готов к merge"; gh pr comment 1 --body "$BODY"`).
-    if uses_opaque_variable_body(command):
+    if any(
+        publication.body_kind == "opaque_variable"
+        for publication in publications
+    ):
         sys.stderr.write(
             "БЛОКИРОВКА: для `gh pr comment` нельзя подставлять body из "
             "переменной (`--body \"$VAR\"`, `--body ${VAR}`): hook видит "
             "только имя переменной, не её содержимое.\n"
             "Используй inline --body '...', heredoc `$(cat <<'EOF' ... EOF)` "
-            "или /finalize-pr <PR_NUMBER>.\n"
+            "либо доверенный publish-pr-comment.py; readiness — только "
+            "через /finalize-pr <PR_NUMBER>.\n"
         )
-        return 1
+        return EXIT_BLOCK
 
-    # Блокируем любой command substitution `$(...)` в позиции --body:
-    # `$(echo $VAR)`, `$(printf ...)`, `$(head file)`, `$(awk ...)` и т.д.
-    # Закрывает класс bypass'ов через shell-инструменты (Codex round 14 CR-1 + D-02).
-    # Исключение — heredoc (BODY=$(cat <<'EOF'...EOF)) — обрабатывается внутри функции.
-    if uses_opaque_command_substitution_body(command):
+    # Последняя проверка — сама запрещённая формулировка в ДОКАЗАННОМ body.
+    # Сюда доходит только то, чьё тело разбор восстановил дословно: инлайн-литерал
+    # и heredoc с квотированным делимитером. Непрозрачные формы (`--body-file`,
+    # `--edit-last`, отсутствующий флаг, любые подстановки и переменные в позиции
+    # `--body`) отсеяны ветками выше — их тело не восстановимо, и они блокируются
+    # независимо от содержимого.
+    #
+    # Фаза идёт под СВОИМ пределом времени — вторым, независимым от предела
+    # разбора. Незавершённая проверка доказательством отсутствия формулировки
+    # не является, поэтому её истечение блокирует.
+    readiness_deadline = time.monotonic() + _test_narrowed_readiness_limit()
+    try:
+        forbidden = any(
+            publication.body is not None
+            and is_forbidden(publication.body, deadline=readiness_deadline)
+            for publication in publications
+        )
+    except ReadinessCheckLimitExceeded as exc:
         sys.stderr.write(
-            "БЛОКИРОВКА: для `gh pr comment` нельзя подставлять body через "
-            "command substitution (`--body \"$(...)\"`): hook видит только "
-            "литерал подстановки, не её результат.\n"
-            "Используй inline --body '...', heredoc `BODY=$(cat <<'EOF' ... EOF)` "
-            "+ `--body \"$BODY\"` (heredoc содержимое видно hook'у), "
-            "или /finalize-pr <PR_NUMBER>.\n"
+            f"БЛОКИРОВКА: проверка формулировки не завершена ({exc}), поэтому "
+            "команда не пропускается: доказать отсутствие запрещённой "
+            "формулировки невозможно.\n"
+            "Для большого review-body используй "
+            "`.claude/tools/publish-pr-comment.py`.\n"
         )
-        return 1
-
-    if is_forbidden(command):
+        return EXIT_BLOCK
+    if forbidden:
         sys.stderr.write(
             "БЛОКИРОВКА: фразы 'готов к merge' / 'ready to merge' / 'merge-ready' "
             "разрешены только через /finalize-pr "
             "(см. .claude/skills/finalize-pr/SKILL.md).\n"
             "Используй /finalize-pr <PR_NUMBER>.\n"
         )
-        return 1
+        return EXIT_BLOCK
 
     return 0
 
 
+def _guarded_main() -> int:
+    """Запуск с общим fail-closed завершением.
+
+    Любая непредусмотренная ошибка внутри гейта — это отсутствие вердикта, а не
+    вердикт «пропустить». Без этой обёртки исключение всплывало бы трассировкой
+    и давало код 1, который для PreToolUse НЕ блокирует: команда ушла бы в
+    работу непроверенной.
+    """
+
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except BaseException as error:  # noqa: BLE001 — вердикта нет, значит блокируем
+        sys.stderr.write(
+            f"БЛОКИРОВКА: гейт публикации завершился ошибкой ({error!r}). "
+            "Команда не пропускается: вердикта о теле публикации нет.\n"
+        )
+        return EXIT_BLOCK
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_guarded_main())
