@@ -20,6 +20,19 @@ tests, gh для PR evidence. `bd` нужен только проекту, ис�
 На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
 не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
 
+### Beads и облачный агент
+
+Порядок для трёх окружений — [`HOW_TO_USE.md`, секция Beads](HOW_TO_USE.md#beads-основной-checkout-worktree-и-облачный-агент).
+`bd`/Dolt нужны основному checkout оператора; облачному агенту достаточно снимка задач и
+канала публикации PR, включая уже авторизованный GitHub-коннектор. Авторизация shell
+Git/gh не является обязательным шагом для этого канала.
+Inventory содержит reader/worktree/sync helpers, но пока не содержит applier/engine/queue.
+Для автоматического применения cloud-заявок подключить reviewed project tooling отдельным
+изменением по инструкции; до этого заявки pending. Не инициализировать облачную базу.
+При upgrade `AGENTS.md` и `.claude/rules/beads.md` сохраняются: явно сверить их Beads route
+с этой инструкцией в target PR. Наличие обновлённой инструкции не обновляет preserved
+project rules автоматически. Существующий applier и его project policy не перезаписывать.
+
 ## Каталог Claude-сессии
 
 Installer читает canonical Git blobs и записывает Bash scripts с LF. Для последующих
