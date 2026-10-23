@@ -29,9 +29,14 @@ Reference проверяется `bash scripts/verify-reference.sh`; устан�
 
 Beads — task state; Git/PR — code/evidence. `bd --help`, `.claude/rules/beads.md`, штатные
 `scripts/bd-sync-*` определяют текущий route. Не писать Dolt напрямую, не mutating bd из
-worktree, не считать local `.beads/issues.jsonl` авторитетным. Triage lookup использует
+worktree с auto-discovery; локальная worktree пишет через `scripts/bd-wt.sh` в основную базу.
+Не считать local `.beads/issues.jsonl` авторитетным. Triage lookup использует
 `scripts/bd-wt.sh` / `scripts/bd-read.sh` и frozen snapshot `origin/beads-backup` текущего проекта.
 Не откатывать Beads/Memory Bank вслепую. Личный runtime state не коммитится.
+Облачный агент читает снимок через reader или авторизованный GitHub-коннектор и коммитит
+pending-заявки `.bd-intents/` в PR. CLI login не требуется для работы через коннектор.
+Применяет оператор trusted applier; он пока не поставляется OverGate. Порядок и граница
+поставки: `.agents/HOW_TO_USE.md`, секция Beads. Не создавать второй cloud writer.
 
 Большие PR reports публикуются `.claude/tools/run-python.sh .claude/tools/publish-pr-comment.py`;
 readiness — только trusted `/finalize-pr`. Полномочия публикации определяет задача;

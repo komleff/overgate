@@ -34,7 +34,10 @@ External review доступен по named risk или прямому запр�
 Source нужен как чистый **Git checkout**, полученный через `git clone` с выбранным RC tag
 и exact commit SHA; распакованный release ZIP без `.git` installer не принимает.
 Нужны Git, Bash (на Windows — Git Bash), Python 3; gh для PR, Node.js для Beads reader,
-jq для finalize. `bd` нужен при использовании Beads.
+jq для finalize. `bd` нужен основному checkout для живой базы Beads; облачный агент
+читает снимок и публикует заявки через Git/PR, в том числе авторизованный GitHub-коннектор.
+Отдельный login Git CLI для этого канала не нужен. [Порядок доступа к Beads](.agents/HOW_TO_USE.md#beads-основной-checkout-worktree-и-облачный-агент)
+различает три окружения и описывает подключение applier, пока отсутствующего в inventory OverGate.
 
 Начните с [инструкции работы](.agents/HOW_TO_USE.md) или [установки](.agents/INSTALL.md).
 Установщик сначала создаёт plan/inventory на frozen source SHA. Target Draft PR, Verification

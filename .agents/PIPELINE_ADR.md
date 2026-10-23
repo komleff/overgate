@@ -347,14 +347,19 @@ U2 dogfood и POSIX fixtures не объявляются OverGate Windows/live P
   `beads-backup` как source of truth) неизменно; команды `bd backup export-git` / `fetch-git`
   относились к более старой версии bd и в bd 1.0.2 отсутствуют — заменены helper-скриптами
   (`bd export` + ветка `beads-backup` + `bd import`).
-- **`bd` — только из основного checkout, не из git-worktree.** Dolt runtime привязан к checkout и
-  не переключается с git-веткой: в worktree `bd` создаёт пустую базу (рвёт синхронизацию) и плодит
-  lock-зависания (`database "dolt" is locked`).
+- **Прямой `bd` с auto-discovery — только из основного checkout.** Локальная worktree
+  использует `scripts/bd-wt.sh`: явный `--db` подключает её к той же живой основной базе.
+  Export/import остаются в основном checkout; второй сервер не запускается.
+- **Облачный агент без основной базы** читает снимок `beads-backup` и публикует pending-заявки
+  `.bd-intents/` в PR. Применяет оператор trusted project applier; OverGate пока поставляет
+  только reader/worktree/sync helpers. Авторизованный GitHub-коннектор достаточен для снимка
+  и PR, отдельный login Git CLI не обязателен. Формат, lifecycle и граница поставки —
+  `HOW_TO_USE.md`, секция Beads; source — U2 ADR-0042 на frozen SHA, указанном там.
 - **Локальный `.beads/issues.jsonl` — не источник истины** (auto-export отключён, в `main` не
   трекается; полный набор — снапшот в ветке `beads-backup`).
 - Полные правила и troubleshooting (lock через `lsof .beads/dolt/.dolt/noms/LOCK` → `kill -9`) —
-  `.claude/rules/beads.md`. При установке в новый проект — `bd init --skip-agents` (см. `INSTALL.md`
-  §B.5), чтобы upstream `bd dolt push`-guidance не попал в `AGENTS.md`.
+  `.claude/rules/beads.md`. Инициализация новой базы (`bd init --skip-agents`, сверить `bd --help`)
+  выполняется только для основного checkout оператора, не для облачного clone/worktree.
 
 ### 3.8 Pre-commit хуки (тесты перед коммитом)
 
