@@ -1,7 +1,7 @@
 ---
 title: "OverGate — как работать"
 status: active
-version: "4.0.0-rc.2"
+version: "4.0.0-rc.3"
 date: 2026-10-03
 tags: [pipeline, usage]
 ---
