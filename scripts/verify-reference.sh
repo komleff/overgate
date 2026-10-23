@@ -36,7 +36,7 @@ run publisher "$PYTHON" scripts/tests/publish-pr-comment.test.py
 for test_name in python-launcher with-timeout with-timeout-transparency merge-gate-script-run-parity merge-gate-parse-completeness merge-gate-parse-budget gate-arithmetic-expansion gate-heredoc-delimiter gate-line-continuation-parity shell-grammar-single-source module-resolution-closure finalize-triage-parse bd-read bd-wt; do
   run "$test_name" bash "scripts/tests/$test_name.test.sh"
 done
-for test_name in merge-gate-parse-complexity readiness-declaration-corpus readiness-policy-complexity; do
+for test_name in merge-gate-parse-complexity readiness-declaration-corpus readiness-policy-complexity shell-nonascii-expansion; do
   run "$test_name" "$PYTHON" "scripts/tests/$test_name.test.py"
 done
 run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate_review_pass.sh
