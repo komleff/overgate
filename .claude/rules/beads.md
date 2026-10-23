@@ -95,7 +95,7 @@ Pending-заявка не означает выполненный claim/close. �
   note label`. Прочее (`delete`, `config`, `sql`, `export`, `import`, `dolt` и т.д.), пустая
   подкоманда и неизвестный глобальный флаг до подкоманды → отказ кодом 2 до запуска bd.
 - `--db`, `-C`/`--directory`, `--global`, `--ignore-schema-skew`, `--repo` и флаги чтения
-  локального файла (`--body-file`, `--design-file`, `--reason-file`, `--file`, `--graph`, `-f`,
+  локального файла (`--body-file` и его скрытый алиас `--description-file`, `--design-file`, `--reason-file`, `--file`, `--graph`, `-f`,
   `--metadata @файл`) отклоняются в любой позиции, как и непустые `BEADS_DIR`/`BEADS_DB`.
   Значение аргумента, равное такому флагу (`--title -C`), тоже отказ — осознанный fail-closed.
   Длинный текст — через `--stdin` или `--description`.

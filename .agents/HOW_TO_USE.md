@@ -97,7 +97,7 @@ blocked children create q update close reopen dep comment comments note label`. 
 подкоманды (`delete`, `config`, `sql`, `export`, `import`, `dolt` и т.д.), пустая подкоманда,
 неизвестный глобальный флаг до подкоманды, а также `--db`, `-C`/`--directory`, `--global`,
 `--ignore-schema-skew`, `--repo`, флаги чтения локального файла (`--body-file`,
-`--design-file`, `--reason-file`, `--file`, `--graph`, `-f`, `--metadata @файл`) в любой
+скрытый алиас `--description-file`, `--design-file`, `--reason-file`, `--file`, `--graph`, `-f`, `--metadata @файл`) в любой
 позиции и непустые `BEADS_DIR`/`BEADS_DB` — отказ кодом 2 до запуска bd. Значение аргумента,
 равное такому флагу (`--title -C`), тоже отклоняется — осознанный fail-closed. Длинный текст —
 через `--stdin` или `--description`. Allowlist — защитный слой обёртки, а не граница

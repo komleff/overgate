@@ -16,8 +16,9 @@ Prerelease; stable `v3.9.0` остаётся Latest. Источники: U2 `4a7
   флаг → код 2 до запуска bd. Раньше в основном checkout обёртка была полным pass-through.
 - **`--global` больше не разрешённый глобальный флаг обёртки** — отказ кодом 2 в любой позиции.
   Также отклоняются `-C`/`--directory`, `--ignore-schema-skew`, `--repo`, флаги чтения локального
-  файла (`--body-file`, `--design-file`, `--reason-file`, `--file`, `--graph`, `-f`, `--metadata @файл`)
-  и непустые `BEADS_DIR`/`BEADS_DB`; `--db` по-прежнему запрещён. Длинный текст — `--stdin`/`--description`.
+  файла (`--body-file` и скрытый в `--help` алиас `--description-file` у `create`/`update`,
+  `--design-file`, `--reason-file`, `--file`, `--graph`, `-f`, `--metadata @файл`) и непустые
+  `BEADS_DIR`/`BEADS_DB`; `--db` по-прежнему запрещён. Длинный текст — `--stdin`/`--description`.
 - Предписания запуска `scripts/bd-*.sh` в docs, rules, сообщениях скриптов и finalize — `bash scripts/...`:
   прямой запуск файла без аргументов гейт коммита блокирует (задокументированное поведение гейта).
 - Тексты recovery-ограничений нейтральны к версии: `DECLARED_LIMIT` rc.1 и отложенный `og-7sr`

@@ -283,6 +283,13 @@ FORBIDDEN_ARGS=(
   "create|x|--repo|/other"
   "create|x|--body-file|/etc/hosts"
   "create|x|--body-file=/etc/hosts"
+  # Скрытый алиас --body-file у create/update в bd 1.2.2 (в --help не показан).
+  "create|x|--description-file|/etc/hosts"
+  "create|x|--description-file=/etc/hosts"
+  "update|proj-1|--description-file|/etc/hosts"
+  "update|proj-1|--description-file=/etc/hosts"
+  "--description-file|/etc/hosts|create|x"
+  "--description-file=/etc/hosts|update|proj-1"
   "update|proj-1|--design-file|/etc/hosts"
   "update|proj-1|--design-file=/etc/hosts"
   "close|proj-1|--reason-file|/etc/hosts"

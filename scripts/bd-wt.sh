@@ -36,8 +36,9 @@ done
 # осознанный fail-closed. Короткий -C ловится и слитно (-C/x), и в связке (-qC).
 # --repo (локальный флаг `create`) направляет запись в чужую базу или создаёт новую .beads
 # вне синхронизации — тоже обход основной базы.
-# Флаги чтения локального файла (--body-file, --design-file, --reason-file, --file, --graph,
-# короткий -f, --metadata @путь) унесли бы содержимое произвольного файла в общую базу.
+# Флаги чтения локального файла (--body-file и его скрытый в --help алиас --description-file
+# у create/update, --design-file, --reason-file, --file, --graph, короткий -f, --metadata @путь)
+# унесли бы содержимое произвольного файла в общую базу.
 # Длинный текст — через --stdin или --description. Короткий -f ловится как -C.
 prev=""
 for a in "$@"; do
@@ -48,7 +49,7 @@ for a in "$@"; do
     --directory|--directory=*|--global|--global=*|--ignore-schema-skew|--ignore-schema-skew=*|--repo|--repo=*)
       echo "ERROR: флаг '${a}' нельзя через bd-wt — он меняет базу или каталог bd (fail-closed)." >&2
       exit 2 ;;
-    --body-file|--body-file=*|--design-file|--design-file=*|--reason-file|--reason-file=*|--file|--file=*|--graph|--graph=*|--metadata=@*)
+    --body-file|--body-file=*|--description-file|--description-file=*|--design-file|--design-file=*|--reason-file|--reason-file=*|--file|--file=*|--graph|--graph=*|--metadata=@*)
       echo "ERROR: флаг '${a}' нельзя через bd-wt — он читает локальный файл (fail-closed)." >&2
       echo "       Длинный текст передавайте через --stdin или --description." >&2
       exit 2 ;;
