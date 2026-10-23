@@ -9,7 +9,7 @@
 #  - чтобы это не приводило к last-writer-wins потере чужих правок, export FAIL-CLOSED,
 #    если локальная БД не синхронизирована с актуальным remote tip (last-seen guard) ИЛИ
 #    если на remote есть задачи, отсутствующие локально (drop-guard). В обоих случаях нужно
-#    сперва scripts/bd-sync-restore.sh, затем повторить export — контракт «restore-before-export»;
+#    сперва bash scripts/bd-sync-restore.sh, затем повторить export — контракт «restore-before-export»;
 #  - удаления задач не зеркалируются (restore = upsert без prune; `bd delete` запрещён) —
 #    осознанное ограничение snapshot-модели.
 #
