@@ -72,7 +72,7 @@ if [ -n "$parent" ] && [ "$last_seen" != "$parent" ] && [ "${BD_SYNC_FORCE:-}" !
   echo "ОШИБКА: локальная БД не синхронизирована с ${REMOTE}/${BRANCH} (restore-before-export)." >&2
   echo "  last-seen: ${last_seen:-<нет>}" >&2
   echo "  remote:    $parent" >&2
-  echo "Сначала: scripts/bd-sync-restore.sh, затем повтори export. Override: BD_SYNC_FORCE=1." >&2
+  echo "Сначала: bash scripts/bd-sync-restore.sh, затем повтори export. Override: BD_SYNC_FORCE=1." >&2
   exit 1
 fi
 
@@ -116,7 +116,7 @@ PY
   if [ -n "$dropped" ]; then
     echo "ОШИБКА: на ${BRANCH} есть задачи, отсутствующие в локальном снапшоте — публикация затёрла бы их:" >&2
     printf '%s\n' "$dropped" | sed 's/^/  - /' >&2
-    echo "Сначала: scripts/bd-sync-restore.sh, затем повтори export. Override: BD_SYNC_FORCE=1." >&2
+    echo "Сначала: bash scripts/bd-sync-restore.sh, затем повтори export. Override: BD_SYNC_FORCE=1." >&2
     exit 1
   fi
 fi
@@ -143,7 +143,7 @@ if ! git push "$REMOTE" "refs/heads/${BRANCH}:refs/heads/${BRANCH}"; then
   else
     git update-ref -d "refs/heads/${BRANCH}"
   fi
-  echo "ОШИБКА: push отклонён — ${REMOTE}/${BRANCH} ушёл вперёд. Перезапусти scripts/bd-sync-export.sh." >&2
+  echo "ОШИБКА: push отклонён — ${REMOTE}/${BRANCH} ушёл вперёд. Перезапусти bash scripts/bd-sync-export.sh." >&2
   exit 1
 fi
 

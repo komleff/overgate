@@ -41,9 +41,14 @@ Beads хранит состояние задач; Git/PR — изменения 
 
 | Окружение | Чтение | Запись | Кто публикует снимок |
 |---|---|---|---|
-| Основной checkout оператора с живой базой | `bd ready`, `bd show <id>` | `bd create/update/close` | Основной checkout через `scripts/bd-sync-export.sh` |
-| Локальная worktree, доступен сервер основного checkout | `scripts/bd-wt.sh ready/show <id>` | `scripts/bd-wt.sh create/update/close` | Основной checkout |
-| Облачный агент без основной базы и диска оператора | `scripts/bd-read.sh` или снимок через авторизованный GitHub-коннектор | Заявки `.bd-intents/<branch-slug>.jsonl` в рабочей PR-ветке | Оператор после применения заявок |
+| Основной checkout оператора с живой базой | `bd ready`, `bd show <id>` | `bd create/update/close` | Основной checkout через `bash scripts/bd-sync-export.sh` |
+| Локальная worktree с доступом к основной базе (embedded или dolt-сервер) | `bash scripts/bd-wt.sh ready/show <id>` | `bash scripts/bd-wt.sh create/update/close` | Основной checkout |
+| Облачный агент без основной базы и диска оператора | `bash scripts/bd-read.sh` или снимок через авторизованный GitHub-коннектор | Заявки `.bd-intents/<branch-slug>.jsonl` в рабочей PR-ветке | Оператор после применения заявок |
+
+Скрипты `scripts/bd-*.sh` запускать через `bash`. Прямой запуск файла без аргументов
+(`scripts/bd-sync-export.sh`) гейт коммита блокирует: имя на `sh` в позиции команды он
+считает оболочкой, которая читает команды со стандартного ввода. Это задокументированное
+поведение гейта.
 
 **Граница поставки:** OverGate содержит `bd-wt.sh`, `bd-read.sh` и sync helpers.
 `bd-apply-intents.sh`, `lib/bd-apply-engine.mjs` и очередь пока не входят в distribution
@@ -58,10 +63,10 @@ Guard отличает worktree от checkout, но не удостоверяе�
 ### Основной checkout оператора
 
 1. Использовать существующую рабочую базу; не создавать вторую поверх неё.
-2. Если другая машина опубликовала новый снимок, выполнить `scripts/bd-sync-restore.sh`
+2. Если другая машина опубликовала новый снимок, выполнить `bash scripts/bd-sync-restore.sh`
    до новых мутаций; конфликты состояния сверить с оператором.
 3. Выполнять `bd ready`, `bd show <id>`, `bd update <id> --claim`, затем работу по задаче.
-4. Публиковать изменения задач через `scripts/bd-sync-export.sh`.
+4. Публиковать изменения задач через `bash scripts/bd-sync-export.sh`.
 
 Служебная ветка `beads-backup` содержит экспорт `.beads/issues.jsonl`. Живая база первична
 для текущей работы, снимок — опубликованное состояние для других сред. Export/restore
@@ -70,20 +75,39 @@ Guard отличает worktree от checkout, но не удостоверяе�
 
 ### Локальная worktree
 
-Из основного checkout оператор сначала запускает обычную `bd ready`, чтобы сервер работал.
 В worktree использовать обёртку для каждой команды:
 
 ```bash
-scripts/bd-wt.sh ready
-scripts/bd-wt.sh show <id>
-scripts/bd-wt.sh update <id> --claim
-scripts/bd-wt.sh close <id> --reason 'Результат и evidence опубликованы в PR'
+bash scripts/bd-wt.sh ready
+bash scripts/bd-wt.sh show <id>
+bash scripts/bd-wt.sh update <id> --claim
+bash scripts/bd-wt.sh close <id> --reason 'Результат и evidence опубликованы в PR'
 ```
 
-Она сама вычисляет основную базу и передаёт `--db`, проверяет живой сервер и запрещает
-`export/import/dolt` и пользовательский `--db`. Прямой `bd` с auto-discovery в worktree
-может создать пустую базу. Если основной сервер недоступен, не запускать второй:
-прочитать снимок и передать оператору заявку. Публикация остаётся в основном checkout.
+Обёртка сама подставляет `--db` основной базы по `dolt_mode` из
+`<основной checkout>/.beads/metadata.json`: `embedded` → `.beads/embeddeddolt` (сервер не
+нужен), `server` → `.beads/dolt` и живой dolt-сервер основного checkout (оператор сначала
+запускает там обычную `bd ready`). Нет или невалиден `metadata.json`, пуст или неизвестен
+`dolt_mode`, нет каталога базы или исправного Python для чтения файла — отказ до запуска
+bd с путём и причиной. Восстановление режима — решение оператора, `.beads/**` руками не
+править. Из основного checkout обёртка — прозрачный pass-through без `--db`.
+
+В любом окружении обёртка пропускает только allowlist подкоманд: `ready show list search
+blocked children create q update close reopen dep comment comments note label`. Прочие
+подкоманды (`delete`, `config`, `sql`, `export`, `import`, `dolt` и т.д.), пустая подкоманда,
+неизвестный глобальный флаг до подкоманды, а также `--db`, `-C`/`--directory`, `--global`,
+`--ignore-schema-skew`, `--repo`, флаги чтения локального файла (`--body-file`,
+`--design-file`, `--reason-file`, `--file`, `--graph`, `-f`, `--metadata @файл`) в любой
+позиции и непустые `BEADS_DIR`/`BEADS_DB` — отказ кодом 2 до запуска bd. Значение аргумента,
+равное такому флагу (`--title -C`), тоже отклоняется — осознанный fail-closed. Длинный текст —
+через `--stdin` или `--description`. Allowlist — защитный слой обёртки, а не граница
+безопасности: прямой `bd` остаётся доступен в рамках прав сессии.
+
+Прямой `bd` с auto-discovery в worktree может создать пустую базу. Если основной сервер
+недоступен, не запускать второй: прочитать снимок и передать оператору заявку. Embedded Dolt
+допускает одного писателя за раз: одновременные команды из основного checkout и worktree
+могут упасть на блокировке — повторить позже, базу не править. Публикация остаётся в
+основном checkout.
 
 ### Облачный агент: GitHub-коннектор достаточен
 
@@ -92,14 +116,14 @@ scripts/bd-wt.sh close <id> --reason 'Результат и evidence опубл�
 что `git fetch`/`gh` в контейнере тоже авторизованы. Отказ shell Git не блокирует весь task.
 
 1. Прочитать `.beads/issues.jsonl` **из ветки `beads-backup` текущего проекта**. При доступном
-   shell Git: `scripts/bd-read.sh ready`, `list` или `show <id>`.
+   shell Git: `bash scripts/bd-read.sh ready`, `list` или `show <id>`.
 2. Если shell Git недоступен, через коннектор получить HEAD `beads-backup`, затем файл по
    этому exact SHA. Зафиксировать repository, snapshot SHA и время чтения в PR evidence.
    Для локального разбора сохранить полученные bytes во временный файл вне repo:
 
    ```bash
-   BD_READ_FIXTURE=/tmp/project-beads-snapshot.jsonl scripts/bd-read.sh ready --json
-   BD_READ_FIXTURE=/tmp/project-beads-snapshot.jsonl scripts/bd-read.sh show <id> --json
+   BD_READ_FIXTURE=/tmp/project-beads-snapshot.jsonl bash scripts/bd-read.sh ready --json
+   BD_READ_FIXTURE=/tmp/project-beads-snapshot.jsonl bash scripts/bd-read.sh show <id> --json
    ```
 
    `BD_READ_FIXTURE` здесь — способ разбора полученного снимка, не проверка его свежести.
@@ -150,8 +174,8 @@ Tooling проходит обычный review/merge до исполнения �
 версию скрипта и libraries**; из PR извлекает только данные очереди, во временный файл:
 
 ```bash
-scripts/bd-apply-intents.sh --dry-run /tmp/reviewed-beads-queue.jsonl
-scripts/bd-apply-intents.sh /tmp/reviewed-beads-queue.jsonl
+bash scripts/bd-apply-intents.sh --dry-run /tmp/reviewed-beads-queue.jsonl
+bash scripts/bd-apply-intents.sh /tmp/reviewed-beads-queue.jsonl
 ```
 
 Предварительно сверить содержимое очереди с reviewed PR и свежесть основной базы. Не

@@ -29,9 +29,19 @@ Git/gh не является обязательным шагом для этог
 Inventory содержит reader/worktree/sync helpers, но пока не содержит applier/engine/queue.
 Для автоматического применения cloud-заявок подключить reviewed project tooling отдельным
 изменением по инструкции; до этого заявки pending. Не инициализировать облачную базу.
+Локальная worktree и агент основного checkout работают через `bash scripts/bd-wt.sh`: база
+выбирается по `dolt_mode` из `.beads/metadata.json` (embedded или dolt-сервер), проходит
+только allowlist подкоманд, флаги смены базы/каталога и чтения файла отклоняются; чтение
+`metadata.json` идёт через `.claude/tools/run-python.sh`. Скрипты `scripts/bd-*.sh`
+запускать через `bash`: прямой запуск файла без аргументов блокирует гейт коммита.
 При upgrade `AGENTS.md` и `.claude/rules/beads.md` сохраняются: явно сверить их Beads route
 с этой инструкцией в target PR. Наличие обновлённой инструкции не обновляет preserved
-project rules автоматически. Существующий applier и его project policy не перезаписывать.
+project rules автоматически: правила запуска `bash scripts/bd-*.sh` и класса локального
+окружения (allowlist, embedded/server) перенести в них вручную по diff reference-файлов
+между exact source SHA прежней и новой установки. Изменённые проектом managed
+`scripts/bd-wt.sh` и `scripts/lib/bd-env.sh` дают адресный conflict по каждому файлу, а не
+тихую перезапись; решение — в target PR. Существующий applier и его project policy не
+перезаписывать.
 
 ## Каталог Claude-сессии
 

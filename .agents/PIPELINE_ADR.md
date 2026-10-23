@@ -341,15 +341,23 @@ U2 dogfood и POSIX fixtures не объявляются OverGate Windows/live P
 **Операционные правила (важно — извлечено из U2 dogfood, PR #407):**
 
 - **Dolt — backend, не интерфейс.** Синхронизация задач между машинами — только через служебную
-  git-ветку `beads-backup` (`scripts/bd-sync-export.sh` / `scripts/bd-sync-restore.sh`), **НЕ**
+  git-ветку `beads-backup` (`bash scripts/bd-sync-export.sh` / `bash scripts/bd-sync-restore.sh`), **НЕ**
   `bd dolt push` / `bd dolt pull` — даже если upstream `bd prime` / `bd onboard` их предлагают
   (это upstream-дефолт, переопределённый правилом проекта). Решение (Dolt не операционный канал,
   `beads-backup` как source of truth) неизменно; команды `bd backup export-git` / `fetch-git`
   относились к более старой версии bd и в bd 1.0.2 отсутствуют — заменены helper-скриптами
   (`bd export` + ветка `beads-backup` + `bd import`).
 - **Прямой `bd` с auto-discovery — только из основного checkout.** Локальная worktree
-  использует `scripts/bd-wt.sh`: явный `--db` подключает её к той же живой основной базе.
-  Export/import остаются в основном checkout; второй сервер не запускается.
+  использует `bash scripts/bd-wt.sh`: явный `--db` подключает её к той же основной базе,
+  выбранной по `dolt_mode` из `.beads/metadata.json` (`embedded` → `.beads/embeddeddolt` без
+  сервера, `server` → `.beads/dolt` и живой dolt-сервер); неизвестный или отсутствующий режим —
+  fail-closed. Export/import остаются в основном checkout; второй сервер не запускается.
+- **Обёртка — точка входа агента с allowlist подкоманд во всех окружениях.** Прочие подкоманды,
+  флаги смены базы/каталога (`--db`, `-C`/`--directory`, `--global`, `--ignore-schema-skew`,
+  `--repo`), флаги чтения локального файла и непустые `BEADS_DIR`/`BEADS_DB` отклоняются до
+  запуска bd. Это защитный слой обёртки, не граница безопасности; allow-правила settings для
+  обёрток не поставляются. Скрипты `scripts/bd-*.sh` запускаются через `bash`: прямой запуск
+  файла без аргументов гейт коммита блокирует (задокументированное поведение гейта).
 - **Облачный агент без основной базы** читает снимок `beads-backup` и публикует pending-заявки
   `.bd-intents/` в PR. Применяет оператор trusted project applier; OverGate пока поставляет
   только reader/worktree/sync helpers. Авторизованный GitHub-коннектор достаточен для снимка

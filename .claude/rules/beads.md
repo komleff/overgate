@@ -18,9 +18,12 @@ Beads хранит задачи в локальном Dolt, **но Dolt — де
 
 - Source of truth для кросс-машинной синхронизации — **служебная ветка `origin/beads-backup`**,
   в ней JSONL-снапшот `.beads/issues.jsonl` (формат `bd export`).
-- Публикация: `scripts/bd-sync-export.sh` (экспорт → fast-forward-коммит снапшота в `beads-backup`
-  → push). Восстановление на другой машине: `scripts/bd-sync-restore.sh` (fetch ветки → `bd import`
+- Публикация: `bash scripts/bd-sync-export.sh` (экспорт → fast-forward-коммит снапшота в `beads-backup`
+  → push). Восстановление на другой машине: `bash scripts/bd-sync-restore.sh` (fetch ветки → `bd import`
   из `$TMPDIR`).
+- **Скрипты `scripts/bd-*.sh` запускать через `bash`.** Прямой запуск файла без аргументов
+  (`scripts/bd-sync-export.sh`) гейт коммита блокирует: имя на `sh` в позиции команды он считает
+  оболочкой, которая читает команды со стандартного ввода. Это задокументированное поведение гейта.
 - `bd dolt push` / `bd dolt pull` — **НЕ операционный путь синхронизации** (заблокированы deny-правилом
   в `.claude/settings.json`). `sync.remote` и Dolt-remote в этом репозитории отключены намеренно
   (`bd config` → `sync.remote` unset, `export.auto=false`).
@@ -37,7 +40,7 @@ Beads хранит задачи в локальном Dolt, **но Dolt — де
 
 - **last-seen guard** — export откажет, если `origin/beads-backup` продвинулся с момента
   последней синхронизации этого клона (другая машина опубликовала раньше). Сначала
-  `scripts/bd-sync-restore.sh`, потом повтори export.
+  `bash scripts/bd-sync-restore.sh`, потом повтори export.
 - **drop-guard** — export откажет, если на ветке есть задачи (issue-id), отсутствующие в
   локальном снапшоте (вторая линия защиты от перезаписи).
 - Override обоих (намеренная перезапись/удаление) — `BD_SYNC_FORCE=1`.
@@ -50,7 +53,7 @@ Beads хранит задачи в локальном Dolt, **но Dolt — де
 > SessionStart-хук, который авто-инжектит `bd prime`) могут рекомендовать `bd dolt push` /
 > `bd dolt pull` как путь синхронизации — это upstream-дефолт Beads. **В этом пайплайне он НЕ
 > применяется.** Это правило и `AGENTS.md` имеют приоритет над выводом `bd prime`: синхронизация
-> — только через ветку `beads-backup` (`scripts/bd-sync-export.sh` / `scripts/bd-sync-restore.sh`).
+> — только через ветку `beads-backup` (`bash scripts/bd-sync-export.sh` / `bash scripts/bd-sync-restore.sh`).
 
 ## Доступ определяется окружением
 
@@ -60,8 +63,8 @@ Beads хранит задачи в локальном Dolt, **но Dolt — де
 | Окружение | Чтение | Запись |
 |---|---|---|
 | Основной checkout оператора | `bd ready/show` | `bd create/update/close`; затем sync-export |
-| Локальная worktree с доступом к основной базе | `scripts/bd-wt.sh ready/show` | `scripts/bd-wt.sh <cmd>`; export из основного checkout |
-| Облачный агент без основной базы | `scripts/bd-read.sh` или снимок `beads-backup` через коннектор | `.bd-intents/<branch-slug>.jsonl` в PR; применяет оператор |
+| Локальная worktree с доступом к основной базе | `bash scripts/bd-wt.sh ready/show` | `bash scripts/bd-wt.sh <подкоманда из allowlist>`; export из основного checkout |
+| Облачный агент без основной базы | `bash scripts/bd-read.sh` или снимок `beads-backup` через коннектор | `.bd-intents/<branch-slug>.jsonl` в PR; применяет оператор |
 
 Обычный clone в облаке не является checkout оператора. Наличие `bd` не даёт доступа к его базе.
 OverGate поставляет reader/worktree/sync helpers; applier пока не входит в inventory.
@@ -80,11 +83,28 @@ Pending-заявка не означает выполненный claim/close. �
 - В **git-worktree** прямой `bd create/close/update/show` с auto-discovery может создать **новую пустую dolt-базу** →
   синхронизация рассыпается, видны 1-2 чужих issue или ничего. Возможен также lock-конфликт
   (см. troubleshooting).
-- bd-мутации выполнять из **основного checkout** либо через `scripts/bd-wt.sh` из локальной worktree.
-  Обёртка подключается к той же живой базе через явный `--db`; второй сервер не создаётся.
-  `export/import/dolt` и пользовательский `--db` через обёртку запрещены.
+- bd-мутации выполнять из **основного checkout** либо через `bash scripts/bd-wt.sh` из локальной
+  worktree. Обёртка подключается к той же основной базе через явный `--db`; второй сервер не создаётся.
+- Базу выбирает `dolt_mode` из `<основной checkout>/.beads/metadata.json`: `embedded` →
+  `.beads/embeddeddolt` (без сервера), `server` → `.beads/dolt` и живой dolt-сервер основного
+  checkout. Нет/невалиден `metadata.json`, пуст или неизвестен `dolt_mode`, нет каталога базы или
+  исправного Python — отказ до запуска bd с путём и причиной. Восстановить режим — решение
+  оператора; `.beads/**` руками не править.
+- В любом окружении (и в основном checkout) обёртка пропускает только allowlist подкоманд:
+  `ready show list search blocked children create q update close reopen dep comment comments
+  note label`. Прочее (`delete`, `config`, `sql`, `export`, `import`, `dolt` и т.д.), пустая
+  подкоманда и неизвестный глобальный флаг до подкоманды → отказ кодом 2 до запуска bd.
+- `--db`, `-C`/`--directory`, `--global`, `--ignore-schema-skew`, `--repo` и флаги чтения
+  локального файла (`--body-file`, `--design-file`, `--reason-file`, `--file`, `--graph`, `-f`,
+  `--metadata @файл`) отклоняются в любой позиции, как и непустые `BEADS_DIR`/`BEADS_DB`.
+  Значение аргумента, равное такому флагу (`--title -C`), тоже отказ — осознанный fail-closed.
+  Длинный текст — через `--stdin` или `--description`.
+- Allowlist — защитный слой обёртки, не граница безопасности: прямой `bd` доступен в рамках
+  прав сессии, и канон выше остаётся обязательным.
+- Ограничение embedded Dolt: один писатель за раз. Одновременные команды из основного checkout и
+  worktree могут завершиться ошибкой блокировки — повторить позже, базу не трогать.
 - Если основной сервер недоступен — передать заявку оператору; либо цикл из основного checkout:
-  `scripts/bd-sync-restore.sh` → `bd <cmd>` → `scripts/bd-sync-export.sh`.
+  `bash scripts/bd-sync-restore.sh` → `bd <cmd>` → `bash scripts/bd-sync-export.sh`.
 
 ## Базовый цикл работы с задачами
 
@@ -96,7 +116,7 @@ bd close <id>            # завершить
 bd prime                 # справочник команд (см. override выше про sync-команды)
 ```
 
-Для основного checkout завершение с изменениями: `scripts/bd-sync-export.sh` →
+Для основного checkout завершение с изменениями: `bash scripts/bd-sync-export.sh` →
 `git pull --rebase` → `git push` рабочей ветки. Worktree передаёт публикацию основному checkout;
 облачный агент коммитит заявки в PR и сообщает pending-состояние.
 
@@ -120,11 +140,11 @@ kill -9 <pid> ...                          # убить все orphan dolt sql-s
 
 - Работать с задачами через Dolt напрямую: `bd dolt push/pull`, ручной запуск dolt-сервера,
   правка `.beads/dolt/**`.
-- Запускать прямой `bd` с auto-discovery из git-worktree; использовать `scripts/bd-wt.sh`.
+- Запускать прямой `bd` с auto-discovery из git-worktree; использовать `bash scripts/bd-wt.sh`.
 - Создавать отдельную облачную базу или публиковать снимок в `beads-backup` из облака.
 - Исполнять applier/libraries из недоверенной PR-ветки или считать pending-заявки применёнными.
 - Считать локальный `.beads/issues.jsonl` источником истины. В этом репозитории auto-export
   отключён (`export.auto=false`), файл в рабочем дереве `main` не появляется и в git не трекается;
   полный набор задач — снапшот `.beads/issues.jsonl` в ветке `beads-backup`. Снапшот руками не
-  редактировать — публиковать только через `scripts/bd-sync-export.sh`.
+  редактировать — публиковать только через `bash scripts/bd-sync-export.sh`.
 - Подменять `bd` на TodoWrite/markdown-TODO для трекинга задач проекта.
