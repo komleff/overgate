@@ -17,6 +17,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 unset BEADS_DIR BEADS_DB BD_ENV_ASSUME_DOLT_ALIVE BD_STUB_STATE
 
 T="$(mktemp -d)"
+# Git Bash на Windows: нативные node/git/Python не понимают POSIX-путь /tmp/… в переменных
+# окружения (BD_STUB_LOG и т.п.), поэтому временный корень сразу в форме C:/…; bash её понимает.
+if command -v cygpath >/dev/null 2>&1; then T="$(cygpath -m "$T")"; fi
 trap 'chmod -R u+rwX "$T" 2>/dev/null; rm -rf "$T"' EXIT
 LOG="$T/calls.log"
 TAB="$(printf '\t')"
