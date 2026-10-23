@@ -1,7 +1,7 @@
 ---
 title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
-version: "4.0.0-rc.1"
+version: "4.0.0-rc.2"
 date: 2026-10-03
 tags: [installation, upgrade, rollback, delivery-first]
 ---
@@ -29,9 +29,19 @@ Git/gh не является обязательным шагом для этог
 Inventory содержит reader/worktree/sync helpers, но пока не содержит applier/engine/queue.
 Для автоматического применения cloud-заявок подключить reviewed project tooling отдельным
 изменением по инструкции; до этого заявки pending. Не инициализировать облачную базу.
+Локальная worktree и агент основного checkout работают через `bash scripts/bd-wt.sh`: база
+выбирается по `dolt_mode` из `.beads/metadata.json` (embedded или dolt-сервер), проходит
+только allowlist подкоманд, флаги смены базы/каталога и чтения файла отклоняются; чтение
+`metadata.json` идёт через `.claude/tools/run-python.sh`. Скрипты `scripts/bd-*.sh`
+запускать через `bash`: прямой запуск файла без аргументов блокирует гейт коммита.
 При upgrade `AGENTS.md` и `.claude/rules/beads.md` сохраняются: явно сверить их Beads route
 с этой инструкцией в target PR. Наличие обновлённой инструкции не обновляет preserved
-project rules автоматически. Существующий applier и его project policy не перезаписывать.
+project rules автоматически: правила запуска `bash scripts/bd-*.sh` и класса локального
+окружения (allowlist, embedded/server) перенести в них вручную по diff reference-файлов
+между exact source SHA прежней и новой установки. Изменённые проектом managed
+`scripts/bd-wt.sh` и `scripts/lib/bd-env.sh` дают адресный conflict по каждому файлу, а не
+тихую перезапись; решение — в target PR. Существующий applier и его project policy не
+перезаписывать.
 
 ## Каталог Claude-сессии
 
@@ -50,16 +60,16 @@ root файл через `--settings <ROOT>/.claude/settings.json`, разреш
 runtime может принять `cd`, затем вернуть cwd в стартовый подкаталог; это не успешное
 восстановление. Такой startup проверяется отдельно от автоматического root startup.
 Семантика загрузки: [Claude settings](https://code.claude.com/docs/en/settings) и
-[CLI options](https://code.claude.com/docs/en/cli-reference). В rc.1 допускается только одна unquoted команда
+[CLI options](https://code.claude.com/docs/en/cli-reference). Допускается только одна unquoted команда
 `cd <absolute-checkout-path>`; допустимые символы пути — латиница, цифры, `_ : / . -`.
 Пробелы, кириллица, скобки и кавычки в этой форме не поддерживаются. Для такого пути
 завершите сессию и откройте новую непосредственно в корне checkout через интерфейс
 runtime/терминала. Root-запуск не зависит от `CLAUDE_PROJECT_DIR`, даже если переменная
 указывает на соседний checkout. Исправление recovery paths и внутренних U2-префиксов
-отложено в `og-7sr`; rc.1 сохраняет исходную семантику U2 #829.
+отложено в `og-7sr`; до него сохраняется исходная семантика source dispatcher, принятая в rc.1.
 
 Вне любого Git-репозитория Bash-команда блокируется кодом 2, но recovery hint остаётся
-заглушкой `cd <корень репозитория>`. Оператор принял это как `DECLARED_LIMIT` rc.1:
+заглушкой `cd <корень репозитория>`. Оператор принял это как `DECLARED_LIMIT` (с rc.1, действует и в rc.2):
 завершите сессию и откройте новую из root нужного checkout. Literal-подсказка вне Git
 отложена в `og-7sr`; для собственного подкаталога literal absolute recovery по-прежнему
 обязательна. Не записывайте outside-Git placeholder как успешное восстановление.

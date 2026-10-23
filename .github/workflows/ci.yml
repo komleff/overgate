@@ -48,3 +48,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/tests/install-distribution.test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native Git Bash Beads wrapper (embedded/server on stub bd, project launcher)
+        shell: pwsh
+        run: |
+          node --version
+          & 'C:/Program Files/Git/bin/bash.exe' scripts/tests/bd-wt.test.sh
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -3,9 +3,9 @@
 # Для облачного контейнера (нет bd) и для быстрого чтения из worktree. правила проекта .claude/rules/beads.md.
 #
 # Usage:
-#   scripts/bd-read.sh list  [--status S] [--priority N] [--assignee A] [--type T] [--json]
-#   scripts/bd-read.sh show  <id> [--json]
-#   scripts/bd-read.sh ready [--json]
+#   bash scripts/bd-read.sh list  [--status S] [--priority N] [--assignee A] [--type T] [--json]
+#   bash scripts/bd-read.sh show  <id> [--json]
+#   bash scripts/bd-read.sh ready [--json]
 #
 # Env:
 #   BD_READ_REF=origin/beads-backup   ref снимка (по умолчанию); авто-fetch только для него,

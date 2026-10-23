@@ -13,7 +13,7 @@ PM/Planner/Developer не выбирают missing WHAT. Ready source → PASS_T
 Личные runtime overrides и project context принадлежат проекту.
 
 Beads: основной checkout использует `bd` и sync helpers; локальная worktree —
-`scripts/bd-wt.sh` с живой основной базой; облачный агент — снимок `beads-backup` и
+`bash scripts/bd-wt.sh` с основной базой (embedded или dolt-сервер); облачный агент — снимок `beads-backup` и
 pending-заявки `.bd-intents/` в PR. Порядок и граница поставки applier:
 `.agents/HOW_TO_USE.md`, секция Beads; project owner — `.claude/rules/beads.md`.
 Авторизованный GitHub-коннектор не требует отдельного login Git CLI. Не создавать

@@ -16,6 +16,9 @@ Frozen source: [U2 c450fa7b0d90fecf970f9931011255ea836da258](https://github.com/
 [File-level manifest](../docs/baselines/2026-10-01-delivery-first-provenance.json) фиксирует source path/blob,
 target и адаптацию; новые integration files отмечены отдельно. Все шесть source skills
 классифицированы: пять generic перенесены, Almanac остаётся project adapter.
+rc.2 carry-over (секция `rc2_carry_over` того же manifest): U2
+`4a7354ea766854cca3fa1cbb2d15f1044522ff55` и установленный rc.1-проект U2 Lab
+`5586b43356841b8e0b0156dc129bf31e5a436224`, в обезличенном виде.
 
 Superpowers (Jesse Vincent / Prime Radiant), GSD, Spec-Kit, BMAD, OpenSpec и статьи ниже —
 inspiration/context. Их наличие в credits не означает copying кода или объединение лицензий.

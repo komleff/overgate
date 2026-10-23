@@ -1,6 +1,16 @@
 # Active Context
 
-Текущий фокус: v4.0.0-rc.1 Delivery First candidate, ветка `codex/delivery-first-rc`, PR #7.
+Текущий фокус: v4.0.0-rc.2 (`og-rdc`), Draft PR #10, ветка `chore/u2-pipeline-sync`, база `main`
+`511023e`. План `docs/plans/2026-10-23-v4.0.0-rc.2.md` v0.2, режим CRITICAL, budget 6.
+Решение оператора 2026-10-23: rc.2 — prerelease, `make_latest=false`; stable `v3.9.0` остаётся Latest.
+Перенос: U2 `4a7354ea7` (#862 страж bash 3.2, #859 `bash scripts/...`) и U2 Lab `5586b43` (#30
+`bd-wt.sh` embedded/server + allowlist), обезличенно. `--global` в обёртке теперь отказ (Changed).
+Allow-правила settings для обёрток не переносятся; applier не поставляется; `og-7sr` отложен.
+Штатной команды bd 1.2.x для восстановления `dolt_mode` нет — отказ отсылает к оператору.
+
+## rc.1 (история)
+
+Фокус rc.1: v4.0.0-rc.1 Delivery First candidate, ветка `codex/delivery-first-rc`, PR #7.
 Approved refresh: `docs/plans/2026-10-03-delivery-first-rc-refresh.md` и portability amendment.
 Frozen U2 source: `c450fa7b0d90fecf970f9931011255ea836da258`; старый source contract
 `fb8ebfa5` и bound reports сохранены как history. Independent PLAN_READY 3/6 + 4/6 получены;

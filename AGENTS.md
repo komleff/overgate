@@ -1,7 +1,7 @@
 ---
 title: "OverGate — agent bootstrap"
 status: primary
-version: "4.0.0-rc.1"
+version: "4.0.0-rc.2"
 date: 2026-10-01
 tags: [agents, bootstrap, delivery-first]
 ---
@@ -29,7 +29,7 @@ Reference проверяется `bash scripts/verify-reference.sh`; устан�
 
 Beads — task state; Git/PR — code/evidence. `bd --help`, `.claude/rules/beads.md`, штатные
 `scripts/bd-sync-*` определяют текущий route. Не писать Dolt напрямую, не mutating bd из
-worktree с auto-discovery; локальная worktree пишет через `scripts/bd-wt.sh` в основную базу.
+worktree с auto-discovery; локальная worktree пишет через `bash scripts/bd-wt.sh` в основную базу.
 Не считать local `.beads/issues.jsonl` авторитетным. Triage lookup использует
 `scripts/bd-wt.sh` / `scripts/bd-read.sh` и frozen snapshot `origin/beads-backup` текущего проекта.
 Не откатывать Beads/Memory Bank вслепую. Личный runtime state не коммитится.
