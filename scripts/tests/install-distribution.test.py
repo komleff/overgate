@@ -22,6 +22,8 @@ RC1_SHA = '633937250fa8f47b49f928c1d8781ab17fe8c8e3'
 RC2_SHA = '073595ae6fb51c16fa49576acca40d94d068af83'
 PR_URL = 'https://github.com/example/project/pull/1'
 GITIGNORE_HEADER = b'# OverGate personal state (managed fragment)'
+# NTFS не хранит POSIX execute bits (как в reference-closure): mode сверяется только вне Windows.
+POSIX_MODES = os.name != 'nt'
 sys.path.insert(0,str(ROOT/'scripts/tests/lib'))
 from claude_hooks import native_bash
 BASH=native_bash()
@@ -225,8 +227,8 @@ class InstallTests(unittest.TestCase):
             policy=entry.get('policy','managed');p=self.target/entry['target']
             if policy in {'managed','settings'}:
                 self.assertEqual(p.read_bytes(),self.source_blob(entry['source']),entry['target'])
-                # Windows не хранит POSIX execute bit: там сравниваются только байты.
-                if sys.platform!='win32':
+                # NTFS не хранит POSIX execute bit: там сравниваются только байты.
+                if POSIX_MODES:
                     self.assertEqual(p.stat().st_mode & 0o777,self.source_mode(entry['source']),entry['target'])
             elif policy=='preserve':
                 expected=preserved[entry['target']] if preserved and entry['target'] in preserved else self.source_blob(entry['source'])
@@ -238,7 +240,10 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(plan['conflicts'],[])
         for op in plan['operations']:
             self.assertNotEqual(op['target'],'.overgate/install-state.json')
-            self.assertEqual(op['before'],op['after'],op['target'])
+            if POSIX_MODES:self.assertEqual(op['before'],op['after'],op['target'])
+            # NTFS отдаёт st_mode 0o666 для любого обычного файла, mode source там не представим:
+            # сравнивается только sha256; на POSIX — sha256 и mode.
+            else:self.assertEqual(op['before']['sha256'],op['after']['sha256'],op['target'])
 
     def rollback_to(self,before):
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
