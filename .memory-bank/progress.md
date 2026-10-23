@@ -1,6 +1,14 @@
 # Progress
 
-В работе: v4.0.0-rc.2 (`og-rdc`), Draft PR #10, ветка `chore/u2-pipeline-sync`, план
+В работе: v4.0.0-rc.3 (`og-7d1`), Draft PR #11, ветка `fix/installer-conformance`, план
+`docs/plans/2026-10-24-v4.0.0-rc.3.md` v0.3 (PLAN_READY). Реализованы шаги 1–4: RED-тесты §4,
+C1–C3 в `scripts/install-overgate.py`, INSTALL/версия/CHANGELOG, AC-09 на офлайн-клоне u2-lab.
+Pending: QA, Code Review, CI `verify-reference`/`windows-native`, finalize, operator merge,
+затем тег `v4.0.0-rc.3` и prerelease (шаг 5), Latest = `v3.9.0`.
+
+## rc.2 (история)
+
+Сделано в rc.2: v4.0.0-rc.2 (`og-rdc`), Draft PR #10, ветка `chore/u2-pipeline-sync`, план
 `docs/plans/2026-10-23-v4.0.0-rc.2.md` v0.2 (PLAN_READY). Реализованы шаги 1–7: страж bash 3.2,
 `bd-wt.sh` embedded/server + allowlist, тесты обёртки, `bash scripts/...` в предписаниях,
 upgrade-фикстура rc.1 → rc.2, Windows Git Bash шаг CI, версия/CHANGELOG/provenance.
