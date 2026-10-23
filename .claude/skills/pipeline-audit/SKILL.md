@@ -19,4 +19,4 @@ mutation/readiness/commit guards + launcher/timeout helpers. Installed custom Ba
 Проверь apply order helpers/guards/dispatcher до settings и обратный rollback order;
 missing dependency в staged manifest обязана блокировать до записи. Native Windows использует
 Python + настоящий Git Bash; WSL и U2 smoke не заменяют installed platform evidence.
-Recovery limits rc.1 перечислены в `.agents/INSTALL.md`; не объявляй произвольный path support.
+Recovery limits перечислены в `.agents/INSTALL.md`; не объявляй произвольный path support.

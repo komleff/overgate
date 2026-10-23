@@ -1,7 +1,7 @@
 ---
 title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
-version: "4.0.0-rc.1"
+version: "4.0.0-rc.2"
 date: 2026-10-03
 tags: [installation, upgrade, rollback, delivery-first]
 ---
@@ -60,16 +60,16 @@ root файл через `--settings <ROOT>/.claude/settings.json`, разреш
 runtime может принять `cd`, затем вернуть cwd в стартовый подкаталог; это не успешное
 восстановление. Такой startup проверяется отдельно от автоматического root startup.
 Семантика загрузки: [Claude settings](https://code.claude.com/docs/en/settings) и
-[CLI options](https://code.claude.com/docs/en/cli-reference). В rc.1 допускается только одна unquoted команда
+[CLI options](https://code.claude.com/docs/en/cli-reference). Допускается только одна unquoted команда
 `cd <absolute-checkout-path>`; допустимые символы пути — латиница, цифры, `_ : / . -`.
 Пробелы, кириллица, скобки и кавычки в этой форме не поддерживаются. Для такого пути
 завершите сессию и откройте новую непосредственно в корне checkout через интерфейс
 runtime/терминала. Root-запуск не зависит от `CLAUDE_PROJECT_DIR`, даже если переменная
 указывает на соседний checkout. Исправление recovery paths и внутренних U2-префиксов
-отложено в `og-7sr`; rc.1 сохраняет исходную семантику U2 #829.
+отложено в `og-7sr`; до него сохраняется исходная семантика source dispatcher, принятая в rc.1.
 
 Вне любого Git-репозитория Bash-команда блокируется кодом 2, но recovery hint остаётся
-заглушкой `cd <корень репозитория>`. Оператор принял это как `DECLARED_LIMIT` rc.1:
+заглушкой `cd <корень репозитория>`. Оператор принял это как `DECLARED_LIMIT` (с rc.1, действует и в rc.2):
 завершите сессию и откройте новую из root нужного checkout. Literal-подсказка вне Git
 отложена в `og-7sr`; для собственного подкаталога literal absolute recovery по-прежнему
 обязательна. Не записывайте outside-Git placeholder как успешное восстановление.

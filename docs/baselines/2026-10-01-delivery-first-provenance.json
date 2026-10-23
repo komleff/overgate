@@ -1235,5 +1235,105 @@
       "source_path": "scripts/tests/run-all.sh",
       "decision": "U2 suite excluded; generic verify-reference explicitly registers native dispatcher"
     }
-  ]
+  ],
+  "rc2_carry_over": {
+    "version": "4.0.0-rc.2",
+    "contract": "docs/plans/2026-10-23-v4.0.0-rc.2.md",
+    "base": "633937250fa8f47b49f928c1d8781ab17fe8c8e3",
+    "sources": [
+      {
+        "source_repository": "https://github.com/komleff/u2",
+        "source_commit": "4a7354ea766854cca3fa1cbb2d15f1044522ff55",
+        "delta_from": "c450fa7b0d90fecf970f9931011255ea836da258",
+        "transferred": "#862 bash 3.2 non-ASCII expansion guard; #859 bash prescriptions for scripts/bd-*.sh",
+        "excluded": "PM_ROLE 3.1 PM_ERR self-check, PM_ERR.md/DOC_PR.md, pipeline-audit/run-all inventory, commit-gate-timeout and meta-package tests, applier engine message, open #861, product surfaces"
+      },
+      {
+        "source_repository": "https://github.com/komleff/u2-lab",
+        "source_commit": "5586b43356841b8e0b0156dc129bf31e5a436224",
+        "delta_from": "633937250fa8f47b49f928c1d8781ab17fe8c8e3",
+        "transferred": "#30 bd-wt.sh embedded/server and subcommand allowlist; bd-env.sh bd_env_resolve_main_db; wrapper/bd-env tests",
+        "excluded": "settings allow rules for wrappers, applier (bd-apply-intents.sh) step and its tests, project drift record"
+      }
+    ],
+    "files": [
+      {
+        "target": "scripts/tests/shell-nonascii-expansion.test.py",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2",
+        "source_commit": "4a7354ea766854cca3fa1cbb2d15f1044522ff55",
+        "source_path": "scripts/tests/shell-nonascii-expansion.test.py",
+        "source_blob": "d77047172022b165a14b70da46f92396283d296b",
+        "adaptation": "Anchors .claude/hooks/pre-bash.sh and scripts/verify-reference.sh; .codex hook commands asserted; source task/PR references replaced by neutral class description; registered in verify-reference."
+      },
+      {
+        "target": "scripts/bd-wt.sh",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2-lab",
+        "source_commit": "5586b43356841b8e0b0156dc129bf31e5a436224",
+        "source_path": "scripts/bd-wt.sh",
+        "source_blob": "0f1c42a1ead4c85d077dbb1765fd54ceafe52a43",
+        "adaptation": "Project-specific adaptation and settings allow-rule rationale removed; references .claude/rules/beads.md and PIPELINE_ADR §3.7; refusal messages prescribe bash scripts/...; allowlist stated as wrapper layer, not a security boundary."
+      },
+      {
+        "target": "scripts/lib/bd-env.sh",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2-lab",
+        "source_commit": "5586b43356841b8e0b0156dc129bf31e5a436224",
+        "source_path": "scripts/lib/bd-env.sh",
+        "source_blob": "987a904dcf5d24afe0544866676f26ed95246543",
+        "adaptation": "metadata.json read through the project launcher .claude/tools/run-python.sh via stdin instead of direct python3 (Windows portability); launcher failure reported as missing Python; operator escalation instead of a bd repair command (none in bd 1.2.x); prior functions unchanged; bd-wt hint prescribes bash."
+      },
+      {
+        "target": "scripts/tests/bd-wt.test.sh",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2-lab",
+        "source_commit": "5586b43356841b8e0b0156dc129bf31e5a436224",
+        "source_path": "scripts/tests/test-bd-local-access.mjs",
+        "source_blob": "4b682d3e81fc9e78080bedaf42fe8035795d58aa",
+        "adaptation": "Wrapper and bd-env cases ported to the existing shell harness on bd-stub.mjs; rc.1 cases kept (server metadata, neutral IDs); --global refusal as explicit changed case; both invocation forms; project launcher cases; applier, settings and drift cases excluded; Windows-native path form."
+      },
+      {
+        "target": ".claude/rules/beads.md",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2",
+        "source_commit": "4a7354ea766854cca3fa1cbb2d15f1044522ff55",
+        "source_path": ".claude/rules/beads.md",
+        "source_blob": "4c7d80f495d5bf54ba61b605f92884896507f738",
+        "adaptation": "Bash prescriptions and gate behaviour note from #859 without redesign task reference; local environment class (allowlist, embedded/server, embedded lock limit) adapted from u2-lab .claude/rules/beads.md blob da8c34600a3bbfb43eb5659df3f5d0af550c01c7 without project-specific canon."
+      },
+      {
+        "target": ".claude/skills/finalize-pr/SKILL.md",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2",
+        "source_commit": "4a7354ea766854cca3fa1cbb2d15f1044522ff55",
+        "source_path": ".claude/skills/finalize-pr/SKILL.md",
+        "source_blob": "0abdf2fd08a7f2c0cd190bdf222c8c64ba65a4e7",
+        "adaptation": "Bash prescription in snapshot message; wrapper environment message covers embedded mode."
+      },
+      {
+        "target": "scripts/bd-sync-export.sh",
+        "classification": "transferred/adapted",
+        "source_repository": "https://github.com/komleff/u2",
+        "source_commit": "4a7354ea766854cca3fa1cbb2d15f1044522ff55",
+        "source_path": "scripts/bd-sync-export.sh",
+        "source_blob": "58255553686cb96002ef47bbc11c06fbc9ae6d2f",
+        "adaptation": "Only the bash prescription in refusal messages is transferred onto the OverGate helper."
+      },
+      {
+        "target": "scripts/tests/install-distribution.test.py",
+        "classification": "original integration",
+        "source_path": null,
+        "source_blob": null,
+        "adaptation": "Upgrade fixture from exact v4.0.0-rc.1 install: clean upgrade, per-file conflict for project-modified bd-wt.sh/bd-env.sh, byte rollback."
+      },
+      {
+        "target": ".github/workflows/ci.yml",
+        "classification": "original integration",
+        "source_path": null,
+        "source_blob": null,
+        "adaptation": "windows-native Git Bash step for scripts/tests/bd-wt.test.sh."
+      }
+    ]
+  }
 }

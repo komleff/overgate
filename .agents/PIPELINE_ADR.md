@@ -1,7 +1,7 @@
 ---
 title: "Pipeline ADRs"
 status: decision
-version: "4.0.0-rc.1"
+version: "4.0.0-rc.2"
 date: 2026-05-05
 source: "github.com/komleff/overgate/.agents/PIPELINE_ADR.md"
 tags: [pipeline, adr, decisions, history]
@@ -235,7 +235,7 @@ Skill не добавляет stage/verifier и не расширяет budget. 
 
 Вне root, включая subdirectory/package монорепо, разрешена только одна unquoted absolute
 `cd` в checkout с dispatcher. Допустимые символы пути: латиница/цифры/`_ : / . -`.
-Пробелы, кириллица, скобки и кавычки не входят в recovery форму rc.1; новый root session
+Пробелы, кириллица, скобки и кавычки не входят в recovery форму (rc.1 и rc.2); новый root session
 — документированный выход. Allowlist чтения и поиск dispatcher по `CLAUDE_PROJECT_DIR`
 не возвращаются. Recovery redesign и косметическая нормализация внутренних prefixes — `og-7sr`.
 Codex не мигрирует на dispatcher в этой линии; проверяется existing adapter closure.

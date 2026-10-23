@@ -1,5 +1,14 @@
 # Progress
 
+В работе: v4.0.0-rc.2 (`og-rdc`), Draft PR #10, ветка `chore/u2-pipeline-sync`, план
+`docs/plans/2026-10-23-v4.0.0-rc.2.md` v0.2 (PLAN_READY). Реализованы шаги 1–7: страж bash 3.2,
+`bd-wt.sh` embedded/server + allowlist, тесты обёртки, `bash scripts/...` в предписаниях,
+upgrade-фикстура rc.1 → rc.2, Windows Git Bash шаг CI, версия/CHANGELOG/provenance.
+Pending: QA, Code Review, finalize, operator merge, затем тег/prerelease (шаг 8). Windows CI
+результат подтверждается только фактическим прогоном GitHub Actions.
+
+## rc.1 (история)
+
 В работе: PR #7 / `og-uw7`, approved refresh frozen source `c450fa7b`.
 Generic шесть owners и пять skills сохранены; добавлен Claude dispatcher и точные previous-RC
 managed identities, native Windows CI, real installed project verifier/budget fixtures.

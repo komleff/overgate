@@ -1,7 +1,7 @@
 ---
 title: "OverGate — agent bootstrap"
 status: primary
-version: "4.0.0-rc.1"
+version: "4.0.0-rc.2"
 date: 2026-10-01
 tags: [agents, bootstrap, delivery-first]
 ---
