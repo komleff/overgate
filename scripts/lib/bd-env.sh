@@ -34,7 +34,7 @@ bd_env_assert_main_checkout() {
   if ! bd_env_is_main_checkout; then
     echo "ERROR: ${who} должна запускаться из основного checkout, не из git-worktree." >&2
     echo "       В worktree прямой bd с auto-discovery создаёт пустую базу и рвёт синхронизацию." >&2
-    echo "       Для чтения/записи из worktree используйте scripts/bd-wt.sh (явный --db)." >&2
+    echo "       Для чтения/записи из worktree используйте bash scripts/bd-wt.sh (явный --db)." >&2
     echo "       Канон — .claude/rules/beads.md и правила проекта .claude/rules/beads.md." >&2
     return 1
   fi
@@ -82,6 +82,90 @@ bd_env_dolt_alive() {
   # Порт реально слушается (если lsof доступен — иначе довольствуемся pid-проверкой).
   if command -v lsof >/dev/null 2>&1; then
     lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || return 1
+  fi
+  return 0
+}
+
+# Основная база по режиму из <root>/.beads/metadata.json: embedded Dolt (.beads/embeddeddolt,
+# без сервера) или dolt-сервер (.beads/dolt). Решает только dolt_mode: наличие обоих каталогов
+# на выбор не влияет. Аргумент $1 — корень основного checkout. При успехе выставляет
+# BD_ENV_DB_MODE (embedded|server) и BD_ENV_DB_PATH и возвращает 0. Коды отказа:
+#   1 — fail-closed: нет/нечитаем/невалиден metadata.json, dolt_mode пуст или неизвестен,
+#       нет каталога базы, не запустился Python (ошибка с путём — в stderr);
+#   3 — режим server, путь определён, но живого dolt-сервера нет; сообщение печатает
+#       вызывающий.
+# Вызывать как `bd_env_resolve_main_db "$root" || rc=$?`, не в $(…): переменные нужны вызывающему.
+# Прежние bd_env_main_db / bd_env_dolt_alive не меняются: на них опираются другие потребители.
+bd_env_resolve_main_db() {
+  local root="${1:-}" meta mode db launcher operator_hint rc=0
+  BD_ENV_DB_MODE=""
+  BD_ENV_DB_PATH=""
+  if [ -z "$root" ]; then
+    echo "ERROR: не удалось определить корень основного checkout (git worktree list)." >&2
+    return 1
+  fi
+  meta="${root}/.beads/metadata.json"
+  # Штатной команды bd, восстанавливающей dolt_mode, нет, а ручная правка .beads запрещена
+  # каноном — поэтому шаг восстановления один: остановиться и передать решение оператору.
+  operator_hint="       Остановитесь и обратитесь к оператору; .beads/** руками не правьте (.claude/rules/beads.md)."
+  if [ ! -f "$meta" ]; then
+    echo "ERROR: не найден файл режима базы Beads: ${meta} (fail-closed)." >&2
+    echo "$operator_hint" >&2
+    return 1
+  fi
+  # Python — только через переносимый launcher проекта: прямой python3 на Windows может
+  # оказаться заглушкой Store. Launcher лежит в том же дереве, что и эта библиотека.
+  launcher="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.claude/tools/run-python.sh"
+  if [ ! -x "$launcher" ]; then
+    echo "ERROR: нужен Python 3, чтобы прочитать ${meta}: launcher ${launcher} отсутствует или не исполним (fail-closed)." >&2
+    return 1
+  fi
+  # Файл подаётся на stdin: путь не проходит преобразование путей Git Bash для нативного
+  # Python, а отказ чтения файла остаётся кодом 1. -I — без модулей из cwd.
+  # Коды Python: 1 — не читается / не JSON-объект, 2 — dolt_mode нет или не непустая строка,
+  # 3 — неизвестное значение; 126/127 — launcher не нашёл исправный Python.
+  mode="$("$launcher" -I -c '
+import json, sys
+try:
+    data = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+except (OSError, ValueError):
+    sys.exit(1)
+if not isinstance(data, dict):
+    sys.exit(1)
+mode = data.get("dolt_mode")
+if not isinstance(mode, str) or not mode:
+    sys.exit(2)
+if mode not in ("embedded", "server"):
+    sys.exit(3)
+sys.stdout.write(mode)
+' 2>/dev/null <"$meta")" || rc=$?
+  case "$rc" in
+    0) ;;
+    2) echo "ERROR: dolt_mode отсутствует или пуст в ${meta} — режим базы не определён (fail-closed)." >&2
+       echo "$operator_hint" >&2
+       return 1 ;;
+    3) echo "ERROR: неизвестный dolt_mode в ${meta} — ожидается embedded или server (fail-closed)." >&2
+       echo "$operator_hint" >&2
+       return 1 ;;
+    126|127) echo "ERROR: нужен Python 3, чтобы прочитать ${meta}: launcher ${launcher} не нашёл исправный Python (fail-closed)." >&2
+       return 1 ;;
+    *) echo "ERROR: ${meta} не читается или не является JSON-объектом (fail-closed)." >&2
+       echo "$operator_hint" >&2
+       return 1 ;;
+  esac
+  case "$mode" in
+    embedded) db="${root}/.beads/embeddeddolt" ;;
+    *) db="${root}/.beads/dolt" ;;
+  esac
+  if [ ! -d "$db" ]; then
+    echo "ERROR: основная база Beads не найдена: ${db}" >&2
+    echo "       dolt_mode ${mode} в ${meta} требует этот каталог (fail-closed)." >&2
+    return 1
+  fi
+  BD_ENV_DB_MODE="$mode"
+  BD_ENV_DB_PATH="$db"
+  if [ "$mode" = "server" ] && ! bd_env_dolt_alive "$root"; then
+    return 3
   fi
   return 0
 }
