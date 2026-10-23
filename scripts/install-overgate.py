@@ -19,7 +19,12 @@ STATE = '.overgate/install-state.json'
 class InstallError(Exception): pass
 
 def digest(data): return hashlib.sha256(data).hexdigest()
+# Формат плана, журнала и install-state не меняется: для них остаётся sort_keys.
 def json_bytes(value): return (json.dumps(value,ensure_ascii=False,indent=2,sort_keys=True)+'\n').encode()
+# Правило 3 записи settings: порядок ключей target, новые ключи в конце, без sort_keys.
+def settings_bytes(value): return (json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
+# «Равно по смыслу»: канонический JSON строг к типам (true, 1 и 1.0 различаются), в отличие от ==.
+def canonical(value): return json.dumps(value,sort_keys=True,ensure_ascii=False)
 def git(root,*args):
     run=subprocess.run(['git','-C',str(root),*args],capture_output=True)
     if run.returncode: raise InstallError('git failed: '+ ' '.join(args[:2]))
@@ -85,7 +90,7 @@ def load_manifest(source,sha):
 
 def merge_settings(existing,new,legacy,previous_rc=None):
     if existing is None:return new
-    try:before=json.loads(existing);after=json.loads(new)
+    try:before=json.loads(existing);original=json.loads(existing);after=json.loads(new)
     except ValueError as e:raise InstallError('conflict: runtime settings must be valid JSON') from e
     old_entries=legacy.get('hooks',{}).get('PreToolUse',[])+(previous_rc or {}).get('hooks',{}).get('PreToolUse',[])
     managed_names=('pre-bash.sh','check-repository-mutation.py','check-tests-before-commit.sh','check-merge-ready.py')
@@ -98,10 +103,50 @@ def merge_settings(existing,new,legacy,previous_rc=None):
     before.setdefault('hooks',{})['PreToolUse']=kept+after['hooks']['PreToolUse']
     # Env, SessionStart, project permissions и прочие overrides остаются; required deny дополняет их.
     for field in ('deny',):
+        # permissions и его поля создаются, только если они есть в source: Codex adapter их не имеет.
+        if field not in after.get('permissions',{}):continue
         values=before.setdefault('permissions',{}).setdefault(field,[])
-        for value in after.get('permissions',{}).get(field,[]):
+        for value in after['permissions'][field]:
             if value not in values:values.append(value)
-    return json_bytes(before)
+    # Правило записи: 1) равно source → байты source; 2) равно target → байты target;
+    # 3) иначе детерминированная сериализация в порядке ключей target.
+    merged=canonical(before)
+    if merged==canonical(after):return new
+    if merged==canonical(original):return existing
+    return settings_bytes(before)
+
+FRAGMENT_HEADER='# OverGate personal state (managed fragment)'
+
+def split_lines(text):
+    # Граница строки — только '\n'; каждая строка хранит свой EOL, чтобы сохранить байты.
+    parts=text.split('\n')
+    return [x+'\n' for x in parts[:-1]]+([parts[-1]] if parts[-1] else [])
+
+def line_body(line):
+    # Сравнение без учёта EOL: CRLF и LF равны, отсутствие EOL у последней строки тоже.
+    line=line[:-1] if line.endswith('\n') else line
+    return line[:-1] if line.endswith('\r') else line
+
+def merge_gitignore(existing,fragment):
+    # Таблица §4.1: сначала удаляется legacy-строка `.codex/`, затем ищется блок фрагмента.
+    lines=[x for x in split_lines(existing.decode('utf-8')) if line_body(x).strip()!='.codex/']
+    block=[line_body(x) for x in split_lines(fragment.decode('utf-8'))]
+    bodies=[line_body(x) for x in lines];size=len(block)
+    starts=[i for i in range(len(lines)-size+1) if bodies[i:i+size]==block]
+    covered={j for i in starts for j in range(i,i+size)}
+    # Заголовок вне целого блока — изменённый проектом фрагмент: решение за target PR.
+    if any(body.strip()==FRAGMENT_HEADER and i not in covered for i,body in enumerate(bodies)):
+        raise InstallError('conflict: managed .gitignore fragment modified; resolve in target PR')
+    if starts:
+        # Повторные целые блоки удаляются, первый и прочие байты остаются как есть.
+        repeated={j for i in starts[1:] for j in range(i,i+size)}
+        return ''.join(x for i,x in enumerate(lines) if i not in repeated).encode('utf-8')
+    kept=''.join(lines)
+    if not kept:return fragment
+    ended=[x for x in lines if x.endswith('\n')]
+    eol='\r\n' if ended and all(x.endswith('\r\n') for x in ended) else '\n'
+    if not kept.endswith('\n'):kept+=eol
+    return (kept+eol+''.join(body+eol for body in block)).encode('utf-8')
 
 def make_plan(source,sha,target,contract,target_pr):
     source=source.resolve();target=target.resolve();contract=contract.resolve()
@@ -121,9 +166,8 @@ def make_plan(source,sha,target,contract,target_pr):
         policy=entry.get('policy','managed')
         if policy=='preserve' and old is not None:continue
         if policy=='ignore':
-            old_text=p.read_text(encoding='utf-8') if old else ''
-            old_text='\n'.join(x for x in old_text.splitlines() if x.strip()!='.codex/')
-            data=(old_text.rstrip()+'\n\n'+data.decode()).encode()
+            try:data=merge_gitignore(p.read_bytes() if old else b'',data)
+            except InstallError as e:conflicts.append(f'{path}: {e}');continue
         elif policy=='settings':
             legacy=m.get('legacy_settings',{});previous_rc=m.get('previous_rc_settings',{})
             if path=='.codex/hooks.json':
