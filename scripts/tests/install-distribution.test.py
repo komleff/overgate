@@ -15,6 +15,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / 'scripts/install-overgate.py'
+# Точный commit тега v4.0.0-rc.1: эталон upgrade-фикстуры rc.1 → текущий source.
+RC1_SHA = '633937250fa8f47b49f928c1d8781ab17fe8c8e3'
 sys.path.insert(0,str(ROOT/'scripts/tests/lib'))
 from claude_hooks import native_bash
 BASH=native_bash()
@@ -68,8 +70,8 @@ class InstallTests(unittest.TestCase):
         self.contract=self.root/'contract.md';self.contract.write_text('AC: preserve project bytes; closure; rollback\n')
         self.plan=self.root/'plan.json';self.approval=self.root/'approval.json'
 
-    def call(self,*args,ok=True):
-        run=subprocess.run([sys.executable,str(INSTALLER),*map(str,args)],text=True,capture_output=True)
+    def call(self,*args,ok=True,installer=INSTALLER):
+        run=subprocess.run([sys.executable,str(installer),*map(str,args)],text=True,capture_output=True)
         if ok:self.assertEqual(run.returncode,0,run.stdout+run.stderr)
         else:self.assertNotEqual(run.returncode,0,run.stdout+run.stderr)
         return run
@@ -177,6 +179,58 @@ class InstallTests(unittest.TestCase):
         self.assertLess(restored.index('.claude/settings.json'),restored.index('.claude/hooks/pre-bash.sh'))
         self.call('rollback','--target',self.target,'--backup',state['backup'])
         self.assertEqual(snapshot(self.target),before)
+
+    def install_rc1(self):
+        # Точная установка v4.0.0-rc.1: отдельный clone источника на exact SHA тега, тот же
+        # installer rc.1 и тот же PLAN_READY binding, что у реального проекта.
+        rc1=self.root/'source-rc1'
+        subprocess.check_call(['git','clone','-q','--shared','--no-checkout',str(ROOT),str(rc1)],
+                              stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        git(rc1,'checkout','-q','--detach',RC1_SHA)
+        installer=rc1/'scripts/install-overgate.py'
+        self.call('plan','--source',rc1,'--source-sha',RC1_SHA,'--target',self.target,'--contract',self.contract,
+                  '--target-pr','https://github.com/example/project/pull/1','--output',self.plan,installer=installer)
+        self.approve();self.call('apply','--plan',self.plan,'--approval',self.approval,installer=installer)
+        state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
+        self.assertEqual(state['source_sha'],RC1_SHA)
+        return rc1
+
+    def test_rc1_exact_install_upgrades_cleanly_and_rolls_back(self):
+        rc1=self.install_rc1();before=snapshot(self.target)
+        self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
+        self.assertEqual(plan['conflicts'],[])
+        targets=[op['target'] for op in plan['operations']]
+        for path in ('scripts/bd-wt.sh','scripts/lib/bd-env.sh'):self.assertIn(path,targets)
+        self.approve();self.apply()
+        for path in ('scripts/bd-wt.sh','scripts/lib/bd-env.sh','.agents/distribution-manifest.json'):
+            frozen=subprocess.check_output(['git','-C',str(self.source),'show',self.sha+':'+path])
+            self.assertEqual((self.target/path).read_bytes(),frozen,path)
+        # Preserve-файлы проекта upgrade не трогает: их правки переносятся вручную по diff.
+        for path in ('.claude/rules/beads.md','AGENTS.md'):
+            self.assertEqual((self.target/path).read_bytes(),before[path],path)
+        state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
+        self.assertEqual(state['source_sha'],self.sha)
+        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.assertEqual(snapshot(self.target),before)
+        rc1_wrapper=subprocess.check_output(['git','-C',str(rc1),'show',RC1_SHA+':scripts/bd-wt.sh'])
+        self.assertEqual((self.target/'scripts/bd-wt.sh').read_bytes(),rc1_wrapper)
+
+    def test_rc1_project_override_of_beads_wrapper_conflicts_per_file(self):
+        self.install_rc1()
+        overridden=('scripts/bd-wt.sh','scripts/lib/bd-env.sh')
+        for path in overridden:
+            p=self.target/path
+            p.write_bytes(p.read_bytes()+b'# project override: embedded Dolt adaptation\n')
+        backups=sorted((self.target/'.overgate-backups').iterdir())
+        before=snapshot(self.target);self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
+        for path in overridden:
+            self.assertEqual([c for c in plan['conflicts'] if c.startswith(path+':')],
+                             [path+': conflict with project override; no force overwrite'])
+        self.assertEqual(len(plan['conflicts']),2,plan['conflicts'])
+        self.approve();result=self.apply(ok=False)
+        for path in overridden:self.assertIn(path+': conflict with project override',result.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertEqual(sorted((self.target/'.overgate-backups').iterdir()),backups)
 
     def test_custom_dispatcher_hook_conflict_before_writes(self):
         p=self.target/'.claude/settings.json';p.parent.mkdir(parents=True)
