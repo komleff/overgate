@@ -3,6 +3,43 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
+## [v4.0.0-rc.3] — побайтное соответствие установленного проекта, 2026-10-24
+
+Prerelease; stable `v3.9.0` остаётся Latest. Контракт — `docs/plans/2026-10-24-v4.0.0-rc.3.md`.
+Изменён только установщик `scripts/install-overgate.py`; payload guards, dispatcher, bd-обёртки
+и skills не менялись.
+
+### Fixed
+- **`.codex/hooks.json` больше не получает `"permissions": {"deny": []}`.** Merge settings создаёт
+  `permissions` и его поля только если они есть в source; project-owned ключи сохраняются.
+- **Upgrade с rc.1/rc.2 без overrides побайтно (байты и mode) равен source** во всех managed- и
+  settings-файлах: settings больше не пересортировываются (`sort_keys`), если merge ничего не меняет.
+- **`.gitignore` больше не переводится в LF и не получает второй фрагмент.** Блок фрагмента
+  ищется построчно без учёта EOL; найденный целый блок оставляет файл побайтно неизменным.
+- Повторный `plan` сразу после `apply` — все operations с `before == after`, без conflicts.
+
+### Changed
+- Правило записи settings: результат merge по смыслу (строго по типам: `true` ≠ `1`) равен
+  source → байты source; иначе равен файлу проекта → файл не меняется; иначе JSON в порядке
+  ключей проекта, новые ключи в конце, `indent=2`, без `sort_keys`, UTF-8 без `\u`, финальный LF.
+- `.gitignore` fresh (нет файла или 0 байт) = ровно байты фрагмента; в rc.2 было `\n\n` + фрагмент.
+- Фрагмента нет → байты проекта сохраняются, недостающий перевод строки в конце добавляется,
+  затем пустая строка и фрагмент в EOL файла (CRLF, если все строки CRLF, иначе LF).
+- Несколько целых блоков фрагмента сводятся к первому; прочие байты не меняются.
+- **Новый conflict upgrade:** заголовок `# OverGate personal state (managed fragment)` вне целого
+  блока → `conflict: managed .gitignore fragment modified; resolve in target PR`, без записи.
+  В rc.2 к такому файлу дописывался второй фрагмент. Разрешение — в target PR, затем новый план.
+- Legacy-строка `.codex/` (v3.9) удаляется ровно с её EOL; прочие байты сохраняются.
+- Формат плана, журнала rollback и `install-state.json`, порядок operations и conflict-политика
+  для managed-файлов не изменены.
+
+### Limits and migration
+- Побайтное соответствие после upgrade заявлено только для точных установок rc.1 и rc.2: merge
+  переносит из source только hooks и `deny`. Для upgrade v3.9 → rc.3 оно не заявляется.
+- Проект с project overrides settings получает только необходимые изменения: без пересортировки,
+  а без добавленных данных — без записи.
+- Windows не хранит POSIX execute bit: fixtures сверяют mode только на POSIX, байты — везде.
+
 ## [v4.0.0-rc.2] — перенос исправлений пайплайна после rc.1, 2026-10-23
 
 Prerelease; stable `v3.9.0` остаётся Latest. Источники: U2 `4a7354ea766854cca3fa1cbb2d15f1044522ff55`

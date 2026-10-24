@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """AC-07: реальные isolated Git fixtures; source drift, conflict, rollback bytes."""
 import importlib.util
+import base64
 import errno
 from unittest import mock
 import hashlib
@@ -17,6 +18,12 @@ ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / 'scripts/install-overgate.py'
 # Точный commit тега v4.0.0-rc.1: эталон upgrade-фикстуры rc.1 → текущий source.
 RC1_SHA = '633937250fa8f47b49f928c1d8781ab17fe8c8e3'
+# Точный commit тега v4.0.0-rc.2: вторая база upgrade, для которой заявлено побайтное соответствие.
+RC2_SHA = '073595ae6fb51c16fa49576acca40d94d068af83'
+PR_URL = 'https://github.com/example/project/pull/1'
+GITIGNORE_HEADER = b'# OverGate personal state (managed fragment)'
+# NTFS не хранит POSIX execute bits (как в reference-closure): mode сверяется только вне Windows.
+POSIX_MODES = os.name != 'nt'
 sys.path.insert(0,str(ROOT/'scripts/tests/lib'))
 from claude_hooks import native_bash
 BASH=native_bash()
@@ -33,6 +40,14 @@ def init(root):
 def snapshot(root):
     return {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*')
             if p.is_file() and '.git' not in p.parts and '.overgate-backups' not in p.parts}
+
+def load_installer():
+    spec=importlib.util.spec_from_file_location('installer_under_test',INSTALLER)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+
+def crlf(data):
+    return data.replace(b'\n',b'\r\n')
 
 class SnapshotTests(unittest.TestCase):
     def test_snapshot_manifest_keys_preserve_bytes_on_both_path_flavors(self):
@@ -180,20 +195,233 @@ class InstallTests(unittest.TestCase):
         self.call('rollback','--target',self.target,'--backup',state['backup'])
         self.assertEqual(snapshot(self.target),before)
 
-    def install_rc1(self):
-        # Точная установка v4.0.0-rc.1: отдельный clone источника на exact SHA тега, тот же
-        # installer rc.1 и тот же PLAN_READY binding, что у реального проекта.
-        rc1=self.root/'source-rc1'
-        subprocess.check_call(['git','clone','-q','--shared','--no-checkout',str(ROOT),str(rc1)],
+    def install_tag(self,sha,name):
+        # Точная установка прежнего RC: отдельный clone источника на exact SHA тега, тот же
+        # installer этого RC и тот же PLAN_READY binding, что у реального проекта.
+        clone=self.root/name
+        subprocess.check_call(['git','clone','-q','--shared','--no-checkout',str(ROOT),str(clone)],
                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        git(rc1,'checkout','-q','--detach',RC1_SHA)
-        installer=rc1/'scripts/install-overgate.py'
-        self.call('plan','--source',rc1,'--source-sha',RC1_SHA,'--target',self.target,'--contract',self.contract,
-                  '--target-pr','https://github.com/example/project/pull/1','--output',self.plan,installer=installer)
+        git(clone,'checkout','-q','--detach',sha)
+        installer=clone/'scripts/install-overgate.py'
+        self.call('plan','--source',clone,'--source-sha',sha,'--target',self.target,'--contract',self.contract,
+                  '--target-pr',PR_URL,'--output',self.plan,installer=installer)
         self.approve();self.call('apply','--plan',self.plan,'--approval',self.approval,installer=installer)
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
-        self.assertEqual(state['source_sha'],RC1_SHA)
-        return rc1
+        self.assertEqual(state['source_sha'],sha)
+        return clone
+
+    def install_rc1(self):return self.install_tag(RC1_SHA,'source-rc1')
+
+    def source_blob(self,path):
+        return subprocess.check_output(['git','-C',str(self.source),'show',self.sha+':'+path])
+
+    def source_manifest(self):return json.loads(self.source_blob('.agents/distribution-manifest.json'))
+
+    def source_mode(self,path):
+        return 0o755 if git(self.source,'ls-tree',self.sha,'--',path).split()[0]=='100755' else 0o644
+
+    def assert_conformance(self,preserved=None):
+        # AC-01/AC-02: managed и settings — байты и mode Git blob source; preserve — шаблон
+        # при fresh либо прежние байты проекта при upgrade.
+        for entry in self.source_manifest()['files']:
+            policy=entry.get('policy','managed');p=self.target/entry['target']
+            if policy in {'managed','settings'}:
+                self.assertEqual(p.read_bytes(),self.source_blob(entry['source']),entry['target'])
+                # NTFS не хранит POSIX execute bit: там сравниваются только байты.
+                if POSIX_MODES:
+                    self.assertEqual(p.stat().st_mode & 0o777,self.source_mode(entry['source']),entry['target'])
+            elif policy=='preserve':
+                expected=preserved[entry['target']] if preserved and entry['target'] in preserved else self.source_blob(entry['source'])
+                self.assertEqual(p.read_bytes(),expected,entry['target'])
+
+    def assert_replan_noop(self):
+        # AC-04: повторный plan сразу после apply ничего не меняет; install-state.json не operation.
+        self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
+        self.assertEqual(plan['conflicts'],[])
+        for op in plan['operations']:
+            self.assertNotEqual(op['target'],'.overgate/install-state.json')
+            if POSIX_MODES:self.assertEqual(op['before'],op['after'],op['target'])
+            # NTFS отдаёт st_mode 0o666 для любого обычного файла, mode source там не представим:
+            # сравнивается только sha256; на POSIX — sha256 и mode.
+            else:self.assertEqual(op['before']['sha256'],op['after']['sha256'],op['target'])
+
+    def rollback_to(self,before):
+        state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
+        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.assertEqual(snapshot(self.target),before)
+
+    def plan_inprocess(self):
+        # Тот же make_plan рабочего installer; payload собирается один раз на source,
+        # чтобы таблицы политик не повторяли preflight checker на каждую строку.
+        installer=load_installer();key=(str(self.source),self.sha);cache=type(self).__dict__.get('_payloads')
+        if cache is None:cache={};type(self)._payloads=cache
+        if key not in cache:cache[key]=installer.load_manifest(self.source,self.sha)
+        with mock.patch.object(installer,'load_manifest',return_value=cache[key]):
+            return installer.make_plan(self.source,self.sha,self.target,self.contract,PR_URL)
+
+    def planned(self,plan,path):
+        ops=[op for op in plan['operations'] if op['target']==path]
+        self.assertEqual(len(ops),1,plan['conflicts'])
+        return base64.b64decode(ops[0]['data'])
+
+    def test_fresh_install_is_byte_exact_and_idempotent(self):
+        # AC-01 + AC-04 (fresh).
+        self.make_plan();self.approve();self.apply()
+        self.assert_conformance()
+        self.assertEqual((self.target/'.gitignore').read_bytes(),self.source_blob('.agents/templates/gitignore.fragment'))
+        self.assertNotIn('permissions',json.loads((self.target/'.codex/hooks.json').read_text(encoding='utf-8')))
+        self.assert_replan_noop()
+
+    def check_exact_rc_upgrade(self,sha,name):
+        # AC-02 + AC-04 + AC-07: точная установка тега без overrides → upgrade → source rc.3.
+        self.install_tag(sha,name);before=snapshot(self.target)
+        self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
+        self.assertEqual(plan['conflicts'],[])
+        self.approve();self.apply()
+        self.assert_conformance(preserved=before)
+        ignore=(self.target/'.gitignore').read_bytes()
+        self.assertEqual(ignore,before['.gitignore'])
+        self.assertEqual(ignore.count(GITIGNORE_HEADER),1)
+        self.assertIn(self.source_blob('.agents/templates/gitignore.fragment'),ignore)
+        self.assert_replan_noop()
+        self.rollback_to(before)
+
+    def test_rc1_exact_install_upgrade_is_byte_exact(self):self.check_exact_rc_upgrade(RC1_SHA,'source-rc1')
+
+    def test_rc2_exact_install_upgrade_is_byte_exact(self):self.check_exact_rc_upgrade(RC2_SHA,'source-rc2')
+
+    def test_gitignore_policy_table(self):
+        # AC-05: каждая строка таблицы §4.1 VC, вход → ожидаемые байты, через make_plan.
+        fragment=self.source_blob('.agents/templates/gitignore.fragment');fcr=crlf(fragment)
+        cases=[
+            ('missing',None,fragment),
+            ('empty',b'',fragment),
+            ('block-at-end',b'node_modules/\n\n'+fragment,None),
+            ('block-not-at-end',b'dist/\n'+fragment+b'\nnode_modules/\n',None),
+            ('crlf-block-in-crlf-file',b'dist/\r\n\r\n'+fcr+b'build/\r\n',None),
+            ('crlf-block-in-lf-file',b'dist/\n'+fcr+b'build/\n',None),
+            ('pyc-without-final-eol',b'dist/\n\n'+fragment[:-1],None),
+            ('crlf-pyc-without-final-eol',b'dist/\r\n\r\n'+fcr[:-2],None),
+            ('lf-no-fragment',b'node_modules/\n',b'node_modules/\n\n'+fragment),
+            ('lf-no-final-eol',b'node_modules/',b'node_modules/\n\n'+fragment),
+            ('crlf-no-fragment',b'a\r\nb\r\n',b'a\r\nb\r\n\r\n'+fcr),
+            ('crlf-no-final-eol',b'a\r\nb',b'a\r\nb\r\n\r\n'+fcr),
+            ('mixed-eol-no-fragment',b'a\r\nb\n',b'a\r\nb\n\n'+fragment),
+            ('legacy-codex-line',b'a\r\n.codex/\r\nb\r\n',b'a\r\nb\r\n\r\n'+fcr),
+            ('legacy-only',b'.codex/\n',fragment),
+            ('legacy-with-fragment',b'x\n.codex/\n\n'+fragment,b'x\n\n'+fragment),
+            ('legacy-after-fragment-crlf',b'x\r\n\r\n'+fcr+b'.codex/\r\ny\r\n',b'x\r\n\r\n'+fcr+b'y\r\n'),
+        ]
+        path=self.target/'.gitignore'
+        for name,existing,expected in cases:
+            with self.subTest(case=name):
+                if existing is None:
+                    if path.exists():path.unlink()
+                else:path.write_bytes(existing)
+                plan=self.plan_inprocess();self.assertEqual(plan['conflicts'],[])
+                self.assertEqual(self.planned(plan,'.gitignore'),existing if expected is None else expected)
+
+    def test_gitignore_duplicate_blocks_collapse_to_first(self):
+        # A2 (PLAN_READY): два и более целых блока → остаётся первый, повторные удаляются,
+        # прочие байты не меняются.
+        fragment=self.source_blob('.agents/templates/gitignore.fragment');fcr=crlf(fragment)
+        cases=[
+            ('two-lf',fragment+b'\nmid\n\n'+fragment+b'tail\n',fragment+b'\nmid\n\n'+b'tail\n'),
+            ('three-mixed-eol',b'a\r\n'+fcr+b'b\n'+fragment+b'c\n'+fragment[:-1],b'a\r\n'+fcr+b'b\nc\n'),
+        ]
+        for name,existing,expected in cases:
+            with self.subTest(case=name):
+                (self.target/'.gitignore').write_bytes(existing)
+                plan=self.plan_inprocess();self.assertEqual(plan['conflicts'],[])
+                self.assertEqual(self.planned(plan,'.gitignore'),expected)
+
+    def test_gitignore_modified_fragment_conflicts_without_write(self):
+        # AC-05 строка 3: заголовок есть, тело отличается → conflict, без записи и backup.
+        fragment=self.source_blob('.agents/templates/gitignore.fragment')
+        modified=[fragment.replace(b'*.pyc\n',b'*.pyo\n'),fragment.replace(b'__pycache__/\n',b''),
+                  b'dist/\n'+fragment+b'\n'+fragment.replace(b'*.pyc\n',b'')]
+        message='.gitignore: conflict: managed .gitignore fragment modified; resolve in target PR'
+        for index,data in enumerate(modified):
+            with self.subTest(case=index):
+                (self.target/'.gitignore').write_bytes(data)
+                plan=self.plan_inprocess()
+                self.assertEqual(plan['conflicts'],[message])
+                self.assertNotIn('.gitignore',[op['target'] for op in plan['operations']])
+        before=snapshot(self.target);self.make_plan();self.approve();result=self.apply(ok=False)
+        self.assertIn('managed .gitignore fragment modified',result.stderr)
+        self.assertEqual(snapshot(self.target),before);self.assertFalse((self.target/'.overgate-backups').exists())
+
+    def test_crlf_gitignore_apply_replan_and_rollback(self):
+        # AC-04 (CRLF-сценарий) + AC-07: вставка в EOL файла, повторный plan — no-op, rollback побайтный.
+        original=b'node_modules/\r\ndist/\r\n';(self.target/'.gitignore').write_bytes(original)
+        before=snapshot(self.target);self.make_plan();self.approve();self.apply()
+        fragment=self.source_blob('.agents/templates/gitignore.fragment')
+        self.assertEqual((self.target/'.gitignore').read_bytes(),original+b'\r\n'+crlf(fragment))
+        self.assert_replan_noop()
+        self.rollback_to(before)
+
+    def test_codex_and_claude_settings_merge_permissions_only_from_source(self):
+        # AC-03 (C1): Codex adapter не получает permissions; Claude deny дополняется как в rc.2.
+        source_settings=json.loads(self.source_blob('.claude/settings.json'))
+        required=source_settings['permissions']['deny']
+        codex={'env':{'PROJECT':'preserve'},'hooks':{'PreToolUse':[]},'project_key':[1,2]}
+        claude={'permissions':{'deny':['Bash(project-deny *)',required[1]]},'env':{'PROJECT':'preserve'}}
+        for path,data in (('.codex/hooks.json',codex),('.claude/settings.json',claude)):
+            p=self.target/path;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(data),encoding='utf-8')
+        plan=self.plan_inprocess();self.assertEqual(plan['conflicts'],[])
+        merged=json.loads(self.planned(plan,'.codex/hooks.json'))
+        self.assertNotIn('permissions',merged)
+        self.assertEqual(merged['env'],codex['env']);self.assertEqual(merged['project_key'],[1,2])
+        merged=json.loads(self.planned(plan,'.claude/settings.json'))
+        self.assertEqual(merged['permissions']['deny'],['Bash(project-deny *)',required[1]]+[x for x in required if x!=required[1]])
+        self.assertNotIn('allow',merged['permissions'])
+
+    def test_settings_write_rule_source_and_unchanged_target(self):
+        # AC-06 (C3, R1): (1) равно source → байты source; (2) merge ничего не добавил → байты
+        # target; строгие типы: true и 1 различаются, поэтому проект с 1 не перезаписывается source.
+        paths=('.claude/settings.json','.codex/hooks.json')
+        sources={path:self.source_blob(path) for path in paths}
+        for path in paths:(self.target/path).parent.mkdir(parents=True,exist_ok=True)
+        def project(path):
+            data=json.loads(sources[path]);data.setdefault('env',{})['PROJECT']='preserve'
+            if 'permissions' in data:data['permissions']['allow'].append('Bash(make test)')
+            return json.dumps(data).encode()
+        def numeric(path):
+            # Managed hooks заменяются по identity entry, поэтому тип проверяется на project-ключе.
+            if path!='.claude/settings.json':return sources[path]
+            data=json.loads(sources[path]);data['skipDangerousModePermissionPrompt']=1
+            return (json.dumps(data,ensure_ascii=False,indent=2)+'\n').encode()
+        cases=[
+            ('sorted-rc2-output',lambda path:(json.dumps(json.loads(sources[path]),ensure_ascii=False,indent=2,sort_keys=True)+'\n').encode(),
+             lambda path,data:sources[path]),
+            ('crlf-source-bytes',lambda path:crlf(sources[path]),lambda path,data:sources[path]),
+            ('project-allow-env-compact',project,lambda path,data:data),
+            ('strict-types',numeric,lambda path,data:data),
+        ]
+        for name,build,expect in cases:
+            with self.subTest(case=name):
+                inputs={path:build(path) for path in paths}
+                for path in paths:(self.target/path).write_bytes(inputs[path])
+                plan=self.plan_inprocess();self.assertEqual(plan['conflicts'],[])
+                for path in paths:self.assertEqual(self.planned(plan,path),expect(path,inputs[path]),path)
+
+    def test_settings_write_rule_keeps_target_key_order(self):
+        # AC-06 (3) + A1: merge добавил данные → порядок ключей target, новые ключи в конце,
+        # indent=2, ensure_ascii=False, финальный LF; затем повторный plan — no-op, rollback побайтный.
+        source_settings=json.loads(self.source_blob('.claude/settings.json'))
+        custom={'matcher':'Bash','hooks':[{'type':'command','command':'echo проверка проекта'}]}
+        target={'zeta':'проект','hooks':{'SessionStart':[],'PreToolUse':[custom]},'env':{'B':'1','A':'2'}}
+        p=self.target/'.claude/settings.json';p.parent.mkdir(parents=True)
+        p.write_bytes(json.dumps(target,ensure_ascii=True).encode())
+        before=snapshot(self.target);self.make_plan();self.approve();self.apply()
+        expected={'zeta':'проект','hooks':{'SessionStart':[],'PreToolUse':[custom]+source_settings['hooks']['PreToolUse']},
+                  'env':{'B':'1','A':'2'},'permissions':{'deny':source_settings['permissions']['deny']}}
+        data=p.read_bytes()
+        self.assertEqual(data,(json.dumps(expected,ensure_ascii=False,indent=2)+'\n').encode('utf-8'))
+        self.assertIn('echo проверка проекта'.encode('utf-8'),data);self.assertNotIn(b'\\u',data)
+        self.assertEqual(list(json.loads(data)),['zeta','hooks','env','permissions'])
+        self.assert_replan_noop()
+        self.rollback_to(before)
 
     def test_rc1_exact_install_upgrades_cleanly_and_rolls_back(self):
         rc1=self.install_rc1();before=snapshot(self.target)
@@ -433,6 +661,8 @@ class InstallTests(unittest.TestCase):
         expected=json.loads((self.source/'.codex/hooks.json').read_text(encoding='utf-8'))['hooks']['PreToolUse']
         self.assertEqual(after['hooks']['PreToolUse'],[custom]+expected)
         self.assertEqual(len(expected),1);self.assertEqual(after['env'],{'PROJECT':'preserve'})
+        # AC-03: в source Codex adapter нет permissions — merge их не создаёт.
+        self.assertNotIn('permissions',after)
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
         self.call('rollback','--target',self.target,'--backup',state['backup'])
         self.assertEqual(snapshot(self.target),before)
