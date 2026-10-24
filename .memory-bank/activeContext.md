@@ -1,6 +1,16 @@
 # Active Context
 
-Текущий фокус: v4.0.0-rc.2 (`og-rdc`), Draft PR #10, ветка `chore/u2-pipeline-sync`, база `main`
+Текущий фокус: v4.0.0-rc.3 (`og-7d1`), Draft PR #11, ветка `fix/installer-conformance`, база
+`main` `073595a` (= rc.2). План `docs/plans/2026-10-24-v4.0.0-rc.3.md` v0.3 (PLAN_READY), CRITICAL,
+budget 6. Решение оператора 2026-10-24: перед upgrade u2-lab выпустить rc.3 с исправлением
+установщика — побайтное соответствие managed/settings source после fresh и upgrade с rc.1/rc.2.
+Исправлено: C1 `og-48u` (Codex без `permissions`), C2 `og-dp6` (`.gitignore` по таблице §4.1,
+новый conflict изменённого фрагмента), C3 `og-lnt` (правило записи settings без `sort_keys`).
+Prerelease, `make_latest=false`; stable `v3.9.0` остаётся Latest. Для v3.9 → rc.3 цель не заявлена.
+
+## rc.2 (история)
+
+Фокус rc.2: v4.0.0-rc.2 (`og-rdc`), Draft PR #10, ветка `chore/u2-pipeline-sync`, база `main`
 `511023e`. План `docs/plans/2026-10-23-v4.0.0-rc.2.md` v0.2, режим CRITICAL, budget 6.
 Решение оператора 2026-10-23: rc.2 — prerelease, `make_latest=false`; stable `v3.9.0` остаётся Latest.
 Перенос: U2 `4a7354ea7` (#862 страж bash 3.2, #859 `bash scripts/...`) и U2 Lab `5586b43` (#30

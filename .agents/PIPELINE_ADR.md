@@ -1,7 +1,7 @@
 ---
 title: "Pipeline ADRs"
 status: decision
-version: "4.0.0-rc.2"
+version: "4.0.0-rc.3"
 date: 2026-05-05
 source: "github.com/komleff/overgate/.agents/PIPELINE_ADR.md"
 tags: [pipeline, adr, decisions, history]

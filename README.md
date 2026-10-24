@@ -5,7 +5,7 @@
 Переносимый AI-пайплайн разработки для оператора, который задаёт цель и принимает результат.
 Delivery First связывает принятую спецификацию, реализацию, независимую QA и один scoped Code Review.
 
-**Текущий candidate: v4.0.0-rc.2.** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
+**Текущий candidate: v4.0.0-rc.3.** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
 RC выбирается отдельно и не заменяет Latest. Здесь живёт generic reference из
 [U2](https://github.com/komleff/u2), без его product/game data.
 
