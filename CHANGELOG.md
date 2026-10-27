@@ -6,6 +6,10 @@
 ## [Unreleased] — следующий RC
 
 ### Fixed
+- Bootstrap og-159 генерируется независимо от тела: actual scriptSHA можно включить в FINAL,
+  а проверенный bodySHA передаётся runtime из отдельного attestation без самоссылочного цикла.
+- **RV-F1 (og-159):** collation вызывающей среды больше не смешивает русские имена колонок
+  triage: byte locale назначается только parser awk; окружение остальных инструментов сохраняется.
 - **og-159:** автоматические проверки `/finalize-pr` и публикация выполняются единым
   managed `finalize-gate.sh` для Claude Code и Codex. `--check` не публикует; `--publish`
   использует private snapshot тела и сохраняет его точные bytes. Trusted code берётся из

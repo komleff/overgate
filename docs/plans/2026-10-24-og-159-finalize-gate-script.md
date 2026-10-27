@@ -1,7 +1,7 @@
 ---
 title: "og-159 — гейт /finalize-pr исполняется скриптом целиком"
 status: draft
-version: "0.3"
+version: "0.5"
 date: 2026-10-24
 tags: [overgate, finalize-pr, pipeline-governance, release-candidate]
 beads: og-159
@@ -35,6 +35,27 @@ Budget 6: Plan Review, QA, Code Review, affected QA, scoped re-review, резе�
   перенаправление stdin без here-string, тот же маршрут в bootstrap и byte-equality fixtures.
   Новые сообщения этой reviewer-сессии budget не расходуют; далее QA — 3/6, Code Review — 4/6,
   affected QA — 5/6, scoped re-review — 6/6. WI-1 v0.6 не меняется.
+- v0.4 — actual macOS CI на `d85f338` (run `40578599710`, job `122451638679`)
+  дал triage 133 PASS / 126 FAIL (RV-F1, AC-08). Диагноз воспроизведён: Darwin
+  collation `en_US.UTF-8` считает разные русские заголовки (`Заголовок`, `Статус`)
+  равными в `awk`; в `C` они различны. Accepted WHAT не меняется: корректные русские
+  имена колонок и все прежние parser cases должны работать в обоих runtime.
+  Добавляется только per-process `LC_ALL=C` перед единственным `awk` разбора
+  `TRIAGE_ROWS`, тот же явный клей в bootstrap и locale regression; тело AWK,
+  predicates/stop conditions и trusted closure не меняются. Не допускается скрыть
+  дефект только locale-настройкой workflow. Дополнение проходит affected Plan Review
+  в существующей reviewer-сессии launch 2; уже использовано 4/6 фактических launches
+  (launches 1 и 2 — Plan Review, 3 — QA, 4 — Code Review); сообщения тем же sessions
+  новых launches не создают.
+- v0.5 — при подготовке actual FINAL обнаружена самоссылка прежнего bootstrap HOW:
+  FINAL содержит actual SHA-256 bootstrap-файла, а этот файл встраивал SHA-256 всего
+  FINAL. Synthetic-body fixtures это не проверяли. Диагноз независимо подтверждён
+  Plan Reviewer: изменение digest тела меняет scriptSHA и делает поле FINAL неверным.
+  Цикл разрывается без изменения AC-11: скрипт генерируется до тела, его bytes не зависят
+  от digest; проверенный digest тела приходит как runtime data из отдельного заранее
+  опубликованного attestation. Actual scriptSHA в FINAL сохраняется. Происхождение
+  runtime digest проверяет PM вручную по опубликованной записи; автоматической проверки
+  происхождения нет. Это организационная граница R2/ADR §3.28, не новая security guarantee.
 
 ## 1. Target → as-built → gap
 
@@ -123,6 +144,11 @@ bash .claude/skills/finalize-pr/finalize-gate.sh <PR_NUMBER> --publish <BODY_FIL
 - пути помощников в preflight и `BD_REPO_ROOT` шага 6 — от `GATE_TREE` вместо
   `git rev-parse --show-toplevel`; локальный HEAD шага 2 и content binding шага 3 — от
   `WORK_TREE` без изменений;
+- locale-клей RV-F1: ровно `TRIAGE_ROWS=$(awk …)` → `TRIAGE_ROWS=$(LC_ALL=C awk …)`.
+  `LC_ALL=C` назначается только процессу этого `awk`, независимо от locale вызывающего
+  runtime; глобальное окружение сессии/других инструментов не меняется. Это устраняет
+  ложное locale-зависимое равенство русских ключей. Тело программы AWK, её аргументы,
+  входные байты, post-processing и checks кода возврата переносятся дословно;
 - в режиме `--publish` после разбора аргументов и локального preflight (до любых сетевых
   вызовов) тело из `BODY_FILE` **один раз** копируется в `BODY_SNAPSHOT`. Источник — regular file,
   не symlink; private временный каталог создаётся через `mktemp -d` внутри ignored
@@ -214,6 +240,14 @@ SKILL.md finalize-pr читают два теста. Остальные упом
 - побайтные AC-05: валидное тело с 0, 1 и 2+ завершающими LF доходит до `gh` без изменений;
   изменение исходного файла после capture не меняет output; отказ копирования, timeout или
   shape-проверки не вызывает сеть и publisher. Проверки исполняются одинаково в обоих runtime.
+- RV-F1 locale regression: на macOS с доступной `en_US.UTF-8` сохраняется RED исходного
+  frozen parser без prefix (ложное равенство заголовков/неверная колонка). Тот же набор
+  корректных и отрицательных parser cases через GATE проходит при внешних `LC_ALL=C`
+  и `LC_ALL=en_US.UTF-8`, без workflow-only normalization. Golden table cases не меняются;
+  oracle source и non-vacuity mutations распознают только этот разрешённый prefix.
+  Full-script e2e и bootstrap включают русский header и проверяются при внешней en_US.
+  Если locale отсутствует на платформе, специфичная locale-проба честно `NOT RUN`,
+  основной oracle обязателен; macOS CI обязан фактически исполнить en_US regression.
 
 ### 2.4 Поставка
 
@@ -229,51 +263,74 @@ PR og-159 меняет сам гейт и не сертифицирует себ
 `main@b830d5e`, исполненным скриптом целиком.
 
 **Извлекатель** `docs/plans/2026-10-24-og-159-bootstrap-extract.py` коммитится в эту ветку.
-Детерминированный, без сети:
+Интерфейс: `<PR_NUMBER> <OUTPUT>`; запуск результата:
+`OG159_BODY_FILE=<проверенное тело> OG159_BODY_SHA256=<digest из attestation> bash <OUTPUT>`.
+Детерминированный, без сети; bytes результата зависят только от PR_NUMBER, frozen source
+и явно ратифицированного клея, не от тела, его digest или OUTPUT path:
 1. источник — `git cat-file blob b7e7ed132df17643ebf5b2d52af0b284ba3ce93e`; другой blob → стоп;
 2. берётся содержимое bash-ограждений, открытых на строках 57, 187, 215, 243, 512, 1946, и строки
    ограждения 2041 от `REPO_ROOT=$(git rev-parse --show-toplevel)` до конца ограждения
    (публикация шаблона фазы 2 без литерала тела);
-3. клей — ровно три изменения:
+3. клей — ровно четыре изменения:
    - `<PR_NUMBER>` → номер PR (аргумент, только цифры);
    - после локального preflight, до первого сетевого вызова вставляется capture
      `$OG159_BODY_FILE` в private snapshot по §2.1 (включая checked timeout и cleanup). Текст
      capture фиксирован в коммитнутом извлекателе, без подстановки содержимого тела в shell-код.
      SHA-256 snapshot проверяется переносимым Python через доверенный launcher с checked rc
-     и timeout; несовпадение с digest, который PM передал извлекателю, → стоп до сети.
-     Digest — аргумент извлекателя, ровно 64 lowercase hex, вставляется как литерал;
+     и timeout; ожидаемый digest берётся из runtime data `OG159_BODY_SHA256`, не из кода
+     и не вычисляется повторно из исходного BODY_FILE. Python `-I` проверяет ровно
+     64 lowercase hex (без locale-sensitive shell ranges); отсутствие, неверная форма,
+     несовпадение с snapshot или отказ инструмента → стоп с диагнозом до сети;
    - единственная строка публикации меняет только `<<< "$BODY"` на `< "$BODY_SNAPSHOT"`;
      `FINALIZE_PR_TOKEN` и проверка `publish_rc` сохраняются;
+   - единственный prefix `TRIAGE_ROWS=$(awk` заменяется на
+     `TRIAGE_ROWS=$(LC_ALL=C awk`; извлекатель проверяет, что target встречается ровно
+     один раз, иначе стоп. Frozen тело AWK не переписывается. Эта нормализация входит
+     в опубликованный diff/hash bootstrap и independent QA/Code Review;
 4. в начало файла вставляется проверка замыкания: для каждого файла замыкания §2.1 blob в
    `HEAD` checkout равен blob в `b830d5e` (`git rev-parse HEAD:<path>` против
    `git rev-parse b830d5e:<path>`); расхождение или отказ git → стоп до первого сетевого вызова;
 5. печатает sha256 итогового файла.
 
 **Порядок:**
-- до запуска PM публикует в PR: blob извлекателя, sha256 итогового файла и diff итогового файла
-  против склейки доверенных блоков (в diff только подстановки п. 3–4); QA, Code Review или
-  оператор пересчитывают sha256 сами;
-- проверка тела (заголовок, `Commit: <HEAD>`, `Unresolved findings: 0`) — ручная проверка PM
-  до запуска, записывается в FINAL: доверенный текст её не содержит. PM вычисляет SHA-256
-  проверенных байтов и передаёт извлекателю; этот digest публикуется вместе с bootstrap hash.
-  Runtime capture проверяет совпадение snapshot с этим digest до сети, связывая ручную
-  проверку с публикуемыми байтами. После capture исходный файл больше не читается;
+- сначала PM генерирует bootstrap и вычисляет actual SHA-256 его итоговых bytes;
+- затем составляет настоящий FINAL, содержащий этот стабильный scriptSHA и остальные
+  поля AC-11. Проверяет заголовок, `Commit: <HEAD>`, `Unresolved findings: 0`, passport и
+  actual scriptSHA вручную; только после этого вычисляет SHA-256 всего тела;
+- до запуска публикуется отдельный immutable attestation: PR HEAD, trusted SHA/blob,
+  blob извлекателя, actual scriptSHA, bodySHA, diff итогового файла против склейки
+  trusted blocks (только п. 3–4), результат ручной проверки PM. QA, Code Review или
+  оператор независимо пересчитывают scriptSHA и bodySHA по доступным bytes;
+- bodySHA не включается в само хешируемое тело FINAL. Attestation URL/иные полученные
+  после вычисления bodySHA данные не добавляются в BODY_FILE: иначе нужен новый digest
+  и новая запись. Сам attestation не редактируется; при изменении bytes — новая запись;
+- PM сверяет точные script bytes/SHA, BODY_FILE/bodySHA, PR HEAD и runtime значение
+  `OG159_BODY_SHA256` с опубликованным attestation, затем запускает файл целиком.
+  Скрипт проверяет snapshot против предоставленного digest до сети, но не происхождение
+  самого digest: сверка runtime data с attestation — явная ручная обязанность PM.
+  После capture исходный файл больше не читается;
 - файл запускается одним `bash` из checkout PR HEAD;
 - не исполнился — стоп и эскалация оператору.
 
 Осуществимость проверена на PR #11 (§1).
+Новая обязательная fixture проверяет constructibility настоящего FINAL: поле scriptSHA
+равно actual hash исполняемого bootstrap-файла; последующее вычисление bodySHA и разные
+runtime digest inputs не меняют script bytes. Отсутствующий/невалидный/устаревший digest
+и изменённое тело останавливают bootstrap до `gh`; raw-body/cleanup/locale cases сохраняются.
 
 ## 3. Scope
 
 **IN:** `.claude/skills/finalize-pr/finalize-gate.sh`, `.claude/skills/finalize-pr/SKILL.md`,
 `scripts/tests/finalize-triage-parse.test.sh`, `scripts/tests/with-timeout.test.sh`,
 `scripts/tests/finalize-gate-script.test.sh`, `scripts/verify-reference.sh`,
+`scripts/tests/install-distribution.test.py`, `.github/workflows/ci.yml`,
 `.agents/distribution-manifest.json`, `docs/plans/2026-10-24-og-159-bootstrap-extract.py`,
 `CHANGELOG.md`, Memory Bank. Файлы замыкания §2.1 **не меняются** (условие bootstrap §2.5 п. 4).
 
 **OUT:**
 - логика проверок: условия стопа, разбор triage, content equivalence — переносятся без изменения
-  смысла; правила `defer` меняет WI-1 (AC-11) уже в скрипте;
+  смысла; единственное locale-уточнение — process prefix §2.1, без изменения AWK-программы.
+  Правила `defer` меняет WI-1 (AC-11) уже в скрипте;
 - `--force` — остаётся ручным маршрутом по команде оператора; его блок остаётся в SKILL.md и
   по-прежнему блокируется guard'ами — заявленный предел, Beads `og-9ic.12`;
 - автоматизация шагов 7–8, паспорта и accepted risk; поля паспорта PM пишет в `BODY_FILE`;
@@ -304,15 +361,15 @@ PR og-159 меняет сам гейт и не сертифицирует себ
 |---|---|---|
 | AC-01 | SKILL.md объявляет ровно две формы вызова скрипта и форму запуска доверенной версии; исполняемых блоков, кроме `--force`, нет | фикстура |
 | AC-02 | Обе формы по относительному пути и форму по абсолютному пути из другого дерева пропускают (код 0) оба runtime: диспетчер Claude Code `.claude/hooks/pre-bash.sh` и PreToolUse-хук Codex из `.codex/hooks.json` (`check-repository-mutation.py` через launcher) | фикстура; RED-таблица §1 в PR |
-| AC-03 | Код скрипта совпадает с блоками SKILL.md@`b830d5e` (57, 187, 215, 243, 512, строки `BASE_SHA` блока 1900, 1946, строки публикации 2041) за вычетом клея §2.1 | diff в PR (разовый) + Code Review |
+| AC-03 | Код скрипта совпадает с блоками SKILL.md@`b830d5e` (57, 187, 215, 243, 512, строки `BASE_SHA` блока 1900, 1946, строки публикации 2041) за вычетом клея §2.1, включая один `LC_ALL=C` prefix процесса `TRIAGE_ROWS` AWK; тело AWK/stop conditions неизменны | diff в PR (разовый) + Code Review |
 | AC-04 | `--check`: все проверки прошли → код 0 и сводка `GATE_RESULT=PASS`; отказ `gh` (диагноз называет инструмент), локальный HEAD ≠ PR HEAD, нет CODE REVIEW evidence, строка triage без статуса → код 1 с прежним сообщением; publisher не вызывается ни в одном исходе | фикстура (подставные `gh`/`bd`) |
 | AC-05 | `--publish`: публикация только после всех проверок; тело не regular file, symlink, пустое, без заголовка, без `Unresolved findings: 0`, отказ/timeout capture → стоп до сетевых вызовов; чужой `Commit:` → стоп без публикации; HEAD сменился до re-check → стоп без публикации; отказ publisher → код 1; успех → `gh` получил ровно байты snapshot для 0/1/2+ завершающих LF; смена исходника после capture не влияет на результат; token виден только publisher; private snapshot удалён при завершении | фикстура |
 | AC-06 | Аргументы: номер не из цифр, нет режима, оба режима, неизвестный флаг, `--publish` без пути → код 2 и usage до любого внешнего вызова | фикстура |
 | AC-07 | Скрипт, запущенный по абсолютному пути из другого дерева, исполняет замыкание §2.1 (помощники времени, publisher, bd-маршруты) только из своего дерева, а HEAD и данные берёт из checkout текущего каталога. Подменённые файлы замыкания в checkout не исполняются (маркер-ловушка). Нет помощника в своём дереве → стоп, даже если он есть в checkout | фикстура |
-| AC-08 | Каждое утверждение из инвентаря §2.3 выполняется на новом источнике (или с новым ожидаемым значением и обоснованием в PR); мутации невакуумности краснеют; табличные кейсы разбора без изменений и зелёные; `verify-reference` и CI (macOS, windows-native) зелёные | `/verify`, CI, список в PR |
+| AC-08 | Каждое утверждение из инвентаря §2.3 выполняется на новом источнике (или с новым ожидаемым значением и обоснованием в PR); мутации невакуумности краснеют; табличные кейсы разбора без изменений и зелёные при внешних C/en_US.UTF-8 locale; RV-F1 RED сохранён; `verify-reference` и CI (macOS с en_US regression, windows-native) зелёные | `/verify`, CI, locale matrix и список в PR |
 | AC-09 | Fresh install во временный проект кладёт исполняемый скрипт; upgrade с rc.3 по install-state обновляет SKILL.md и добавляет скрипт; `legacy_blobs` не изменён; проверка reference проходит | установщик во временный проект |
 | AC-10 | `--check` проходит guard'ы и выполняется до конца на PR og-159 (final candidate) и на PR #11 — в сессии Claude Code и в сессии Codex; отказ сети в песочнице → стоп с диагнозом инструмента | журнал в PR |
-| AC-11 | og-159 финализирован bootstrap'ом §2.5: sha256 итогового файла воспроизводим из опубликованного извлекателя, `b7e7ed1`, номера PR и опубликованного digest проверенного тела; проверка замыкания и совпадения digest snapshot прошла до сети; несовпадение digest → стоп; FINAL указывает `b830d5e`, blob `b7e7ed1`, blob извлекателя, sha256 файла, PR HEAD и результат ручной проверки тела | evidence в PR |
+| AC-11 | og-159 финализирован bootstrap'ом §2.5: actual sha256 итогового файла воспроизводим из опубликованного извлекателя, `b7e7ed1` и номера PR, независимо от тела/digest; constructibility настоящего FINAL со scriptSHA доказана; отдельный до-run attestation связывает scriptSHA/bodySHA/HEAD/extractor blob и manual PM check; проверка замыкания и snapshot против предоставленного runtime digest прошла до сети, provenance digest сверил PM вручную; missing/invalid/mismatch digest → стоп; FINAL указывает `b830d5e`, blob `b7e7ed1`, blob извлекателя, actual sha256 файла, PR HEAD и результат ручной проверки тела | evidence в PR + constructibility/negative fixtures |
 
 **Инварианты:** перенос не ослабляет ни одной проверки; отказ инструмента — стоп, а не «проверять
 нечего»; исполняемый код гейта — только из `GATE_TREE`; readiness публикует только процесс
@@ -335,6 +392,9 @@ publisher после всех проверок и re-check HEAD; `--check` ни�
   каталогом `.claude/skills/finalize-pr/`, AC-16 уже допускает «SHA merge og-159»; план WI-1 v0.6
   не меняется, ветка WI-1 перебазируется на `main` после merge og-159. FINAL WI-1 указывает
   blob и SKILL.md, и `finalize-gate.sh` (A5).
+- R6 — Darwin locale collation подменяет идентичность русских имён колонок (RV-F1):
+  per-process byte locale только для triage AWK; исходное RED и C/en_US matrix,
+  immutable frozen AWK body, bootstrap prefix и actual macOS CI regression.
 
 ## 6. Rollback
 

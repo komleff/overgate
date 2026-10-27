@@ -3027,6 +3027,7 @@ gate_contract_holds() {
   local source="$1" report
   report=$(awk -v gate="$source" -f "$SCANNER" "$source")
   [ -z "$report" ] || return 1
+  [ "$(grep -c -E '^TRIAGE_ROWS=[$][(]LC_ALL=C awk ' "$source")" = 1 ] || return 1
   [ "$(grep -c -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source")" = 1 ] || return 1
   [ "$(grep -A1 -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source" | grep -c -F 'publish_rc=$?')" = 1 ] || return 1
   [ "$(grep -c -F 'if [ "$publish_rc" -ne 0 ]; then' "$source")" = 1 ] || return 1
@@ -3040,12 +3041,13 @@ if gate_contract_holds "$GATE"; then
 else
   not_ok "migration contract: исходный GATE не проходит оракул"
 fi
-for mutation in pipeline publisher base marker probe; do
+for mutation in pipeline publisher base marker probe locale-prefix; do
   mutated="$TMP/gate-$mutation.sh"
   case "$mutation" in
     pipeline) cp "$GATE" "$mutated"; printf '\nX=$(gh pr view 1 | jq .)\n' >> "$mutated" ;;
     publisher) sed '/^if \[ "\$publish_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
     base) sed '/^if \[ "\$base_sha_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
+    locale-prefix) sed 's/TRIAGE_ROWS=$(LC_ALL=C awk/TRIAGE_ROWS=$(LC_COLLATE=C awk/' "$GATE" > "$mutated" ;;
     marker) sed '/^# triage-fetch:end$/d' "$GATE" > "$mutated" ;;
     probe) cp "$GATE" "$mutated"; printf '\n# проба-условия: лишняя необоснованная проба\n' >> "$mutated" ;;
   esac
