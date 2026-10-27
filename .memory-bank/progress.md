@@ -1,5 +1,19 @@
 # Progress
 
+## og-159 — implementation candidate, acceptance pending
+
+В PR #13 реализован перенос автоматического `/finalize-pr` в managed executable script
+с `--check`/`--publish`; SKILL сохраняет описание и ручной `--force`. Добавлены tests обоих
+hook routes, stubbed e2e, capture bytes/LF/cleanup, trusted-tree closure, migration assertions
+и non-vacuity mutations, fresh/rc.3 upgrade, deterministic bootstrap extractor и CHANGELOG.
+Перед implementation зафиксирован RED отсутствующего script; локальные итоги Developer
+с exact candidate SHA публикуются PM в PR после проверки reference. Closure из rc.3 сохранён.
+Pending: независимые QA и scoped Code Review, fresh exact-HEAD CI, live Claude/Codex `--check`
+(PR #13 и #11), PM manual body validation, trusted bootstrap-finalization и operator merge.
+Новый candidate/release rc.4 здесь не объявляется; WI-1 ждёт merge og-159.
+
+## rc.3 — исторический snapshot до og-159
+
 В работе: v4.0.0-rc.3 (`og-7d1`), Draft PR #11, ветка `fix/installer-conformance`, план
 `docs/plans/2026-10-24-v4.0.0-rc.3.md` v0.3 (PLAN_READY). Реализованы шаги 1–4: RED-тесты §4,
 C1–C3 в `scripts/install-overgate.py`, INSTALL/версия/CHANGELOG, AC-09 на офлайн-клоне u2-lab.

@@ -1,5 +1,19 @@
 # Active Context
 
+## og-159 — единый исполняемый finalize gate
+
+Приоритетная линия: `og-159`, PR #13, ветка `fix/og-159-finalize-gate-script`, база
+`main@b830d5e` (rc.3). Принятый план v0.3, blob `af42d632`, PLAN_READY launch 2/6.
+Developer переносит frozen `SKILL.md` blob `b7e7ed1` в managed `finalize-gate.sh`: общий shell
+маршрут Claude Code/Codex, code из GATE_TREE, data из WORK_TREE, private snapshot с точными
+bytes и raw stdin publisher. Trusted closure не меняется. Bootstrap extractor фиксирует
+исходный blob, closure и digest вручную проверенного PM тела; og-159 финализируется им.
+Ручные проверки accepted risk/паспорта, CI, live runtime checks, независимые QA 3/6,
+Code Review 4/6 и bootstrap-finalization остаются pending; local Developer fixtures не
+означают acceptance/readiness. Merge — оператор. WI-1 rc.4 v0.6 и его ветка не меняются.
+
+## rc.3 — исторический snapshot до og-159
+
 Текущий фокус: v4.0.0-rc.3 (`og-7d1`), Draft PR #11, ветка `fix/installer-conformance`, база
 `main` `073595a` (= rc.2). План `docs/plans/2026-10-24-v4.0.0-rc.3.md` v0.3 (PLAN_READY), CRITICAL,
 budget 6. Решение оператора 2026-10-24: перед upgrade u2-lab выпустить rc.3 с исправлением

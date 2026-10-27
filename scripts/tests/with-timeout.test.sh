@@ -1091,7 +1091,7 @@ extract_marked_shell() {
   local source_file="$1"
   local output_file="$2"
   local marker="$3"
-  awk -v start="<!-- ${marker}:start -->" -v finish="<!-- ${marker}:end -->" '
+  awk -v start="# ${marker}:start" -v finish="# ${marker}:end" '
     $0 == start { inside=1; next }
     $0 == finish { inside=0; found=1; next }
     inside && $0 !~ /^```/ { print }
@@ -1179,9 +1179,9 @@ assert_callsite_succeeds() {
 }
 
 FINALIZE_CALLSITE="$TMP_DIR/finalize-triage-callsite.sh"
-if extract_shell_block_containing "$ROOT/.claude/skills/finalize-pr/SKILL.md" \
-    "$FINALIZE_CALLSITE" 'TRIAGE_JSON=$(run_with_timeout'; then
-  sed -i.bak 's/<PR_NUMBER>/645/g' "$FINALIZE_CALLSITE"
+if extract_marked_shell "$ROOT/.claude/skills/finalize-pr/finalize-gate.sh" \
+    "$FINALIZE_CALLSITE" triage-fetch; then
+  sed -i.bak 's/${PR_NUMBER}/645/g' "$FINALIZE_CALLSITE"
   rm -f "$FINALIZE_CALLSITE.bak"
   pass "finalize-pr triage проверяется через реальный call site"
   for scenario in triage-error triage-timeout; do
@@ -1196,7 +1196,7 @@ fi
 
 # Generic wrappers no longer execute Copilot/network loops; only finalize owns timed calls.
 for skill in finalize-pr; do
-  SKILL_FILE="$ROOT/.claude/skills/$skill/SKILL.md"
+  SKILL_FILE="$ROOT/.claude/skills/$skill/finalize-gate.sh"
   PREFLIGHT="$TMP_DIR/$skill-preflight.sh"
   if extract_marked_shell "$SKILL_FILE" "$PREFLIGHT" timeout-helper-preflight; then
     pass "$skill содержит исполняемый preflight помощника"
@@ -1210,7 +1210,7 @@ for skill in finalize-pr; do
   git -C "$SKILL_SANDBOX" init -q
 
   MISSING_OUTPUT="$TMP_DIR/$skill-missing.out"
-  (cd "$SKILL_SANDBOX" && bash "$PREFLIGHT") >"$MISSING_OUTPUT" 2>&1
+  (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash "$PREFLIGHT") >"$MISSING_OUTPUT" 2>&1
   MISSING_RC=$?
   MISSING_TEXT="$(cat "$MISSING_OUTPUT")"
   assert_ne "$MISSING_RC" "0" "$skill останавливается без помощника"
@@ -1223,7 +1223,7 @@ for skill in finalize-pr; do
   chmod +x "$SKILL_SANDBOX/.claude/tools/run-python.sh"
   chmod -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
   NONEXEC_OUTPUT="$TMP_DIR/$skill-nonexec.out"
-  (cd "$SKILL_SANDBOX" && bash "$PREFLIGHT") >"$NONEXEC_OUTPUT" 2>&1
+  (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash "$PREFLIGHT") >"$NONEXEC_OUTPUT" 2>&1
   NONEXEC_RC=$?
   NONEXEC_TEXT="$(cat "$NONEXEC_OUTPUT")"
   assert_ne "$NONEXEC_RC" "0" "$skill останавливается с неисполнимым помощником"
@@ -1231,7 +1231,7 @@ for skill in finalize-pr; do
 
   chmod +x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
   COMMAND_ERROR_OUTPUT="$TMP_DIR/$skill-command-error.out"
-  (cd "$SKILL_SANDBOX" && bash -c \
+  (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash -c \
     '. "$1"; run_with_timeout 1 /bin/sh -c "exit 23"' _ "$PREFLIGHT") \
     >"$COMMAND_ERROR_OUTPUT" 2>&1
   COMMAND_ERROR_RC=$?
@@ -1241,7 +1241,7 @@ for skill in finalize-pr; do
     "$skill явно диагностирует ошибку команды"
 
   RESERVED_ERROR_OUTPUT="$TMP_DIR/$skill-reserved-error.out"
-  (cd "$SKILL_SANDBOX" && bash -c \
+  (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash -c \
     '. "$1"; run_with_timeout 1 /bin/sh -c "exit 124"' _ "$PREFLIGHT") \
     >"$RESERVED_ERROR_OUTPUT" 2>&1
   RESERVED_ERROR_RC=$?
@@ -1254,7 +1254,7 @@ for skill in finalize-pr; do
     "$skill не печатает ложную диагностику истечения времени"
 
   SKILL_TIMEOUT_OUTPUT="$TMP_DIR/$skill-timeout.out"
-  (cd "$SKILL_SANDBOX" && bash -c \
+  (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash -c \
     '. "$1"; run_with_timeout 1 /bin/sleep 5' _ "$PREFLIGHT") \
     >"$SKILL_TIMEOUT_OUTPUT" 2>&1
   SKILL_TIMEOUT_RC=$?
@@ -1266,7 +1266,7 @@ done
 
 for skill in finalize-pr; do
   if grep -nE '(^|[=(;&|[:space:]])timeout[[:space:]]+[0-9]' \
-      "$ROOT/.claude/skills/$skill/SKILL.md" >"$TMP_DIR/$skill-direct-timeout.out"; then
+      "$ROOT/.claude/skills/$skill/finalize-gate.sh" >"$TMP_DIR/$skill-direct-timeout.out"; then
     fail "$skill не вызывает системный timeout напрямую"
   else
     pass "$skill не вызывает системный timeout напрямую"

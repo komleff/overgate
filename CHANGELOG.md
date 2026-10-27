@@ -3,6 +3,16 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
+## [Unreleased] — следующий RC
+
+### Fixed
+- **og-159:** автоматические проверки `/finalize-pr` и публикация выполняются единым
+  managed `finalize-gate.sh` для Claude Code и Codex. `--check` не публикует; `--publish`
+  использует private snapshot тела и сохраняет его точные bytes. Trusted code берётся из
+  дерева скрипта, данные — из текущего checkout; отказ инструмента останавливает гейт.
+- Добавлен детерминированный bootstrap-извлекатель из frozen rc.3 для финализации самого
+  og-159. Ручные проверки PM и operator-only merge сохранены; guards не меняются.
+
 ## [v4.0.0-rc.3] — побайтное соответствие установленного проекта, 2026-10-24
 
 Prerelease; stable `v3.9.0` остаётся Latest. Контракт — `docs/plans/2026-10-24-v4.0.0-rc.3.md`.

@@ -164,6 +164,11 @@
       "policy": "managed"
     },
     {
+      "source": ".claude/skills/finalize-pr/finalize-gate.sh",
+      "target": ".claude/skills/finalize-pr/finalize-gate.sh",
+      "policy": "managed"
+    },
+    {
       "source": ".claude/skills/pipeline-audit/SKILL.md",
       "target": ".claude/skills/pipeline-audit/SKILL.md",
       "policy": "managed"
