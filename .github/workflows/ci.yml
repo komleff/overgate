@@ -17,6 +17,33 @@ jobs:
           persist-credentials: false
       - name: Verify generic reference
         run: bash scripts/verify-reference.sh
+  verify-reference-macos:
+    name: verify-reference-macos
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reference prerequisites
+        run: |
+          command -v jq >/dev/null || brew install jq
+          python --version
+          node --version
+          jq --version
+          bash --version
+      - name: Verify generic reference on macOS
+        run: bash scripts/verify-reference.sh
   windows-native:
     name: windows-native
     env:

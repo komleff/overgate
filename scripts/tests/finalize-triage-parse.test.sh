@@ -12,6 +12,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SKILL="$ROOT/.claude/skills/finalize-pr/SKILL.md"
+GATE="${FINALIZE_GATE_TEST_SOURCE:-$ROOT/.claude/skills/finalize-pr/finalize-gate.sh}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -44,14 +45,14 @@ awk '
   capture && !skipping              { print }
   /^if \[ "\$TRIAGE_FAILED" = "1" \]; then/ { in_tail = 1; next }
   in_tail && /^fi$/                 { exit }
-' "$SKILL" > "$EXTRACT"
+' "$GATE" > "$EXTRACT"
 
 # Маркеры границы обязаны существовать в скилле ровно по одному разу. Иначе awk выше либо
 # не пропустит сетевой вызов (тест пойдёт в сеть и покраснеет непредсказуемо), либо
 # пропустит участок до конца файла (извлечение станет обрубком). Проверка адресная:
 # сообщение должно называть причину, а не «что-то не извлеклось».
 for marker in '# triage-fetch:start' '# triage-fetch:end'; do
-  if [ "$(grep -c -F -x "$marker" "$SKILL")" != "1" ]; then
+  if [ "$(grep -c -F -x "$marker" "$GATE")" != "1" ]; then
     not_ok "маркер '$marker' встречается в SKILL.md не один раз — граница блока сетевого получения тел потеряна"
     printf '\n1..%d\n' "$((pass + fail))"
     exit 1
@@ -183,10 +184,10 @@ ok "логика разбора извлечена из действующего
 # Границу задают те же парные маркеры, что использует scripts/tests/with-timeout.test.sh.
 HELPER="$TMP/timeout-helper.sh"
 awk '
-  /^<!-- timeout-helper-preflight:start -->/ { f = 1; next }
-  /^<!-- timeout-helper-preflight:end -->/   { exit }
+  /^# timeout-helper-preflight:start/ { f = 1; next }
+  /^# timeout-helper-preflight:end/   { exit }
   f && !/^```/                               { print }
-' "$SKILL" > "$HELPER"
+' "$GATE" > "$HELPER"
 if ! grep -q '^run_with_timeout() {' "$HELPER"; then
   not_ok "из SKILL.md не извлекается preflight помощника ограничения времени — ветки bd и сетевого вызова прогонялись бы против подделки"
   printf '\n1..%d\n' "$((pass + fail))"
@@ -214,6 +215,7 @@ run_gate() {
     # оболочке, где `pipefail` не установлен. Включив его здесь, фикстура сделала бы конвейеры
     # fail-closed САМА и объявила бы починенным то, что в бою по-прежнему пропускает отказ.
     printf 'set -u\n'
+    printf 'GATE_TREE=%q\n' "${workdir:-$ROOT}"
     printf 'HEAD_COMMIT="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"\n'
     cat "$HELPER"
     # Фикстура подаёт тела уже с разделителем Record Separator между отчётами —
@@ -1591,13 +1593,13 @@ fi
 
 # Словарь ОДИН на файл: shell-сторона не имеет права нести собственный перечень форм.
 # Структурная проверка — она краснеет при откате к сравнениям вида `[ "$rationale" = "—" ]`.
-if grep -qF 'payload_is_blank "$rationale"' "$SKILL" \
-   && ! grep -qE '\[ "\$rationale" = "(-|—|–)" \]' "$SKILL"; then
+if grep -qF 'payload_is_blank "$rationale"' "$GATE" \
+   && ! grep -qE '\[ "\$rationale" = "(-|—|–)" \]' "$GATE"; then
   ok "проверка обоснования читает единый словарь, а не вторую копию перечня прочерков"
 else
   not_ok "в проверке обоснования снова выписан свой перечень прочерков — две копии словаря разъедутся"
 fi
-if [ "$(grep -c -E '^BLANK_FORMS=' "$SKILL")" = "1" ] && grep -qF -e '-v BLANKS="$BLANK_FORMS"' "$SKILL"; then
+if [ "$(grep -c -E '^BLANK_FORMS=' "$GATE")" = "1" ] && grep -qF -e '-v BLANKS="$BLANK_FORMS"' "$GATE"; then
   ok "словарь пустых форм объявлен один раз и передан в разбор параметром"
 else
   not_ok "словарь пустых форм объявлен не один раз либо не передан в awk — источник перестал быть единственным"
@@ -1708,7 +1710,7 @@ fi
 #      `-eq 124`. Без неё убитый по времени запрос уходит в пробу, проба отвечает «читатель
 #      работает», и гейт печатает «задачи нет в снимке» о задаче, про которую снимок не
 #      спрашивали: диагноз называет ОТЧЁТ там, где не уложилось ОКРУЖЕНИЕ.
-snap_block=$(awk '/bd_read_exit=\$\?/ { f = 1 } f { print } f && /BD_READ_NO_FETCH=1/ { exit }' "$SKILL")
+snap_block=$(awk '/bd_read_exit=\$\?/ { f = 1 } f { print } f && /BD_READ_NO_FETCH=1/ { exit }' "$GATE")
 if printf '%s' "$snap_block" | grep -E >/dev/null '^[[:space:]]*elif \[ "\$bd_read_exit" -eq 124 \]; then'; then
   ok "маршрут снимка: истечение времени разобрано отдельно и раньше пробы читаемости"
 else
@@ -2098,12 +2100,12 @@ norm_statuses=$(awk '
   /^<!-- triage-statuses:end -->/   { exit }
   f && /^- `[^`]+`/ { s = $0; sub(/^- `/, "", s); sub(/`.*$/, "", s); print tolower(s) }
 ' "$REVIEWER" | sort)
-wide_statuses=$(grep -o 'split("[^"]*", STATUS_LIST' "$SKILL" | sed 's/^split("//; s/", STATUS_LIST$//' | tr ';' '\n' | sort)
+wide_statuses=$(grep -o 'split("[^"]*", STATUS_LIST' "$GATE" | sed 's/^split("//; s/", STATUS_LIST$//' | tr ';' '\n' | sort)
 strict_statuses=$(awk '
   /^  case "\$status" in/ { c = 1; next }
   c && /^  esac/          { exit }
   c && /^    "[^"]+"\)/   { s = $0; sub(/^    "/, "", s); sub(/"\)$/, "", s); print tolower(s) }
-' "$SKILL" | sort)
+' "$GATE" | sort)
 if [ -z "$norm_statuses" ]; then
   not_ok "в $REVIEWER нет размеченного перечня статусов триажа — анти-дрейф не с чем сверять"
 elif [ "$wide_statuses" = "$strict_statuses" ] && [ "$wide_statuses" = "$norm_statuses" ]; then
@@ -2122,9 +2124,9 @@ fi
 # что предложение нормы верно ОПИСЫВАЕТ поведение кода, держат поведенческие кейсы выше
 # (54w4–54w8, 54s2–54s4), а не эта секция. Слои вне пары «скилл ↔ reviewer.md» (контракт
 # в теле PR) машиной не сверяются — их держит ревью.
-dict_stathdr=$(sed -n 's/.*STATHDR_N = split("\([^"]*\)".*/\1/p' "$SKILL")
-dict_statalt=$(sed -n 's/.*STATALT_N = split("\([^"]*\)".*/\1/p' "$SKILL")
-dict_findhdr=$(sed -n 's/.*FINDHDR_N = split("\([^"]*\)".*/\1/p' "$SKILL")
+dict_stathdr=$(sed -n 's/.*STATHDR_N = split("\([^"]*\)".*/\1/p' "$GATE")
+dict_statalt=$(sed -n 's/.*STATALT_N = split("\([^"]*\)".*/\1/p' "$GATE")
+dict_findhdr=$(sed -n 's/.*FINDHDR_N = split("\([^"]*\)".*/\1/p' "$GATE")
 if [ -z "$dict_stathdr" ] || [ -z "$dict_statalt" ] || [ -z "$dict_findhdr" ]; then
   not_ok "словари колонок не извлечены из SKILL.md — сверка слоёв описания не с чем"
 else
@@ -2193,7 +2195,7 @@ BEGIN {
 SETCHECK_AWK
 
 # 1. Диагноз NOSTATCOL: перечень поддерживаемых имён колонки решения = словари целиком.
-nsline=$(grep -F 'Назови колонку статуса в шапке одним из поддерживаемых имён' "$SKILL" | head -1)
+nsline=$(grep -F 'Назови колонку статуса в шапке одним из поддерживаемых имён' "$GATE" | head -1)
 if [ -z "$nsline" ]; then
   not_ok "строка диагноза NOSTATCOL не найдена — перечень имён в сообщении не сверить"
 else
@@ -2204,7 +2206,7 @@ fi
 #    решения — те же словари ЦЕЛИКОМ (REQLAT=1: расхождение двух диагнозов одной дельты —
 #    итерация 8, F4/Minor5: сирота перечислял 5 русских имён против 10 у соседа, и автора
 #    с английской шапкой сообщение уводило в ложное «не поддержано»).
-orline=$(grep -F 'шапка не несёт подписи шаблона reviewer.md' "$SKILL" | head -1)
+orline=$(grep -F 'шапка не несёт подписи шаблона reviewer.md' "$GATE" | head -1)
 if [ -z "$orline" ]; then
   not_ok "строка диагноза сироты не найдена — подпись в сообщении не сверить"
 else
@@ -2225,7 +2227,7 @@ for mpair in 'decision-names' 'finding-names' 'word-boundary-norm' 'stub-phrase-
 done
 for mpair in 'word-boundary-norm' 'stub-phrase-norm'; do
   for mk in "# ${mpair}:start" "# ${mpair}:end"; do
-    if [ "$(grep -c -F "$mk" "$SKILL")" != "1" ]; then
+    if [ "$(grep -c -F "$mk" "$GATE")" != "1" ]; then
       not_ok "маркер '$mk' в SKILL.md встречается не один раз — норма-зеркало не извлекается"
     fi
   done
@@ -2240,7 +2242,7 @@ run_setcheck "$(name_tokens "$fn_block")" "$dict_findhdr" 1 "перечень я
 #    двух зеркал; соответствие текста МЕХАНИЗМУ эта проверка не доказывает — его держат
 #    поведенческие кейсы (54w4–54w8, 54s2–54s4). Пар две: граница слова и фраза-заглушка.
 for npair in 'word-boundary-norm' 'stub-phrase-norm'; do
-  n_skill=$(awk -v M="$npair" 'index($0, "# " M ":start"){f=1;next} index($0, "# " M ":end"){f=0} f { sub(/^[ \t]*#[ \t]?/, ""); print }' "$SKILL" | tr '\n' ' ' | awk '{ gsub(/[ \t]+/, " "); sub(/^ /, ""); sub(/ $/, ""); print }')
+  n_skill=$(awk -v M="$npair" 'index($0, "# " M ":start"){f=1;next} index($0, "# " M ":end"){f=0} f { sub(/^[ \t]*#[ \t]?/, ""); print }' "$GATE" | tr '\n' ' ' | awk '{ gsub(/[ \t]+/, " "); sub(/^ /, ""); sub(/ $/, ""); print }')
   n_norm=$(awk -v M="$npair" 'index($0, "<!-- " M ":start -->"){f=1;next} index($0, "<!-- " M ":end -->"){f=0} f' "$REVIEWER" | tr '\n' ' ' | awk '{ gsub(/[ \t]+/, " "); sub(/^ /, ""); sub(/ $/, ""); print }')
   if [ -n "$n_skill" ] && [ "$n_skill" = "$n_norm" ]; then
     ok "норма '$npair' в reviewer.md дословно равна норме в скилле — механизм и текст связаны"
@@ -2260,7 +2262,7 @@ awk '
   /^# triage-fetch:start/ { f = 1; next }
   /^# triage-fetch:end/   { exit }
   f                       { print }
-' "$SKILL" | sed 's/<PR_NUMBER>/634/g' > "$FETCH"
+' "$GATE" | sed 's/${PR_NUMBER}/634/g' > "$FETCH"
 if ! grep -q 'TRIAGE_JSON=' "$FETCH" || ! grep -q 'REVIEW_BODIES=' "$FETCH"; then
   not_ok "участок сетевого получения тел не извлекается из SKILL.md — инвариант 4 не проверяется исполнением"
 else
@@ -2285,6 +2287,7 @@ else
     {
       # ⚠️ НЕ `pipefail` — та же причина, что у `run_piece` и `run_gate`.
       printf 'set -u\n'
+      printf 'GATE_TREE=%q\n' "$ROOT"
       printf 'HEAD_COMMIT="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"\n'
       cat "$HELPER"
       cat "$FETCH"
@@ -2341,7 +2344,7 @@ fi
 
 # 63. Шаг 3 обязан отличать «отчёта нет» от «отчёт есть»: при `.body + <что-то>` jq вернёт
 #     непустую строку даже когда отчётов ноль, и проверка `[ -z ... ]` не сработает никогда.
-if grep -A9 'LAST_INTERNAL=' "$SKILL" | grep -E >/dev/null '^\s*\|\s*\.body // empty\s*$'; then
+if grep -A9 'LAST_INTERNAL=' "$GATE" | grep -E >/dev/null '^\s*\|\s*\.body // empty\s*$'; then
   ok "шаг 3 использует '.body // empty' — проверка отсутствия отчёта жива"
 else
   not_ok "шаг 3: LAST_INTERNAL не использует '.body // empty' — проверка отсутствия review-pass мертва"
@@ -2350,7 +2353,7 @@ fi
 # 64. Тела отчётов обязаны разделяться: без разделителя поотчётная страховка деградирует
 #     до проверки суммы тел. Разделитель пишется видимым escape, не управляющим байтом —
 #     литеральный байт не переживает копирование блока агентом и блокируется харнессом.
-if grep -A9 'REVIEW_BODIES=' "$SKILL" | grep >/dev/null '\.body + "\\u001e"'; then
+if grep -A9 'REVIEW_BODIES=' "$GATE" | grep >/dev/null '\.body + "\\u001e"'; then
   ok "тела отчётов разделяются видимым escape-разделителем"
 else
   not_ok "REVIEW_BODIES: нет видимого разделителя '\\u001e' — страховка деградирует до суммы тел"
@@ -2358,14 +2361,14 @@ fi
 
 # 65. Delivery First content-equivalence обязан быть исполняемым, а не только prose:
 #     prior CODE REVIEW несёт Content-Fingerprint, который сравнивается с current package+contract.
-if grep -q 'EVIDENCE_SHA="$HEAD_COMMIT"' "$SKILL"    && grep -q 'EVIDENCE_FINGERPRINT' "$SKILL"    && grep -q 'CURRENT_CONTENT_FINGERPRINT' "$SKILL"; then
+if grep -q 'EVIDENCE_SHA="$HEAD_COMMIT"' "$GATE"    && grep -q 'EVIDENCE_FINGERPRINT' "$GATE"    && grep -q 'CURRENT_CONTENT_FINGERPRINT' "$GATE"; then
   ok "Шаг 3 содержит исполняемый content-equivalence route"
 else
   not_ok "Шаг 3: content-equivalence остаётся декларативным — нет evidence/current fingerprint binding"
 fi
 
 # 66. Triage обязан читать findings с SHA доказанного review evidence, а не безусловно current HEAD.
-if grep -q 'TRIAGE_EVIDENCE_SHA="${EVIDENCE_SHA:-$HEAD_COMMIT}"' "$SKILL"    && grep -q -- '--arg head "$TRIAGE_EVIDENCE_SHA"' "$SKILL"; then
+if grep -q 'TRIAGE_EVIDENCE_SHA="${EVIDENCE_SHA:-$HEAD_COMMIT}"' "$GATE"    && grep -q -- '--arg head "$TRIAGE_EVIDENCE_SHA"' "$GATE"; then
   ok "Шаг 6 triage привязан к EVIDENCE_SHA"
 else
   not_ok "Шаг 6: triage по-прежнему безусловно привязан к current HEAD"
@@ -2517,23 +2520,29 @@ make_rc_stub() {
 # извлечение блока по ПАРНЫМ МАРКЕРАМ. Оба берут действующий текст скилла: синтезировать
 # проверяемые строки в фикстуре нельзя — тогда тест проверял бы копию.
 extract_block_with() {
-  awk -v needle="$1" '
-    $0 ~ /^[[:space:]]*```bash$/ { inside = 1; buffer = ""; matched = 0; next }
-    inside && $0 ~ /^[[:space:]]*```$/ {
-      if (matched) { printf "%s", buffer; emitted = 1; exit }
-      inside = 0; next
-    }
-    inside { buffer = buffer $0 ORS; if (index($0, needle)) matched = 1 }
-    END { if (!emitted) exit 1 }
-  ' "$SKILL" | sed 's/<PR_NUMBER>/634/g' > "$2"
+  local end
+  case "$1" in
+    'HEAD_COMMIT='*) end='echo "Финализируем PR' ;;
+    'INTERNAL_COMMENTS_JSON='*) end='head_preview_rc=$?' ;;
+    'HEAD_NOW='*) end='echo "Запусти /finalize-pr' ;;
+    'LOCAL_HEAD='*) end='echo "Выполни: gh pr checkout' ;;
+    *) return 1 ;;
+  esac
+  awk -v start="$1" -v end="$end" '
+    index($0,start) { f=1 }
+    f { print }
+    f && index($0,end) { tail=1; if (start ~ /^HEAD_COMMIT=/) exit }
+    tail && /^fi$/ { exit }
+  ' "$GATE" | sed 's/${PR_NUMBER}/634/g' > "$2"
   [ -s "$2" ]
 }
+
 extract_marked() {
   awk -v s="# $1:start" -v e="# $1:end" '
     index($0, s) { f = 1; next }
     f && index($0, e) { exit }
     f { print }
-  ' "$SKILL" | sed 's/<PR_NUMBER>/634/g' > "$2"
+  ' "$GATE" | sed 's/${PR_NUMBER}/634/g' > "$2"
   [ -s "$2" ]
 }
 
@@ -2549,6 +2558,7 @@ run_piece() {
     # установлен; включив его в прогоне, фикстура сделала бы конвейеры fail-closed сама и
     # объявила бы починенным то, что в бою по-прежнему пропускает отказ upstream.
     printf 'set -u\n'
+    printf 'GATE_TREE=%q\n' "$SNAP_ROOT"
     [ -z "$no_helper" ] && cat "$HELPER"
     printf '%s\n' "$prelude"
     cat "$piece"
@@ -2686,7 +2696,7 @@ mkdir -p "$gitrc_stub"
   printf '  n=$(cat "$CNT" 2>/dev/null || echo 0)\n'
   printf '  n=$((n + 1))\n'
   printf '  echo "$n" > "$CNT"\n'
-  printf '  [ "$n" -ge 2 ] && exit 5\n'
+  printf '  exit 5\n'
   printf '  exit 0\n'
   printf 'fi\n'
   printf 'exec /usr/bin/git "$@"\n'
@@ -2695,8 +2705,8 @@ chmod +x "$gitrc_stub/git"
 rm -f "$TMP/gitrc-count"
 printf '%s\n%s\n| 1 | WARNING | x | a.cs:1 | defer to Beads | U2-abcd |\n' "$hdr" "$sep" > "$TMP/gitrc.md"
 out=$(run_gate "$TMP/gitrc.md" "$gitrc_stub" "$SNAP_ROOT"); code=$?
-if [ "$code" != "0" ] && printf '%s' "$out" | grep -F >/dev/null "git завершился с кодом 5"; then
-  ok "ветка Beads: отказ git при чтении корня останавливает гейт своим диагнозом"
+if [ "$code" != "0" ] && printf '%s' "$out" | grep -F >/dev/null "git не отработал внутри bd_env_is_main_checkout"; then
+  ok "ветка Beads: отказ git внутри определения класса checkout останавливает гейт своим диагнозом"
 else
   not_ok "ветка Beads: отказ git прочитан как «корень есть» — маршруты искались по пустому пути (код $code): $(printf '%s' "$out" | head -1)"
 fi
@@ -2705,11 +2715,11 @@ fi
 # ходит в GitHub), поэтому проверяются обе половины формы — и что она стоит у ВСЕХ трёх
 # вызовов. Молчание об отказе публикации — самый дорогой из возможных: оператор считал бы
 # PR финализированным по несуществующему комментарию (внешнее ревью PR #634, P1).
-publisher_calls=$(grep -c -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$SKILL")
-publisher_rc_lines=$(grep -A1 -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$SKILL" | grep -c -F 'publish_rc=$?')
-publisher_rc_checks=$(grep -c -F 'if [ "$publish_rc" -ne 0 ]; then' "$SKILL")
-if [ "$publisher_calls" = "3" ] && [ "$publisher_rc_lines" = "3" ] && [ "$publisher_rc_checks" = "3" ]; then
-  ok "все три вызова publisher записывают и проверяют код возврата публикации"
+publisher_calls=$(grep -c -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$GATE")
+publisher_rc_lines=$(grep -A1 -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$GATE" | grep -c -F 'publish_rc=$?')
+publisher_rc_checks=$(grep -c -F 'if [ "$publish_rc" -ne 0 ]; then' "$GATE")
+if [ "$publisher_calls" = "1" ] && [ "$publisher_rc_lines" = "1" ] && [ "$publisher_rc_checks" = "1" ]; then
+  ok "единственный вызов publisher скрипта записывают и проверяют код возврата публикации"
 else
   not_ok "публикация без проверки кода возврата (вызовов $publisher_calls, записей $publisher_rc_lines, проверок $publisher_rc_checks) — неопубликованный комментарий читался бы как финализация"
 fi
@@ -2776,8 +2786,9 @@ cat > "$SCANNER" <<'SKILL_SCAN_AWK'
     SQ = sprintf("%c", 39); DQ = sprintf("%c", 34)
     RCPAT = "^[[:space:]]*(local[[:space:]]+)?[^[:space:]=]+=[$][?][[:space:]]*$"
     # Оболочечные встроенные: внешнего процесса не порождают, отказ окружения им не грозит.
-    BI_N = split("printf;echo;true;false;cd;pwd;test;[;read;shift;return;exit;local;export;unset;set;continue;break;.;source;:;eval;trap;wait;declare;typeset;alias", BI, ";")
+    BI_N = split("printf;echo;true;false;cd;pwd;test;[;read;shift;return;exit;local;export;unset;set;continue;break;.;source;:;eval;trap;wait;declare;typeset;alias;umask", BI, ";")
   }
+  FNR == 1 { inb = (FILENAME == gate); if (inb) blk++ }
   !inb && /^[[:space:]]*```bash$/ { inb = 1; blk++; next }
   inb && !inq && hd == "" && pend == 0 && /^[[:space:]]*```$/ { inb = 0; next }
   !inb { next }
@@ -2825,7 +2836,9 @@ cat > "$SCANNER" <<'SKILL_SCAN_AWK'
     for (i = 1; i <= n; i++) {
       if (ex[i] || blkex[bl[i]]) continue
       s = trim(tx[i])
-      if (s ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/) continue
+      if (s ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/) {
+        fn=s; sub(/\(\).*/, "", fn); FUNCTIONS[fn]=1; continue
+      }
       # метка ветки `case`: строка заканчивается `)` и открывающей скобки не несёт
       if (s ~ /\)$/ && index(s, "(") == 0) continue
       # ⚠️ ПОЗИЦИЯ УСЛОВИЯ БОЛЬШЕ НЕ ВЫЧЁРКИВАЕТСЯ ЦЕЛИКОМ (внешнее ревью PR #634, проход 10).
@@ -2892,6 +2905,7 @@ cat > "$SCANNER" <<'SKILL_SCAN_AWK'
   function norm(c) { gsub(/["]/, "", c); gsub(SQ, "", c); return c }
   function isbuiltin(c,   k) {
     c = norm(c)
+    if (c in FUNCTIONS) return 1
     for (k = 1; k <= BI_N; k++) if (c == BI[k]) return 1
     return 0
   }
@@ -3008,7 +3022,50 @@ cat > "$SCANNER" <<'SKILL_SCAN_AWK'
     }
   }
 SKILL_SCAN_AWK
-skill_scan=$(awk -f "$SCANNER" "$SKILL")
+# Оракулы миграции проверяются на самом GATE и на адресных повреждениях.
+gate_contract_holds() {
+  local source="$1" report
+  report=$(awk -v gate="$source" -f "$SCANNER" "$source")
+  [ -z "$report" ] || return 1
+  [ "$(grep -c -E '^TRIAGE_ROWS=[$][(]LC_ALL=C awk ' "$source")" = 1 ] || return 1
+  [ "$(grep -c -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source")" = 1 ] || return 1
+  [ "$(grep -A1 -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source" | grep -c -F 'publish_rc=$?')" = 1 ] || return 1
+  [ "$(grep -c -F 'if [ "$publish_rc" -ne 0 ]; then' "$source")" = 1 ] || return 1
+  grep -A8 -F 'BASE_SHA=$(run_with_timeout' "$source" | grep -F 'if [ "$base_sha_rc" -ne 0 ]; then' >/dev/null || return 1
+  [ "$(grep -c -Fx '# triage-fetch:start' "$source")" = 1 ] || return 1
+  [ "$(grep -c -Fx '# triage-fetch:end' "$source")" = 1 ] || return 1
+  [ "$(grep -c -E '^[[:space:]]*#.*проба-условия:' "$source")" = 3 ] || return 1
+}
+if gate_contract_holds "$GATE"; then
+  ok "migration contract: исходный GATE проходит невакуумный оракул"
+else
+  not_ok "migration contract: исходный GATE не проходит оракул"
+fi
+for mutation in pipeline publisher base marker probe locale-prefix; do
+  mutated="$TMP/gate-$mutation.sh"
+  case "$mutation" in
+    pipeline) cp "$GATE" "$mutated"; printf '\nX=$(gh pr view 1 | jq .)\n' >> "$mutated" ;;
+    publisher) sed '/^if \[ "\$publish_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
+    base) sed '/^if \[ "\$base_sha_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
+    locale-prefix) sed 's/TRIAGE_ROWS=$(LC_ALL=C awk/TRIAGE_ROWS=$(LC_COLLATE=C awk/' "$GATE" > "$mutated" ;;
+    marker) sed '/^# triage-fetch:end$/d' "$GATE" > "$mutated" ;;
+    probe) cp "$GATE" "$mutated"; printf '\n# проба-условия: лишняя необоснованная проба\n' >> "$mutated" ;;
+  esac
+  if gate_contract_holds "$mutated"; then
+    not_ok "migration non-vacuity: $mutation не пойман"
+  else
+    ok "migration non-vacuity: $mutation краснеет"
+  fi
+done
+for source in "$GATE" "$SKILL"; do
+  if [ "$(grep -c -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source")" = 1 ] \
+      && [ "$(grep -c -F 'if [ "$publish_rc" -ne 0 ]; then' "$source")" = 1 ]; then
+    ok "publisher inventory: один вызов и проверка в ${source##*/}"
+  else
+    not_ok "publisher inventory: потерян вызов или проверка в $source"
+  fi
+done
+skill_scan=$(awk -v gate="$GATE" -f "$SCANNER" "$GATE" "$SKILL")
 # Разбор один, утверждений три — по классу находок. Разделение по префиксу строки, а не
 # повторным запуском awk: второй запуск той же программы разошёлся бы с первым при первой же
 # правке. `grep` здесь идёт по строке-переменной через `<<<` — тот же канон, что и в скилле.
@@ -3206,9 +3263,9 @@ fi
 
 # Маркер-исключение — не глушилка «на всякий случай»: его число в скилле зафиксировано,
 # и рост требует осознанного обновления числа вместе с обоснованием в самом маркере.
-rc_exemptions=$(grep -c -F 'rc-исключение' "$SKILL")
-if [ "$rc_exemptions" = "1" ]; then
-  ok "маркеров-исключений ровно 1 — ни один не добавлен молча"
+rc_exemptions=$(grep -c -F 'rc-исключение' "$GATE")
+if [ "$rc_exemptions" = "0" ] && [ "$(grep -c -F 'rc-исключение' "$SKILL")" = "0" ]; then
+  ok "маркеров-исключений ровно 0 — ни один не добавлен молча"
 else
   not_ok "число маркеров rc-исключение изменилось ($rc_exemptions вместо 1): исключение из инварианта 9 добавлено или снято без обновления фикстуры"
 fi
@@ -3228,8 +3285,8 @@ fi
 # Ожидаемое число записано ОДИН раз: три места ниже читают одну переменную, вторая запись
 # числа разъехалась бы молча (тот же класс, что у SEP/GS).
 probe_expected=3
-probe_exemptions=$(grep -c -E '^[[:space:]]*#.*проба-условия:' "$SKILL")
-if [ "$probe_exemptions" = "$probe_expected" ]; then
+probe_exemptions=$(grep -c -E '^[[:space:]]*#.*проба-условия:' "$GATE")
+if [ "$probe_exemptions" = "$probe_expected" ] && [ "$(grep -c -E '^[[:space:]]*#.*проба-условия:' "$SKILL")" = "0" ]; then
   ok "строк-маркеров пробы-условия ровно $probe_expected — ни один не добавлен молча"
 else
   not_ok "число строк-маркеров проба-условия изменилось ($probe_exemptions вместо $probe_expected): исключение сканера добавлено или снято без обновления фикстуры — счёт идёт по всему файлу, включая преамбулу"
@@ -3238,12 +3295,12 @@ fi
 # 171-172. СТРУКТУРНАЯ проверка для места, которое исполнением недостижимо: блок сбора полей
 #          паспорта приёмки содержит текстовые заглушки (`UNRESOLVED=$(...)`) и целиком не
 #          исполняется. `base` — поле привязки паспорта: отказ чтения давал пустую привязку.
-if grep -A2 -F 'BASE_SHA=$(run_with_timeout' "$SKILL" | grep -F >/dev/null 'base_sha_rc=$?'; then
+if grep -A2 -F 'BASE_SHA=$(run_with_timeout' "$GATE" | grep -F >/dev/null 'base_sha_rc=$?'; then
   ok "сбор паспорта: код возврата чтения base записан"
 else
   not_ok "сбор паспорта: у BASE_SHA нет записи кода возврата — паспорт издаётся с пустой привязкой"
 fi
-if grep -A8 -F 'BASE_SHA=$(run_with_timeout' "$SKILL" | grep -F >/dev/null 'if [ "$base_sha_rc" -ne 0 ]; then'; then
+if grep -A8 -F 'BASE_SHA=$(run_with_timeout' "$GATE" | grep -F >/dev/null 'if [ "$base_sha_rc" -ne 0 ]; then'; then
   ok "сбор паспорта: код возврата чтения base не только записан, но и проверен"
 else
   not_ok "сбор паспорта: base_sha_rc записан, но не проверен — переменная мёртвая"
@@ -3299,15 +3356,15 @@ assert_rc_recorded_and_read() {
       }
       if (total == 0) print "0: якорь в скилле не найден — кейс проверял бы пустоту"
     }
-  ' "$SKILL")
+  ' "${RC_SOURCE:-$GATE}")
   if [ -z "$report" ]; then
     ok "$label: код возврата записан, проверен, и ветка исполняет «${effect}» — во всех вхождениях якоря"
   else
     not_ok "$label: $(printf '%s' "$report" | head -3 | tr '\n' ' ')"
   fi
 }
-assert_rc_recorded_and_read 'REPO_ROOT=$(git rev-parse --show-toplevel)' repo_root_rc "Публикация (корень репозитория, все три шаблона)"
-assert_rc_recorded_and_read 'BASE_SHA=$(run_with_timeout 10 gh pr view <PR_NUMBER> --json baseRefOid -q '"'"'.baseRefOid'"'"')' base_sha_rc "Сбор паспорта (base commit)"
+RC_SOURCE="$SKILL" assert_rc_recorded_and_read 'REPO_ROOT=$(git rev-parse --show-toplevel)' repo_root_rc "Публикация (корень репозитория, все три шаблона)"
+assert_rc_recorded_and_read 'BASE_SHA=$(run_with_timeout 10 gh pr view ${PR_NUMBER} --json baseRefOid -q '"'"'.baseRefOid'"'"')' base_sha_rc "Сбор паспорта (base commit)"
 # Места, закрытые по внешнему ревью PR #634 (P1, класс «код возврата одиночного процесса»).
 # Исполнением они не изолируются: блок публикации ходит в GitHub, preflight выполняется до
 # извлекаемого фикстурой участка, а показ начала отчёта стоит в шаге 3.
@@ -3322,7 +3379,7 @@ if grep -A2 -F 'GH_BODY_<RAND>' "$SKILL" | grep -F >/dev/null 'body_rc=$?' \
 else
   not_ok "Force-режим (сборка тела комментария): отказ cat даёт пустое тело, и оно уходит в публикацию"
 fi
-assert_rc_recorded_and_read 'PREFLIGHT_REPO_ROOT=$(git rev-parse --show-toplevel)' preflight_repo_root_rc "Preflight (корень репозитория)"
+assert_rc_recorded_and_read 'PREFLIGHT_REPO_ROOT="$GATE_TREE"' preflight_repo_root_rc "Preflight (корень репозитория)"
 assert_rc_recorded_and_read 'head -30 <<< "$LAST_INTERNAL"' head_preview_rc "Шаг 3 (показ начала отчёта)"
 # Голый `$?` в условии верен лишь до первой команды, вставленной между вызовом и проверкой,
 # и такая вставка не краснеет ничем — поэтому форма именованной переменной обязательна.
@@ -3330,7 +3387,7 @@ assert_rc_recorded_and_read 'head -30 <<< "$LAST_INTERNAL"' head_preview_rc "Ш�
 # помечает найденную задачу. Умолчание `exit 1` дало бы ложный провал на законной форме, а
 # «любое действие сойдёт» — вернуло бы дыру, ради которой аргумент и заведён.
 assert_rc_recorded_and_read 'run_with_timeout 15 bash "$BD_WT_ROUTE" show -- "$bead_id" >/dev/null 2>&1' bd_wt_exit "Маршрут 2 Beads (обёртка worktree)" 'beads_found=1'
-assert_rc_recorded_and_read 'BD_REPO_ROOT=$(git rev-parse --show-toplevel)' bd_repo_root_rc "Ветка Beads (корень репозитория)"
+assert_rc_recorded_and_read 'BD_REPO_ROOT="$GATE_TREE"' bd_repo_root_rc "Ветка Beads (корень репозитория)"
 
 # Помощники фикстуры обязаны быть объявлены ДО своих вызовов: bash не поднимает объявления
 # функций, а необъявленная функция под `set -uo pipefail` (без `-e`) печатает ошибку в stderr

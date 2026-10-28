@@ -20,6 +20,7 @@ INSTALLER = ROOT / 'scripts/install-overgate.py'
 RC1_SHA = '633937250fa8f47b49f928c1d8781ab17fe8c8e3'
 # Точный commit тега v4.0.0-rc.2: вторая база upgrade, для которой заявлено побайтное соответствие.
 RC2_SHA = '073595ae6fb51c16fa49576acca40d94d068af83'
+RC3_SHA = 'b830d5ed7ed31e597b45f7f3c18b8fb6baad6b29'
 PR_URL = 'https://github.com/example/project/pull/1'
 GITIGNORE_HEADER = b'# OverGate personal state (managed fragment)'
 # NTFS не хранит POSIX execute bits (как в reference-closure): mode сверяется только вне Windows.
@@ -289,6 +290,22 @@ class InstallTests(unittest.TestCase):
     def test_rc1_exact_install_upgrade_is_byte_exact(self):self.check_exact_rc_upgrade(RC1_SHA,'source-rc1')
 
     def test_rc2_exact_install_upgrade_is_byte_exact(self):self.check_exact_rc_upgrade(RC2_SHA,'source-rc2')
+
+    def test_rc3_upgrade_adds_executable_gate_and_replaces_skill(self):
+        self.check_exact_rc_upgrade(RC3_SHA, 'source-rc3')
+
+    def test_fresh_installs_executable_finalize_gate(self):
+        self.make_plan(); self.approve(); self.apply()
+        path = self.target / '.claude/skills/finalize-pr/finalize-gate.sh'
+        self.assertEqual(path.read_bytes(), self.source_blob('.claude/skills/finalize-pr/finalize-gate.sh'))
+        if POSIX_MODES:
+            self.assertEqual(path.stat().st_mode & 0o777, 0o755)
+        skill = (path.parent / 'SKILL.md').read_text(encoding='utf-8')
+        self.assertIn('Общий маршрут Claude Code и Codex', skill)
+        self.assertNotIn('HEAD_COMMIT=$(run_with_timeout', skill)
+        run=subprocess.run([BASH,path.as_posix(),'13','--unknown'],cwd=self.target,capture_output=True,text=True)
+        self.assertEqual(run.returncode,2,run.stdout+run.stderr)
+        self.assertIn('usage: bash finalize-gate.sh <PR_NUMBER>',run.stderr)
 
     def test_gitignore_policy_table(self):
         # AC-05: каждая строка таблицы §4.1 VC, вход → ожидаемые байты, через make_plan.
