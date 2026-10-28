@@ -1,6 +1,18 @@
 # Progress
 
-## og-159 — implementation candidate, acceptance pending
+## WI-1 rc.4 — implementation candidate, acceptance pending
+
+PR #12, branch plan/v4.0.0-rc.4-adoption, approved plan v0.6 blob d9d760d unchanged.
+Upstream og-159 MERGED fa0681a6, Beads CLOSED (текущий факт, подтверждён PM);
+интегрирован pure merge 4120e674; trusted finalize source fa0681a6.
+Реализация WI-1: modes/settings fingerprints, protection/Memory/Beads helpers, --no-beads,
+relative install-state/rollback, tracker defer, QUICKSTART/ADR3.33. Developer TDD и local
+reference checks — evidence реализации, не acceptance. PM ведёт independent QA → один Code Review,
+затем operator live Windows/Claude/Codex, exact-HEAD CI и trusted finalize. Live receipts пока NOT RUN.
+WI-2 og-7sr, merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
+
+
+## История og-159 до merge — implementation candidate, acceptance pending
 
 В PR #13 реализован перенос автоматического `/finalize-pr` в managed executable script
 с `--check`/`--publish`; SKILL сохраняет описание и ручной `--force`. Добавлены tests обоих

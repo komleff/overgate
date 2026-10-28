@@ -5,7 +5,9 @@
 Переносимый AI-пайплайн разработки для оператора, который задаёт цель и принимает результат.
 Delivery First связывает принятую спецификацию, реализацию, независимую QA и один scoped Code Review.
 
-**Текущий candidate: v4.0.0-rc.3.** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
+Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
+
+**Текущий candidate: v4.0.0-rc.4 (WI-1, до отдельного WI-2).** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
 RC выбирается отдельно и не заменяет Latest. Здесь живёт generic reference из
 [U2](https://github.com/komleff/u2), без его product/game data.
 
@@ -22,7 +24,7 @@ External review доступен по named risk или прямому запр�
 
 | Слой | Владелец |
 |---|---|
-| Doctrine/lifecycle | [PIPELINE_ADR §3.28–3.32](.agents/PIPELINE_ADR.md), [краткая карта](.agents/PIPELINE.md) |
+| Doctrine/lifecycle | [PIPELINE_ADR §§3.28–3.33](.agents/PIPELINE_ADR.md), [краткая карта](.agents/PIPELINE.md) |
 | Шесть delivery roles | [PM, SV, PL, DEV, QA, RV](.agents/AGENT_ROLES.md) |
 | Пять core skills | [canon-router, product-gap, product-handoff, diagnose, handoff](.agents/SKILLS.md) |
 | Project authority | AGENTS.md установленного проекта; fallback — оператор |
@@ -43,7 +45,11 @@ jq для finalize. `bd` нужен основному checkout для живо�
 Установщик сначала создаёт plan/inventory на frozen source SHA. Target Draft PR, Verification
 Contract и независимый PLAN_READY предшествуют копированию. Project owner, tests, context и
 runtime overrides сохраняются; conflict останавливает upgrade. Backup позволяет вернуть исходные
-managed bytes. Fresh project tests нужно заполнить — шаблон до этого намеренно не проходит.
+managed bytes. Агент заполняет project tests (при отсутствии создаёт минимальные); шаблон до этого намеренно не проходит.
+После apply он создаёт Memory Bank, затем Beads (кроме --no-beads), затем защиту main helper-ами.
+Режим --mode auto/bypass сопровождается явным запуском Claude --permission-mode; file settings
+не доказывают эффективный режим. Код helper защиты 2/3/4/5 требует записи R8 в PR и Memory Bank;
+6 — stop. Живые Windows/Claude/Codex receipts остаются отдельной границей.
 
 Для reference: Git, Bash, Python 3, Node.js и jq; `bash scripts/verify-reference.sh` выполняет
 структурные, parser/guard/publisher, activation, fresh/upgrade/rollback и Beads fixtures.

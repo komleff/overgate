@@ -1,7 +1,7 @@
 ---
 title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
-version: "4.0.0-rc.3"
+version: "4.0.0-rc.4"
 date: 2026-10-03
 tags: [installation, upgrade, rollback, delivery-first]
 ---
@@ -15,7 +15,8 @@ Legacy `install-all.ps1`/per-skill scripts не использовать для 
 прежним snapshot; RC выбирается явно по release/tag и exact commit SHA. Старые refs не двигать.
 
 Пререквизиты: Git, Bash, Python 3 (3.10+ для reference/native fixtures); jq для finalize, Node.js для Beads snapshot reader и reference
-tests, gh для PR evidence. `bd` нужен только проекту, использующему local Beads. Проверяйте
+tests, gh для PR evidence. `bd` 1.2.2 обязателен для автономного продукта; `--no-beads` — для разовых проектов.
+Нужен Git push из shell для первого beads-backup; helper не скачивает bd, его ставит агент по ОС. Проверяйте
 текущий `bd --help`. macOS/Linux deterministic fixtures — граница reference evidence;
 На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
 не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
@@ -81,7 +82,10 @@ Claude dispatcher evidence не является Codex actual activation PASS.
 
 ## До копирования
 
-1. Создай рабочую ветку target проекта. Прочитай project authority/context и legacy overrides.
+1. До plan проверь `gh auth status` и Git push из shell. Если gh auth нет, target Draft PR
+   допускается через коннектор с `--no-beads`; helper вернёт код 3, это записывается в PR.
+   Если репозитория нет, создай его с первым README-коммитом в main при создании репозитория
+   (без agent push в main), затем создай рабочую ветку target проекта. Прочитай project authority/context и legacy overrides.
 2. Открой **один target Draft PR** с plan и Verification Contract до записи managed payload.
 3. Выбери trusted clean source checkout, зафиксируй полный source SHA. Installer отказывает при
    source movement/dirty copied surfaces, missing helper, nested/orphan core skill. До создания
@@ -129,7 +133,8 @@ Plan Review в том же PR. Нет `--force` и тихого overwrite изм
 Explicit inventory — `.agents/distribution-manifest.json`. Копируются шесть delivery owners,
 ровно пять core skills, thin adapters, hook parser/policy/launcher/timeout/publisher closure,
 Beads readers и необходимые instructions. Не копируются каталоги U2, game data, credentials,
-Memory Bank, personal runtime state или весь `.claude/skills/`.
+personal runtime state или весь `.claude/skills/`. Шаблоны Memory Bank входят в payload,
+но `.memory-bank` и `.beads` не managed: safe() по-прежнему запрещает эти пути.
 
 AGENTS.md, `.agents/project/verify.sh` и project rules `beads.md`, `tests.md`, `universal.md`
 сохраняются. `.claude/rules/large-payloads.md` — managed publication policy: известная v3.9 версия
@@ -144,7 +149,7 @@ Product authority берётся из project AGENTS; если не назнач
 
 ### Запись settings и `.gitignore`
 
-Settings (`.claude/settings.json`, `.codex/hooks.json`): из source переносятся только
+Для custom settings (`.claude/settings.json`, `.codex/hooks.json`) из source переносятся только
 `hooks.PreToolUse` и `permissions.deny`. `permissions` и его поля создаются, только если они
 есть в source: Codex adapter `permissions` не получает. Правило записи результата merge:
 1. по смыслу равен source → записываются байты source;
@@ -170,7 +175,7 @@ Settings (`.claude/settings.json`, `.codex/hooks.json`): из source перен�
 
 Повторный `plan` сразу после `apply` даёт operations только с `before == after`.
 **Граница:** побайтное соответствие managed- и settings-файлов source после upgrade заявлено
-для точных установок rc.1 и rc.2 без project overrides. Для upgrade v3.9 → rc.3 оно не
+для точных установок rc.1–rc.3 без project overrides. Для upgrade v3.9 оно не
 заявляется: settings merge переносит из source только hooks и `deny`.
 
 v3.9 upgrade сверяет managed files с frozen legacy inventory. Изменённая роль или customized
@@ -179,6 +184,76 @@ v3.9 upgrade сверяет managed files с frozen legacy inventory. Измен
 затем явно согласуй возвращение managed file к прежнему known baseline, пересоздай план.
 Installer не разрешает конфликт за оператора. Fresh verify template намеренно FAIL до заполнения.
 Reference `/verify` запускает `scripts/verify-reference.sh`, consumer — реальные project tests.
+
+## Выбор runtime
+
+Установка доступна из Codex и Claude Code: откройте target project root в выбранном runtime,
+подтвердите загрузку проектных hooks. Claude-specific auto/bypass startup ниже относится только
+к Claude Code; permissions Codex этим пакетом не меняются, отдельная Claude binary для Codex не нужна.
+Одинаковые роли, helper/checker/finalize executable и Verification Contract применяются в обоих;
+реальная activation фиксируется отдельно, static fixtures её не заменяют.
+
+## Режимы rc.4 и helpers
+
+`plan --mode auto` / `--mode bypass` выбирает source вариант; bypass отличается ровно значением
+`defaultMode`. Без флага fresh выбирает auto. Канонические строгие JSON fingerprints manifest
+распознают source rc.1–rc.3, текущий source и bypass; известный старый source обновляется на auto
+с сообщением смены режима. Текущий source/bypass без флага сохраняется; явный флаг переключает.
+Custom settings без флага сохраняют permissions/defaultMode/env/language и печатают это в plan;
+с --mode — stop: режим проекта со своими settings меняется вручную в target PR.
+Install-state mode — auto/bypass/custom, при следующих RC известный mode сохраняется.
+Codex артефакт пустого permissions.deny снимается; прочие project keys сохраняются.
+
+Для фактического старта из root используйте `claude --permission-mode auto`. Current Claude Code
+может игнорировать auto/bypass из project settings, поэтому file bytes не являются evidence режима.
+Недоступный auto проявляется Manual/ошибкой/рутинными вопросами; пересоздайте plan с --mode bypass
+и запускайте `claude --permission-mode bypassPermissions`. Global/user settings не меняются.
+R6: если доступный auto блокирует штатный pipeline, записать FAIL в PR и передать оператору,
+не скрывать отказ bypass-перезапуском. [Primary runtime docs](https://code.claude.com/docs/en/permission-modes).
+
+`plan --no-beads` исключает девять component=beads entries и Beads-блок AGENTS template.
+Memory Bank создаётся всегда. При upgrade режим берётся из state, смена Beads режима запрещена;
+старый/отсутствующий/нечитаемый state checker/finalize трактуют как beads:true. Unreadable state
+самого installer требует устранения ошибки, не разрешает новую установку поверх неизвестной.
+Triage без Beads принимает только открытый существующий GitHub issue этого PR repo (#N или URL),
+проверенный gh issue view; PR/foreign/closed/malformed/missing gh — stop.
+
+После apply, при fresh и upgrade, строго выполняются:
+
+```bash
+bash scripts/og-init-memory-bank.sh
+bash scripts/bd-bootstrap.sh
+bash scripts/og-protect-main.sh
+```
+
+При --no-beads второй шаг пропускается. Memory helper создаёт шесть файлов из templates только
+при отсутствующем каталоге; существующий даже частичный — no-op со списком недостающих файлов.
+Beads helper требует основной checkout, bd 1.2.2 (другие версии stop), embedded init --skip-agents
+--skip-hooks --non-interactive --remote ''. --skip-hooks исключает только generated Beads hooks,
+не OverGate guards. CLI config отключает export.auto и backup.git-push, снимает sync.remote и
+Dolt remotes. Existing DB не перезаписывается: проверяется postcondition/ready. Existing server допускается
+только живой по канонической OS-пробе; helper второй сервер не запускает. Наличие snapshot
+проверяется через git ls-remote --heads origin beads-backup; нет ветки — штатный первый export.
+Все preconditions до atomic complete snapshot; failure/readback после export означает возможную
+уже состоявшуюся публикацию, stop без автоматического удаления/отката remote. Helper/installer
+ничего не скачивает; установку bd выполняет агент по инструкции ОС.
+
+Protection helper запускается после появления main на GitHub. Поручение на установку подтверждает
+эту удалённую запись (§3.33): PR required (0 approvals), enforce_admins:true, force/delete:false.
+Более строгие classic rules сохраняются; readback обязателен. Коды 2 (нет admin), 3 (нет gh auth),
+4 (тариф private repo), 5 (ruleset, сверить правила) позволяют продолжить только с записью R8
+в target PR и уже созданном Memory Bank; code6 — stop. Коды2/3/4 не обеспечивают remote protection,
+code5 не изменяет ruleset. R7/og-9ic.10 прямого снятия защиты API остаётся вне WI-1.
+
+Tracked state format2 содержит source_sha, manifest_version, mode, beads и installed relative
+paths/hashes; legacy state rc.1–rc.3 читается. Абсолютный backup path только в ignored journal,
+apply печатает его, rollback принимает --backup явно. Approval привязывается к plan modes тоже:
+apply пересобирает exact plan и останавливает drift.
+Агент заполняет verify.sh реальными project tests, при их отсутствии создаёт минимальные.
+Windows final-candidate checklist §5.4 плана WI-1 выполняет оператор после Code Review;
+реальные auto/bypass/Claude/Codex и Windows receipts отдельно, до них NOT RUN.
+WI-1 trusted gate/source/validators/tools: main@fa0681a6e3b842959143a22e66b93d2161c0f13c;
+FINAL указывает trusted SHA, SKILL blob и final PR HEAD; mismatch stop, self-certification запрещена.
 
 ## Проверка и завершение
 
@@ -201,9 +276,15 @@ Rollback сравнивает current managed hashes с installed state: пос�
 managed files. Обратный порядок сначала возвращает settings, затем удаляет новый
 dispatcher. Apply не является multi-file atomic update; при ошибке используется сохранённый
 journal и тот же обратный порядок. Project overrides, Beads и Memory Bank не откатываются вслепую. Backup содержит
-только managed pipeline files, не secrets. После commit — revert upgrade PR и адресно восстанови
-saved overrides; команды rollback применимы только к соответствующему snapshot.
+только managed pipeline files, не secrets. Rollback применим сразу после apply, до helpers
+и project правок; install-state восстанавливается побайтно (fresh — удаляется). После helpers
+или изменений — revert install PR. Memory Bank, база Beads, beads-backup и GitHub protection
+не снимаются автоматически: решение принимается отдельно в target PR.
 
 Для самого reference возврат к stable — revert candidate PR либо checkout неизменного stable
 release/tag в отдельной рабочей ветке. Не передвигай опубликованные теги. RC не становится Latest;
 promotion в stable — отдельное решение.
+
+Fresh Beads prefix берётся из basename проекта: dots/underscore/spaces/non-ASCII → дефис,
+leading digit/односимвольное имя → p-, пустой ASCII → project-<SHA256(basename UTF8)[:8]>.
+Это совместимо с bd и triage; существующие база и task ID не меняются.
