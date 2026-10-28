@@ -1,3 +1,8 @@
+---
+name: product-handoff
+description: "Use when handing an accepted product-owner decision to PM and the risk of ambiguous implementation requires checking WHAT readiness."
+---
+
 # product-handoff
 
 ## Purpose

@@ -1,3 +1,8 @@
+---
+name: canon-router
+description: "Use when starting new domain or product work and the current owner context has not yet been established."
+---
+
 # canon-router
 
 ## Purpose

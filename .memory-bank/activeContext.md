@@ -13,8 +13,13 @@ Code Review launch3 на историческом candidate `0eeb492` — CHANGE
 (AC06/AC13/R8), тарифный403 предварительного GET protection ошибочно давал6 без записи R8.
 В исправленном candidate известное тарифное тело private repo распознаётся и до PUT: code4,
 R8 в существующий каркас; прочие403 остаются stop6, правила защиты/readback не ослабляются.
-Developer RED/GREEN/full receipts не являются acceptance: pending affected QA2 и recheck того же
-Reviewer3, новый exact-HEAD CI, отдельный target-install PLAN_READY/apply и live qualification.
+На source `75677f9` RV-WI1-F1 получил affected recheck; последующий actual native Codex0.153.4
+startup выявил RV-WI1-F2 BLOCKER: все пять inherited core SKILL.md отвергнуты без YAML metadata.
+Исправленный candidate добавляет только name/description из прежних names/Trigger; каждое тело
+после frontmatter побайтно сохранено. Packaging RED/GREEN и source native discovery — Developer
+receipts, не installed activation или acceptance. Pending: affected QA2/recheck того же Reviewer3,
+новый exact-HEAD CI и отдельный target upgrade PLAN_READY/apply; actual installed discovery/invocation
+после upgrade, Windows и остальные live qualification receipts подтверждаются PM отдельно.
 WI-2 og-7sr, merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
 
 
