@@ -33,6 +33,11 @@ def checked(endpoint):
     code,value=api(endpoint)
     if code:raise RuntimeError('GitHub read failed: '+endpoint+' '+str(value.get('message','')))
     return value
+def tariff_unavailable(info,response):
+    # Только известное тарифное тело private repo; ошибки auth/rate-limit не превращаются в skip.
+    message=str(response.get('message','')).strip()
+    return (info.get('private') is True and str(response.get('status'))=='403' and
+            re.fullmatch(r'Upgrade to GitHub (?:Pro|Team) or make this repository public to enable this feature\.',message,re.I) is not None)
 def enabled(value):return value is True or isinstance(value,dict) and value.get('enabled') is True
 def identities(value):
     if value is None:return None
@@ -79,6 +84,7 @@ try:
     if not isinstance(initial.get('protected'),bool):raise RuntimeError('branch protected field missing')
     rc,existing=api(endpoint+'/protection')
     if rc:
+        if tariff_unavailable(info,existing):outcome(4,'недоступно на тарифе')
         if str(existing.get('status'))!='404':raise RuntimeError('classic protection unreadable')
         if initial['protected']:outcome(5,'защищено ruleset')
         if existing.get('message')!='Branch not protected':raise RuntimeError('unexpected protection 404')
@@ -92,7 +98,7 @@ try:
         rc,response=api(endpoint+'/protection','PUT',desired)
         if rc:
             message=str(response.get('message',''))
-            if str(response.get('status'))=='403' and info.get('private') is True and re.search(r'upgrade.*(?:pro|team)|(?:pro|team).*upgrade',message,re.I):outcome(4,'недоступно на тарифе')
+            if tariff_unavailable(info,response):outcome(4,'недоступно на тарифе')
             raise RuntimeError('protection PUT refused: '+message)
     final=checked(endpoint);actual=checked(endpoint+'/protection')
     normalized=normalize(actual)

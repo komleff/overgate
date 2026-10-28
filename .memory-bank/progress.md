@@ -9,6 +9,12 @@ Upstream og-159 MERGED fa0681a6, Beads CLOSED (текущий факт, подт
 relative install-state/rollback, tracker defer, QUICKSTART/ADR3.33. Developer TDD и local
 reference checks — evidence реализации, не acceptance. PM ведёт independent QA → один Code Review,
 затем operator live Windows/Claude/Codex, exact-HEAD CI и trusted finalize. Live receipts пока NOT RUN.
+Code Review launch3 на историческом candidate `0eeb492` — CHANGES_REQUESTED: RV-WI1-F1
+(AC06/AC13/R8), тарифный403 предварительного GET protection ошибочно давал6 без записи R8.
+В исправленном candidate известное тарифное тело private repo распознаётся и до PUT: code4,
+R8 в существующий каркас; прочие403 остаются stop6, правила защиты/readback не ослабляются.
+Developer RED/GREEN/full receipts не являются acceptance: pending affected QA2 и recheck того же
+Reviewer3, новый exact-HEAD CI, отдельный target-install PLAN_READY/apply и live qualification.
 WI-2 og-7sr, merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
 
 

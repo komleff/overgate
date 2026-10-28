@@ -42,9 +42,21 @@ if kind=='bd':
 if args[:2]==['auth','status']:sys.exit(1 if s=='auth' else 0)
 if args[:2]==['repo','view']:print('example/project');sys.exit()
 endpoint=args[args.index('api')+1]
-if endpoint=='repos/example/project':print(json.dumps({'permissions':{'admin':s!='admin'},'default_branch':'main','private':True}));sys.exit()
+if endpoint=='repos/example/project':print(json.dumps({'permissions':{'admin':s!='admin'},'default_branch':'main','private':s!='public-get-tariff'}));sys.exit()
 if endpoint.endswith('/branches/main'):
  print(json.dumps({'protected':s=='ruleset' or (root/'protection').exists()}));sys.exit()
+get_errors={
+ 'get-tariff':('403','Upgrade to GitHub Pro or make this repository public to enable this feature.'),
+ 'get-team-tariff':('403','Upgrade to GitHub Team or make this repository public to enable this feature.'),
+ 'get-auth':('403','Resource not accessible by integration'),
+ 'get-rate-limit':('403','API rate limit exceeded for 192.0.2.1.'),
+ 'get-unknown-upgrade':('403','Upgrade protection credentials before accessing this resource.'),
+ 'get-wrong-status':('401','Upgrade to GitHub Pro or make this repository public to enable this feature.'),
+ 'public-get-tariff':('403','Upgrade to GitHub Pro or make this repository public to enable this feature.'),
+}
+if endpoint.endswith('/protection') and '--method' not in args and s in get_errors:
+ status,message=get_errors[s]
+ print(json.dumps({'message':message,'documentation_url':'https://docs.github.com/rest/branches/branch-protection','status':status}));sys.exit(1)
 if '--method' in args and args[args.index('--method')+1]=='PUT':
  data=json.load(sys.stdin)
  if s in ('tariff','forbidden'):
@@ -106,6 +118,31 @@ class Helpers(unittest.TestCase):
         self.assertEqual(p['required_pull_request_reviews']['required_approving_review_count'],0)
         self.assertIs(p['enforce_admins'],True);self.assertIs(p['allow_deletions'],False);self.assertIs(p['allow_force_pushes'],False)
         (self.root/'put').unlink();self.run_helper('og-protect-main');self.assertFalse((self.root/'put').exists())
+    def test_protection_preliminary_get_tariff_records_r8_without_put(self):
+        self.memory();bank=self.root/'.memory-bank';before={p.name:p.read_bytes() for p in bank.glob('*.md')}
+        for scenario in ('get-tariff','get-team-tariff'):
+            with self.subTest(scenario=scenario):
+                (self.root/'scenario').write_text(scenario);(self.root/'calls').unlink(missing_ok=True)
+                output=self.run_helper('og-protect-main',4)
+                self.assertIn('недоступно на тарифе',output);self.assertIn('target PR',output)
+                self.assertEqual(len(list(bank.glob('*.md'))),6)
+                self.assertIn('R8: protection code 4',(bank/'progress.md').read_text(encoding='utf-8'))
+                self.assertTrue((bank/'progress.md').read_bytes().startswith(before['progress.md']))
+                for name,content in before.items():
+                    if name!='progress.md':self.assertEqual((bank/name).read_bytes(),content)
+                self.assertFalse(any('--method' in call for call in self.calls()),self.calls())
+                self.assertFalse((self.root/'put').exists())
+
+    def test_protection_preliminary_get_non_tariff_errors_fail_closed(self):
+        self.memory();path=self.root/'.memory-bank/progress.md';before=path.read_bytes()
+        for scenario in ('get-auth','get-rate-limit','get-unknown-upgrade','get-wrong-status','public-get-tariff'):
+            with self.subTest(scenario=scenario):
+                (self.root/'scenario').write_text(scenario);(self.root/'calls').unlink(missing_ok=True)
+                output=self.run_helper('og-protect-main',6);self.assertIn('STOP:',output)
+                self.assertNotIn('protection code 4',output);self.assertEqual(path.read_bytes(),before)
+                self.assertFalse(any('--method' in call for call in self.calls()),self.calls())
+                self.assertFalse((self.root/'put').exists())
+
     def test_protection_stricter_rules_survive_update(self):
         original={'required_status_checks':{'url':'api','strict':True,'contexts':['CI'],'checks':[{'context':'CI','app_id':7}]},'required_pull_request_reviews':{'dismiss_stale_reviews':True,'require_code_owner_reviews':True,'required_approving_review_count':2,'require_last_push_approval':True,'dismissal_restrictions':{'users':[{'login':'owner'}],'teams':[{'slug':'reviewers'}],'apps':[{'slug':'review-app'}]}},'restrictions':{'users':[{'login':'owner'}],'teams':[{'slug':'devs'}],'apps':[]},'enforce_admins':{'enabled':False},'allow_force_pushes':{'enabled':False},'allow_deletions':{'enabled':False},'required_linear_history':{'enabled':True},'required_conversation_resolution':{'enabled':True},'lock_branch':{'enabled':True},'required_signatures':{'enabled':True}}
         (self.root/'protection').write_text(json.dumps(original));self.run_helper('og-protect-main');p=json.loads((self.root/'put').read_text(encoding='utf-8'))
