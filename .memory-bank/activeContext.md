@@ -7,20 +7,33 @@ Upstream og-159 MERGED fa0681a6, Beads CLOSED (текущий факт, подт
 интегрирован pure merge 4120e674; trusted finalize source fa0681a6.
 Реализация WI-1: modes/settings fingerprints, protection/Memory/Beads helpers, --no-beads,
 relative install-state/rollback, tracker defer, QUICKSTART/ADR3.33. Developer TDD и local
-reference checks — evidence реализации, не acceptance. PM ведёт independent QA → один Code Review,
-затем operator live Windows/Claude/Codex, exact-HEAD CI и trusted finalize. Live receipts пока NOT RUN.
-Code Review launch3 на историческом candidate `0eeb492` — CHANGES_REQUESTED: RV-WI1-F1
-(AC06/AC13/R8), тарифный403 предварительного GET protection ошибочно давал6 без записи R8.
-В исправленном candidate известное тарифное тело private repo распознаётся и до PUT: code4,
-R8 в существующий каркас; прочие403 остаются stop6, правила защиты/readback не ослабляются.
-На source `75677f9` RV-WI1-F1 получил affected recheck; последующий actual native Codex0.153.4
-startup выявил RV-WI1-F2 BLOCKER: все пять inherited core SKILL.md отвергнуты без YAML metadata.
-Исправленный candidate добавляет только name/description из прежних names/Trigger; каждое тело
-после frontmatter побайтно сохранено. Packaging RED/GREEN и source native discovery — Developer
-receipts, не installed activation или acceptance. Pending: affected QA2/recheck того же Reviewer3,
-новый exact-HEAD CI и отдельный target upgrade PLAN_READY/apply; actual installed discovery/invocation
-после upgrade, Windows и остальные live qualification receipts подтверждаются PM отдельно.
-WI-2 og-7sr, merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
+reference checks — evidence реализации, не acceptance.
+
+История RV-WI1-F1: на source `0eeb492` тарифный403 предварительного GET protection давал6
+без R8; исправлен в `75677f9` (code4/R8 до PUT, прочие403 stop6, strict/readback сохранены).
+История RV-WI1-F2: actual installed Codex0.153.4 на source756 отвергал все пять inherited
+core SKILL.md без YAML metadata. Source `cc0f3f2` добавил только name/description из прежних
+names/Trigger, полностью сохранив тела процедур. Affected QA2 PASS; same Reviewer3 закрыл F1/F2;
+affected CODE_REVIEW APPROVED, 0 открытых findings; публикацией closure evidence управляет PM.
+
+Actual macOS target PR1: первоначальная native установка source756, затем отдельно approved
+upgrade sourcecc0 → target `1f64a07`. State auto/Beads JSONtrue, 73 операции сверены по bytes/modes.
+Native Codex catalog показывает все пять skills без прежних loader errors; actual canon-router
+invocation/read подтверждён в Codex, explicit canonical-owner Read route сохранён в Claude auto.
+Это адресная installed qualification, не fresh-native clean-project run прямо сcc0 и не полная
+приёмка WI-1. CI-budget fix ниже не меняет manifest/payload bytes/modes: прежние Mac receipts
+наследуются только для доказанно идентичного component scope, не как новые whole-HEAD runs.
+
+CI sourcecc0 run40719436761: Linux/macOS SUCCESS; Windows CANCELLED по job budget30m,
+не assertion failure: dispatcher/install/rollback SUCCESS27:58, installer50/50; wrapper
+прерван на30m. Предыдущий source756 Windows run40711543487 SUCCESS29:33, запас лишь27с.
+Windows job budget увеличен до40m; команды/tests/runtime и Linux15m/macOS30m неизменны.
+Требуется новый exact-HEAD CI с фактическим завершением Windows suite; его PASS ещё не заявлен.
+
+Mandatory pending: actual operator Windows simple/complex-path checklist, real server rejection
+прямого main push, оставшиеся live variants по contract и trusted whole AC16 finalization.
+PM ведёт affected QA2/same Reviewer3 recheck и exact-HEAD CI; overall acceptance/readiness
+не объявлены. WI-2 og-7sr, operator merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
 
 
 ## История og-159 до merge — единый исполняемый finalize gate
