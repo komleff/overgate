@@ -48,6 +48,17 @@ class ClosureTests(unittest.TestCase):
         old=json.loads((ROOT/'.agents/distribution-manifest.json').read_text(encoding='utf-8'))['previous_rc_settings']['hooks']['PreToolUse'][0]
         self.edit_settings(lambda d:d['hooks']['PreToolUse'].append(old))
         self.assertTrue(any('CLOSURE-004' in x for x in checker.closure(self.root)))
+    def test_missing_memory_template_inventory_is_refused(self):
+        p=self.root/'.agents/distribution-manifest.json';m=json.loads(p.read_text(encoding='utf-8'))
+        m['files']=[e for e in m['files'] if e['target']!='.agents/templates/memory-bank/progress.md'];p.write_text(json.dumps(m))
+        self.assertTrue(any('CLOSURE-001' in x for x in checker.closure(self.root)))
+    def test_no_beads_state_is_strict_boolean_and_component_projection(self):
+        p=self.root/'.overgate/install-state.json';p.parent.mkdir();p.write_text('{"beads":false}')
+        for path in checker.BEADS_RUNTIME:(self.root/path).unlink(missing_ok=True)
+        self.assertEqual(checker.closure(self.root),[])
+        for content in ('{"beads":0}','{"beads":"false"}','{broken'):
+            p.write_text(content);self.assertTrue(checker.closure(self.root))
+        p.unlink();self.assertTrue(checker.closure(self.root))
     def test_valid(self):self.assertEqual(checker.closure(self.root),[])
     def test_helper_absent(self):
         (self.root/'.claude/hooks/shell_grammar.py').unlink()

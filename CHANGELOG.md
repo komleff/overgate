@@ -3,7 +3,22 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
-## [Unreleased] — следующий RC
+## [Unreleased] — v4.0.0-rc.4 candidate, WI-1
+
+До выпуска требуется отдельный WI-2 og-7sr; stable/Latest не меняется.
+
+### Added
+- QUICKSTART для неспециалиста; helpers Memory Bank (шесть файлов), bd1.2.2 bootstrap и
+  усиление/readback GitHub main protection с явными исходами2/3/4/5/6.
+- --mode auto/bypass и --no-beads; component payload/closure, tracker defer открытого issue
+  только в no-beads. Explicit Claude CLI startup документирует effective mode boundary.
+
+### Changed
+- Settings source auto без U2 deny; known rc.1–rc.3 canonical fingerprints обновляют точные
+  установки, custom permissions/mode сохраняются. Codex пустой deny артефакт снимается.
+- Install-state format2 без абсолютных путей, legacy upgrade и all-or-nothing rollback сохранены.
+- ADR3.33 фиксирует установку, authorisation protection и trusted upstream финализацию WI-1.
+
 
 ### Fixed
 - Bootstrap og-159 генерируется независимо от тела: actual scriptSHA можно включить в FINAL,

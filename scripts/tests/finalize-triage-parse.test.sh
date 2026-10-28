@@ -127,8 +127,9 @@ fi
 # Сетевой вызов обязан остаться ЗА границей извлечения: если он попал в извлечение,
 # прогон уходит в сеть и его результат перестаёт быть утверждением о разборе.
 # Строки-комментарии из проверки исключаются: соседний комментарий скилла упоминает
-# `gh pr view` по делу, и запрет на упоминание превратил бы проверку в запрет объяснять.
-if ! { grep -vE '^[[:space:]]*#' "$EXTRACT" | grep >/dev/null 'gh pr view'; search_status=("${PIPESTATUS[@]}");
+# `gh pr view` по делу. WI-1 отдельно читает identity PR для tracker; здесь запрещён
+# именно comments fetch, не этот обязательный lookup, покрытый no-beads fixtures.
+if ! { grep -vE '^[[:space:]]*#' "$EXTRACT" | grep -E >/dev/null 'gh pr view.*--json comments'; search_status=("${PIPESTATUS[@]}");
   [ "${search_status[0]}" -le 1 ] && [ "${search_status[1]}" -eq 1 ]; }; then
   not_ok "в извлечение попал сетевой вызов 'gh pr view' — маркеры границы очерчивают не тот блок"
   printf '\n1..%d\n' "$((pass + fail))"

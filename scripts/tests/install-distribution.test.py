@@ -92,9 +92,148 @@ class InstallTests(unittest.TestCase):
         else:self.assertNotEqual(run.returncode,0,run.stdout+run.stderr)
         return run
 
-    def make_plan(self):
+    def make_plan(self,*extra):
         return self.call('plan','--source',self.source,'--source-sha',self.sha,'--target',self.target,
-                         '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan)
+                         '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan,*extra)
+
+    def backup(self):
+        return max((self.target/'.overgate-backups').glob('*/rollback.json'),key=lambda p:p.stat().st_mtime_ns)
+
+    def test_wi1_fresh_modes_and_state(self):
+        self.make_plan();self.approve();self.apply()
+        source=self.source_blob('.claude/settings.json')
+        self.assertEqual(json.loads(source)['permissions']['defaultMode'],'auto')
+        self.assertNotIn(b'docker-compose.prod.yml',source)
+        self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
+        state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.4'))
+        self.assertNotIn('source',state);self.assertNotIn('backup',state)
+        def no_absolute(value):
+            if isinstance(value,dict):
+                for k,v in value.items():no_absolute(k);no_absolute(v)
+            elif isinstance(value,list):
+                for v in value:no_absolute(v)
+            elif isinstance(value,str):self.assertFalse(PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute(),value)
+        no_absolute(state)
+        self.make_plan('--mode','bypass');plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['mode'],'bypass');self.assertIn('смена режима',self.make_plan('--mode','bypass').stdout)
+        self.approve();self.apply()
+        self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source.replace(b'"defaultMode": "auto"',b'"defaultMode": "bypassPermissions"'))
+        self.make_plan('--mode','bypass');self.assert_noop()
+        self.make_plan();self.assert_noop()
+        self.make_plan('--mode','auto');self.approve();self.apply()
+        self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
+
+    def assert_noop(self):
+        plan=json.loads(self.plan.read_bytes());self.assertEqual(plan['conflicts'],[])
+        self.assertTrue(all(op['before']==op['after'] if POSIX_MODES else op['before'] is not None and op['before']['sha256']==op['after']['sha256'] for op in plan['operations']))
+
+    def test_wi1_custom_permissions_explicit_mode_stops_without_writes(self):
+        path=self.target/'.claude/settings.json';path.parent.mkdir()
+        custom={'permissions':{'allow':['Bash(project1)','Bash(project2)','Read(project3)','Edit(project4)'],'defaultMode':'manual'},'env':{'OWN':'x'},'language':'english'}
+        path.write_text(json.dumps(custom),encoding='utf-8');before=snapshot(self.target)
+        result=self.call('plan','--source',self.source,'--source-sha',self.sha,'--target',self.target,'--contract',self.contract,'--target-pr',PR_URL,'--output',self.plan,'--mode','auto',ok=False)
+        self.assertIn('режим проекта со своими settings меняется вручную в target PR',result.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertIn('permissions проекта сохранены',self.make_plan().stdout)
+        self.approve();self.apply();after=json.loads(path.read_bytes())
+        self.assertEqual(after['permissions']['allow'],custom['permissions']['allow'])
+        self.assertEqual(after['permissions']['defaultMode'],'manual')
+        self.assertEqual(after['env'],custom['env']);self.assertEqual(after['language'],'english')
+        self.assertEqual(json.loads((self.target/'.overgate/install-state.json').read_bytes())['mode'],'custom')
+
+    def test_wi1_no_beads_projection_upgrade_rollback_and_fail_closed(self):
+        self.make_plan('--no-beads');plan=json.loads(self.plan.read_bytes());self.assertIs(plan['beads'],False)
+        self.approve();self.apply();state=(self.target/'.overgate/install-state.json').read_bytes()
+        manifest=self.source_manifest();beads=[e['target'] for e in manifest['files'] if e.get('component')=='beads']
+        self.assertEqual(len(beads),9)
+        for path in beads:self.assertFalse((self.target/path).exists(),path)
+        self.assertNotIn('overgate:beads',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
+        self.assertNotIn('Beads:',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
+        check=[sys.executable,str(self.target/'scripts/check-reference.py'),'--root',str(self.target)]
+        self.assertEqual(subprocess.run(check,capture_output=True).returncode,0)
+        memory=subprocess.run([BASH,'scripts/og-init-memory-bank.sh'],cwd=self.target,capture_output=True)
+        self.assertEqual(memory.returncode,0,memory.stderr)
+        self.assertEqual(len(list((self.target/'.memory-bank').glob('*.md'))),6)
+        self.make_plan();self.assert_noop();self.approve();self.apply()
+        self.call('rollback','--target',self.target,'--backup',self.backup())
+        self.assertEqual((self.target/'.overgate/install-state.json').read_bytes(),state)
+        (self.target/'.overgate/install-state.json').unlink()
+        self.assertNotEqual(subprocess.run(check,capture_output=True).returncode,0)
+        (self.target/'.overgate/install-state.json').write_text('{broken')
+        self.assertNotEqual(subprocess.run(check,capture_output=True).returncode,0)
+
+    def test_wi1_beads_mode_change_refuses_without_writes(self):
+        self.make_plan();self.approve();self.apply();before=snapshot(self.target)
+        result=self.call('plan','--source',self.source,'--source-sha',self.sha,'--target',self.target,'--contract',self.contract,'--target-pr',PR_URL,'--output',self.plan,'--no-beads',ok=False)
+        self.assertIn('Beads',result.stderr);self.assertEqual(snapshot(self.target),before)
+
+    def test_wi1_rc_upgrades_modes_and_legacy_state_rollback(self):
+        for sha in (RC1_SHA,RC2_SHA,RC3_SHA):
+            for mode in (None,'bypass'):
+                with self.subTest(sha=sha,mode=mode):
+                    self.target=self.root/(sha[:5]+str(mode));init(self.target)
+                    self.install_tag(sha,'source-'+sha[:5]+str(mode));before=snapshot(self.target)
+                    result=self.make_plan(*(['--mode',mode] if mode else []));self.assertIn('смена режима',result.stdout)
+                    self.approve();self.apply()
+                    wanted=self.source_blob('.claude/settings.json')
+                    if mode:wanted=wanted.replace(b'"defaultMode": "auto"',b'"defaultMode": "bypassPermissions"')
+                    self.assertEqual((self.target/'.claude/settings.json').read_bytes(),wanted)
+                    self.make_plan();self.assert_noop()
+                    self.call('rollback','--target',self.target,'--backup',self.backup())
+                    self.assertEqual(snapshot(self.target),before)
+
+    def test_wi1_codex_artifact_cleanup_and_strict_fingerprint(self):
+        installer=load_installer();self.assertNotEqual(installer.canonical(True),installer.canonical(1))
+        for repeat in (RC1_SHA,RC2_SHA):
+            self.target=self.root/repeat[:5];init(self.target)
+            self.install_tag(RC1_SHA,'initial-'+repeat[:5]);self.install_tag(repeat,'repeat-'+repeat[:5])
+            self.assertEqual(json.loads((self.target/'.codex/hooks.json').read_bytes())['permissions'],{'deny':[]})
+            self.make_plan();self.approve();self.apply()
+            self.assertEqual((self.target/'.codex/hooks.json').read_bytes(),self.source_blob('.codex/hooks.json'))
+        p=self.target/'.codex/hooks.json';custom=json.loads(p.read_bytes());custom.update(project=True,permissions={'deny':[],'allow':['Read(own)']});p.write_text(json.dumps(custom))
+        self.make_plan();self.approve();self.apply();got=json.loads(p.read_bytes())
+        self.assertEqual(got['permissions'],{'allow':['Read(own)']});self.assertIs(got['project'],True)
+        p=self.target/'.claude/settings.json';data=json.loads(p.read_bytes());data['enableAllProjectMcpServers']=1;p.write_text(json.dumps(data))
+        self.assertIn('permissions проекта сохранены',self.make_plan().stdout)
+
+    def test_wi1_existing_empty_invalid_state_cannot_switch_beads_or_write(self):
+        path=self.target/'.overgate/install-state.json';path.parent.mkdir()
+        for content in ('{}','[]','null','{"beads":true}','{broken'):
+            with self.subTest(content=content):
+                path.write_text(content,encoding='utf-8');before=snapshot(self.target)
+                result=self.call('plan','--source',self.source,'--source-sha',self.sha,'--target',self.target,'--contract',self.contract,'--target-pr',PR_URL,'--output',self.plan,'--no-beads',ok=False)
+                self.assertIn('STOP:',result.stderr);self.assertEqual(snapshot(self.target),before)
+
+    def test_wi1_forbidden_managed_context_entries(self):
+        installer=load_installer()
+        for path in ('.memory-bank/activeContext.md','.beads/metadata.json'):
+            with self.subTest(path=path):
+                manifest={'files':[{'source':'payload','target':path,'policy':'managed'}]}
+                with self.assertRaisesRegex(installer.InstallError,'forbidden managed path'):
+                    installer.validate_payload(manifest,{'payload':(b'forbidden',0o644)})
+        self.assertFalse(any(e['target'].startswith(('.memory-bank/','.beads/')) for e in self.source_manifest()['files']))
+
+    def test_wi1_exact_old_settings_with_four_project_allow_remain_custom(self):
+        installer=load_installer();manifest=self.source_manifest();source=self.source_blob('.claude/settings.json')
+        for sha in (RC1_SHA,RC2_SHA,RC3_SHA):
+            with self.subTest(sha=sha):
+                old=json.loads(subprocess.check_output(['git','-C',str(ROOT),'show',sha+':.claude/settings.json']))
+                old['permissions']['allow']=['Bash(project1)','Bash(project2)','Read(project3)','Edit(project4)']
+                old['env']['PROJECT']='own';old['language']='english';notes=[]
+                got,mode=installer.select_claude(json.dumps(old).encode(),source,manifest,None,notes);after=json.loads(got)
+                self.assertEqual(after['permissions']['allow'],old['permissions']['allow'])
+                self.assertEqual(after['permissions']['defaultMode'],old['permissions']['defaultMode'])
+                self.assertEqual(after['env'],old['env']);self.assertEqual(after['language'],'english')
+                self.assertEqual(mode,'custom');self.assertIn('permissions проекта сохранены',notes)
+                with self.assertRaisesRegex(installer.InstallError,'меняется вручную'):
+                    installer.select_claude(json.dumps(old).encode(),source,manifest,'bypass',[])
+
+    def test_wi1_install_state_drift_refuses_rollback(self):
+        self.make_plan();self.approve();self.apply();path=self.target/'.overgate/install-state.json';path.write_bytes(path.read_bytes()+b' ')
+        before=snapshot(self.target)
+        result=self.call('rollback','--target',self.target,'--backup',self.backup(),ok=False)
+        self.assertIn('rollback drift',result.stderr);self.assertEqual(snapshot(self.target),before)
 
     def approve(self):
         self.approval.write_text(json.dumps({'verdict':'PLAN_READY','plan_sha256':hashlib.sha256(self.plan.read_bytes()).hexdigest(),
@@ -149,7 +288,7 @@ class InstallTests(unittest.TestCase):
         settings=json.loads((self.target/'.claude/settings.json').read_text(encoding='utf-8'));self.assertEqual(settings['env']['PROJECT'],'preserve')
         self.assertIn('echo project-session',json.dumps(settings))
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
-        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
 
     def test_v39_upgrade_and_rollback_with_crlf_source_checkout(self):
@@ -190,10 +329,10 @@ class InstallTests(unittest.TestCase):
         for entry in manifest['previous_rc_settings']['hooks']['PreToolUse'][:-1]:
             self.assertNotIn(entry,after['hooks']['PreToolUse'])
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
-        entries=json.loads(Path(state['backup']).read_text(encoding='utf-8'))['entries']
+        entries=json.loads(Path(self.backup()).read_text(encoding='utf-8'))['entries']
         restored=[e['target'] for e in reversed(entries)]
         self.assertLess(restored.index('.claude/settings.json'),restored.index('.claude/hooks/pre-bash.sh'))
-        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
 
     def install_tag(self,sha,name):
@@ -248,7 +387,7 @@ class InstallTests(unittest.TestCase):
 
     def rollback_to(self,before):
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
-        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
 
     def plan_inprocess(self):
@@ -455,7 +594,7 @@ class InstallTests(unittest.TestCase):
             self.assertEqual((self.target/path).read_bytes(),before[path],path)
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
         self.assertEqual(state['source_sha'],self.sha)
-        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
         rc1_wrapper=subprocess.check_output(['git','-C',str(rc1),'show',RC1_SHA+':scripts/bd-wt.sh'])
         self.assertEqual((self.target/'scripts/bd-wt.sh').read_bytes(),rc1_wrapper)
@@ -620,7 +759,7 @@ class InstallTests(unittest.TestCase):
         self.make_plan();self.approve();self.apply()
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
         (self.target/'.agents/PM_ROLE.md').write_text('subsequent work')
-        self.assertIn('drift',self.call('rollback','--target',self.target,'--backup',state['backup'],ok=False).stderr)
+        self.assertIn('drift',self.call('rollback','--target',self.target,'--backup',self.backup(),ok=False).stderr)
 
     def test_backup_symlink_rejected_before_write(self):
         self.make_plan();self.approve()
@@ -681,7 +820,7 @@ class InstallTests(unittest.TestCase):
         # AC-03: в source Codex adapter нет permissions — merge их не создаёт.
         self.assertNotIn('permissions',after)
         state=json.loads((self.target/'.overgate/install-state.json').read_text(encoding='utf-8'))
-        self.call('rollback','--target',self.target,'--backup',state['backup'])
+        self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
 
     def test_custom_codex_managed_variant_conflicts_before_write(self):

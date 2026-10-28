@@ -1,6 +1,29 @@
 # Active Context
 
-## og-159 — единый исполняемый finalize gate
+## WI-1 rc.4 — implementation candidate, acceptance pending
+
+PR #12, branch plan/v4.0.0-rc.4-adoption, approved plan v0.6 blob d9d760d unchanged.
+Upstream og-159 MERGED fa0681a6, Beads CLOSED (текущий факт, подтверждён PM);
+интегрирован pure merge 4120e674; trusted finalize source fa0681a6.
+Реализация WI-1: modes/settings fingerprints, protection/Memory/Beads helpers, --no-beads,
+relative install-state/rollback, tracker defer, QUICKSTART/ADR3.33. Developer TDD и local
+reference checks — evidence реализации, не acceptance. PM ведёт independent QA → один Code Review,
+затем operator live Windows/Claude/Codex, exact-HEAD CI и trusted finalize. Live receipts пока NOT RUN.
+Code Review launch3 на историческом candidate `0eeb492` — CHANGES_REQUESTED: RV-WI1-F1
+(AC06/AC13/R8), тарифный403 предварительного GET protection ошибочно давал6 без записи R8.
+В исправленном candidate известное тарифное тело private repo распознаётся и до PUT: code4,
+R8 в существующий каркас; прочие403 остаются stop6, правила защиты/readback не ослабляются.
+На source `75677f9` RV-WI1-F1 получил affected recheck; последующий actual native Codex0.153.4
+startup выявил RV-WI1-F2 BLOCKER: все пять inherited core SKILL.md отвергнуты без YAML metadata.
+Исправленный candidate добавляет только name/description из прежних names/Trigger; каждое тело
+после frontmatter побайтно сохранено. Packaging RED/GREEN и source native discovery — Developer
+receipts, не installed activation или acceptance. Pending: affected QA2/recheck того же Reviewer3,
+новый exact-HEAD CI и отдельный target upgrade PLAN_READY/apply; actual installed discovery/invocation
+после upgrade, Windows и остальные live qualification receipts подтверждаются PM отдельно.
+WI-2 og-7sr, merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
+
+
+## История og-159 до merge — единый исполняемый finalize gate
 
 Приоритетная линия: `og-159`, PR #13, ветка `fix/og-159-finalize-gate-script`, база
 `main@b830d5e` (rc.3). Принятый план v0.5, blob `5ab559a2`, affected PLAN_READY в той же reviewer-сессии launch 2.

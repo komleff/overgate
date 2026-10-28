@@ -48,22 +48,25 @@ def current(root,path):
     if not p.exists(): return None
     return {'sha256':digest(p.read_bytes()),'mode':p.stat().st_mode & 0o777}
 
-def validate_payload(manifest,payload):
+def projected_entries(manifest,beads):
+    return [e for e in manifest['files'] if beads or e.get('component')!='beads']
+
+def validate_payload(manifest,payload,beads=True):
     # Validate the projected install from frozen bytes, not the source tree where an
     # omitted manifest dependency may still exist. No target/backup writes here.
     with tempfile.TemporaryDirectory(prefix='overgate-preflight-') as directory:
         root=Path(directory)
-        for entry in manifest['files']:
+        for entry in projected_entries(manifest,beads):
             path=safe(root,entry['target']);data,mode=payload[entry['source']]
             path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data);path.chmod(mode)
         checker=root/'scripts/check-reference.py'
         if not checker.is_file():raise InstallError('missing payload checker: scripts/check-reference.py')
-        result=subprocess.run([sys.executable,'-I','-B',str(checker),'--root',str(root)],
+        result=subprocess.run([sys.executable,'-I','-B',str(checker),'--root',str(root)]+([] if beads else ['--no-beads']),
                               cwd=root,capture_output=True,text=True)
         if result.returncode:
             raise InstallError('payload preflight failed: '+(result.stdout+result.stderr).strip())
 
-def load_manifest(source,sha):
+def load_manifest(source,sha,beads=True):
     if not re.fullmatch('[0-9a-f]{40}',sha): raise InstallError('source SHA must be exact 40 hex')
     if git(source,'rev-parse','HEAD').decode().strip()!=sha: raise InstallError('source movement: HEAD differs from frozen SHA')
     try:m=json.loads(git(source,'show',sha+':'+MANIFEST))
@@ -85,13 +88,16 @@ def load_manifest(source,sha):
     actual=set(git(source,'ls-tree','-r','--name-only',sha,'--','.agents/skills').decode().splitlines())
     if skills!=expected or {x for x in actual if x.endswith('SKILL.md')}!=expected:
         raise InstallError('missing/nested/orphan skill payload')
-    validate_payload(m,payload)
+    validate_payload(m,payload,beads)
     return m,payload
 
-def merge_settings(existing,new,legacy,previous_rc=None):
+def merge_settings(existing,new,legacy,previous_rc=None,clean_codex=False):
     if existing is None:return new
     try:before=json.loads(existing);original=json.loads(existing);after=json.loads(new)
     except ValueError as e:raise InstallError('conflict: runtime settings must be valid JSON') from e
+    if clean_codex and isinstance(before.get('permissions'),dict) and before['permissions'].get('deny')==[]:
+        del before['permissions']['deny']
+        if not before['permissions']:del before['permissions']
     old_entries=legacy.get('hooks',{}).get('PreToolUse',[])+(previous_rc or {}).get('hooks',{}).get('PreToolUse',[])
     managed_names=('pre-bash.sh','check-repository-mutation.py','check-tests-before-commit.sh','check-merge-ready.py')
     kept=[]
@@ -114,6 +120,32 @@ def merge_settings(existing,new,legacy,previous_rc=None):
     if merged==canonical(after):return new
     if merged==canonical(original):return existing
     return settings_bytes(before)
+
+def claude_variant(data,mode):
+    if mode=='auto':return data
+    changed,count=re.subn(rb'("defaultMode"\s*:\s*)"auto"',rb'\1"bypassPermissions"',data)
+    if count!=1:raise InstallError('source defaultMode must be auto exactly once')
+    return changed
+
+def select_claude(existing,new,manifest,requested,notes):
+    if existing is None:return claude_variant(new,requested or 'auto'),requested or 'auto'
+    old=json.loads(existing)
+    fingerprint=digest(canonical(old).encode('utf-8'))
+    known=manifest.get('known_settings_fingerprints',{})
+    if fingerprint not in known:
+        if requested:raise InstallError('режим проекта со своими settings меняется вручную в target PR')
+        notes.append('permissions проекта сохранены')
+        return merge_settings(existing,new,manifest.get('legacy_settings',{}),manifest.get('previous_rc_settings',{})),'custom'
+    prior=known[fingerprint]
+    mode=requested or (prior if prior in ('auto','bypass') else 'auto')
+    desired=claude_variant(new,mode)
+    if canonical(old)!=canonical(json.loads(desired)):
+        notes.append('смена режима: '+str(old.get('permissions',{}).get('defaultMode'))+' → '+mode)
+    return desired,mode
+
+def render_agents(data,beads):
+    if beads:return data
+    return re.sub(rb'<!-- overgate:beads -->.*?<!-- /overgate:beads -->\r?\n?',b'',data,flags=re.S)
 
 FRAGMENT_HEADER='# OverGate personal state (managed fragment)'
 
@@ -148,7 +180,8 @@ def merge_gitignore(existing,fragment):
     if not kept.endswith('\n'):kept+=eol
     return (kept+eol+''.join(body+eol for body in block)).encode('utf-8')
 
-def make_plan(source,sha,target,contract,target_pr):
+def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False):
+    requested_mode=mode
     source=source.resolve();target=target.resolve();contract=contract.resolve()
     if source==target:raise InstallError('source and target must be separate checkouts')
     if not re.fullmatch(r'https://[^/]+/[^/]+/[^/]+/pull/[1-9][0-9]*',target_pr):raise InstallError('target Draft PR URL required')
@@ -156,13 +189,20 @@ def make_plan(source,sha,target,contract,target_pr):
     branch=git(target,'branch','--show-current').decode().strip()
     if not branch or branch in {'main','master'}:raise InstallError('target must be a named working branch')
     if not contract.is_file() or not contract.read_bytes().strip():raise InstallError('Verification Contract required')
-    m,payload=load_manifest(source,sha)
-    previous={}
-    if safe(target,STATE).exists():
-        previous=json.loads((target/STATE).read_text(encoding='utf-8')).get('installed',{})
-    operations=[];conflicts=[]
-    for entry in m['files']:
+    state={}
+    state_exists=safe(target,STATE).exists()
+    if state_exists:
+        state=json.loads((target/STATE).read_text(encoding='utf-8'))
+        if not isinstance(state,dict):raise InstallError('invalid install-state object; refuse unknown prior installation')
+    beads=state.get('beads') is not False
+    if state_exists and no_beads and beads:raise InstallError('смена режима Beads при upgrade запрещена')
+    if not state_exists:beads=not no_beads
+    m,payload=load_manifest(source,sha,beads)
+    previous=state.get('installed',{})
+    operations=[];conflicts=[];notes=[];agent_mode='auto'
+    for entry in projected_entries(m,beads):
         path=entry['target'];p=safe(target,path);old=current(target,path);data,mode=payload[entry['source']]
+        if entry['source']=='.agents/templates/AGENTS.template.md':data=render_agents(data,beads)
         policy=entry.get('policy','managed')
         if policy=='preserve' and old is not None:continue
         if policy=='ignore':
@@ -172,17 +212,22 @@ def make_plan(source,sha,target,contract,target_pr):
             legacy=m.get('legacy_settings',{});previous_rc=m.get('previous_rc_settings',{})
             if path=='.codex/hooks.json':
                 legacy={};previous_rc=m.get('previous_rc_codex_settings',{})
-            try:data=merge_settings(p.read_bytes() if old else None,data,legacy,previous_rc)
-            except InstallError as e:conflicts.append(f'{path}: {e}');continue
+            try:
+                if path=='.claude/settings.json':data,agent_mode=select_claude(p.read_bytes() if old else None,data,m,requested_mode,notes)
+                else:data=merge_settings(p.read_bytes() if old else None,data,legacy,previous_rc,clean_codex=True)
+            except InstallError as e:
+                if requested_mode is not None and path=='.claude/settings.json':raise
+                conflicts.append(f'{path}: {e}');continue
         elif old is not None and old['sha256']!=digest(data):
             prior=previous.get(path,{}).get('sha256')
             blob=git(target,'hash-object',str(p)).decode().strip()
             if old['sha256']!=prior and blob!=m.get('legacy_blobs',{}).get(path):
                 conflicts.append(path+': conflict with project override; no force overwrite');continue
         operations.append({'source':entry['source'],'target':path,'before':old,'after':{'sha256':digest(data),'mode':mode},
-                           'data':base64.b64encode(data).decode() if policy in {'settings','ignore'} else None})
+                           'data':base64.b64encode(data).decode() if policy in {'settings','ignore'} or (entry['source']=='.agents/templates/AGENTS.template.md' and not beads) else None})
     return {'format':1,'source':str(source),'source_sha':sha,'target':str(target),'branch':branch,
             'target_pr':target_pr,'contract':str(contract),'contract_sha256':digest(contract.read_bytes()),
+            'mode':agent_mode,'requested_mode':requested_mode,'beads':beads,'no_beads':no_beads,'notes':notes,'manifest_version':m['version'],
             'operations':operations,'conflicts':conflicts,'state_before':current(target,STATE)}
 
 def write_atomic(root,path,data,mode):
@@ -206,10 +251,10 @@ def apply(plan_path,approval_path):
     if approval.get('verdict')!='PLAN_READY' or approval.get('plan_sha256')!=digest(raw) or not approval.get('evidence','').startswith(plan['target_pr']+'#'):
         raise InstallError('PLAN_READY must bind exact plan bytes and evidence in same target PR')
     if digest(Path(plan['contract']).read_bytes())!=plan['contract_sha256']:raise InstallError('contract drift after Plan Review')
-    now=make_plan(Path(plan['source']),plan['source_sha'],Path(plan['target']),Path(plan['contract']),plan['target_pr'])
+    now=make_plan(Path(plan['source']),plan['source_sha'],Path(plan['target']),Path(plan['contract']),plan['target_pr'],plan.get('requested_mode'),plan.get('no_beads',False))
     if now!=plan:raise InstallError('target/source plan drift after Plan Review; regenerate plan in same PR')
     if plan['conflicts']:raise InstallError('conflicts require explicit project resolution: '+'; '.join(plan['conflicts']))
-    root=Path(plan['target']);_,payload=load_manifest(Path(plan['source']),plan['source_sha'])
+    root=Path(plan['target']);_,payload=load_manifest(Path(plan['source']),plan['source_sha'],plan['beads'])
     if (root/'.overgate-backups').is_symlink():raise InstallError('symlink backup directory')
     backup=root/'.overgate-backups'/uuid.uuid4().hex
     backup.mkdir(parents=True)
@@ -227,8 +272,8 @@ def apply(plan_path,approval_path):
             if digest(data)!=op['after']['sha256']:raise InstallError('payload fingerprint mismatch')
             write_atomic(root,op['target'],data,op['after']['mode'])
         installed={op['target']:op['after'] for op in plan['operations']}
-        state={'format':1,'source':plan['source'],'source_sha':plan['source_sha'],'target_pr':plan['target_pr'],
-               'plan_sha256':digest(raw),'approval':approval,'backup':str(backup_file),'installed':installed}
+        state={'format':2,'source_sha':plan['source_sha'],'manifest_version':plan['manifest_version'],
+               'mode':plan['mode'],'beads':plan['beads'],'installed':installed}
         write_atomic(root,STATE,json_bytes(state),0o644)
         journal['after']={x['target']:current(root,x['target']) for x in entries};journal['complete']=True
         backup_file.write_bytes(json_bytes(journal))
@@ -252,13 +297,16 @@ def main():
     p=sub.add_parser('plan')
     for flag in ('source','target','contract','output'):p.add_argument('--'+flag,required=True,type=Path)
     p.add_argument('--source-sha',required=True);p.add_argument('--target-pr',required=True)
+    p.add_argument('--mode',choices=('auto','bypass'));p.add_argument('--no-beads',action='store_true')
     p=sub.add_parser('apply');p.add_argument('--plan',required=True,type=Path);p.add_argument('--approval',required=True,type=Path)
     p=sub.add_parser('rollback');p.add_argument('--target',required=True,type=Path);p.add_argument('--backup',required=True,type=Path)
     args=parser.parse_args()
     try:
         if args.command=='plan':
-            plan=make_plan(args.source,args.source_sha,args.target,args.contract,args.target_pr)
-            args.output.write_bytes(json_bytes(plan));print('Plan written; conflicts='+str(len(plan['conflicts']))+'; SHA256='+digest(args.output.read_bytes()))
+            plan=make_plan(args.source,args.source_sha,args.target,args.contract,args.target_pr,args.mode,args.no_beads)
+            args.output.write_bytes(json_bytes(plan))
+            for note in plan['notes']:print(note)
+            print('Plan written; conflicts='+str(len(plan['conflicts']))+'; SHA256='+digest(args.output.read_bytes()))
         elif args.command=='apply':apply(args.plan,args.approval)
         else:rollback(args.target,args.backup)
     except (InstallError,OSError,ValueError,KeyError,TypeError) as e:
