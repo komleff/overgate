@@ -1,5 +1,26 @@
 # Active Context
 
+## og-159 — единый исполняемый finalize gate
+
+Приоритетная линия: `og-159`, PR #13, ветка `fix/og-159-finalize-gate-script`, база
+`main@b830d5e` (rc.3). Принятый план v0.5, blob `5ab559a2`, affected PLAN_READY в той же reviewer-сессии launch 2.
+Фактически использовано 4/6 launches: Plan Review 1/2, QA 3, Code Review 4.
+Developer переносит frozen `SKILL.md` blob `b7e7ed1` в managed `finalize-gate.sh`: общий shell
+маршрут Claude Code/Codex, code из GATE_TREE, data из WORK_TREE, private snapshot с точными
+bytes и raw stdin publisher. Trusted closure не меняется. Bootstrap extractor фиксирует
+исходный blob и closure; scriptSHA стабилен независимо от BODY. Runtime digest вручную
+проверенного PM тела приходит из отдельного immutable attestation; og-159 финализируется им.
+История RV-F1: `d85f338` получил actual macOS CI FAIL (triage 133/126) из-за en_US collation.
+Текущий fix candidate добавляет только per-process `LC_ALL=C` для triage AWK и bootstrap;
+frozen AWK body/closure неизменны, acceptance и exact-SHA CI остаются pending.
+История AC11: literal body digest создавал цикл scriptSHA/BODY; v0.5 выносит digest в
+runtime data и требует constructibility настоящего FINAL, acceptance ещё pending.
+Ручные проверки accepted risk/паспорта, CI, live runtime checks, affected QA 3 и
+Code Review 4 в тех же сессиях и bootstrap-finalization остаются pending; local Developer fixtures не
+означают acceptance/readiness. Merge — оператор. WI-1 rc.4 v0.6 и его ветка не меняются.
+
+## rc.3 — исторический snapshot до og-159
+
 Текущий фокус: v4.0.0-rc.3 (`og-7d1`), Draft PR #11, ветка `fix/installer-conformance`, база
 `main` `073595a` (= rc.2). План `docs/plans/2026-10-24-v4.0.0-rc.3.md` v0.3 (PLAN_READY), CRITICAL,
 budget 6. Решение оператора 2026-10-24: перед upgrade u2-lab выпустить rc.3 с исправлением
