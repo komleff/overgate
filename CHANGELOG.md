@@ -5,7 +5,8 @@
 
 ## [Unreleased] — v4.0.0-rc.4 candidate, WI-1
 
-До выпуска требуется отдельный WI-2 og-7sr; stable/Latest не меняется.
+Выпуск после приёмки WI-1 и merge оператором; WI-2 og-7sr перенесён в rc.5 по решению
+оператора 2026-11-03. Stable/Latest не меняется.
 
 ### Added
 - QUICKSTART для неспециалиста; helpers Memory Bank (шесть файлов), bd1.2.2 bootstrap и

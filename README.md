@@ -7,7 +7,7 @@ Delivery First связывает принятую спецификацию, р�
 
 Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
 
-**Текущий candidate: v4.0.0-rc.4 (WI-1, до отдельного WI-2).** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
+**Текущий candidate: v4.0.0-rc.4 (WI-1; WI-2 перенесён в rc.5).** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
 RC выбирается отдельно и не заменяет Latest. Здесь живёт generic reference из
 [U2](https://github.com/komleff/u2), без его product/game data.
 

@@ -2,7 +2,9 @@
 
 ## WI-1 rc.4 — implementation candidate, acceptance pending
 
-PR #12, branch plan/v4.0.0-rc.4-adoption, approved plan v0.6 blob d9d760d unchanged.
+PR #12, branch plan/v4.0.0-rc.4-adoption. WI-1 AC/source plan v0.6 blob d9d760d сохранён
+как baseline; v0.7 меняет только release boundary по решению оператора 2026-11-03.
+Affected PLAN_REVIEW: PLAN_READY, 0 BLOCKER/ADVISORY; Windows/live/CI acceptance pending.
 Upstream og-159 MERGED fa0681a6, Beads CLOSED (текущий факт, подтверждён PM);
 интегрирован pure merge 4120e674; trusted finalize source fa0681a6.
 Реализация WI-1: modes/settings fingerprints, protection/Memory/Beads helpers, --no-beads,
@@ -33,7 +35,9 @@ Windows job budget увеличен до40m; команды/tests/runtime и Lin
 Mandatory pending: actual operator Windows simple/complex-path checklist, real server rejection
 прямого main push, оставшиеся live variants по contract и trusted whole AC16 finalization.
 PM ведёт affected QA2/same Reviewer3 recheck и exact-HEAD CI; overall acceptance/readiness
-не объявлены. WI-2 og-7sr, operator merge и выпуск rc.4 — отдельно; Latest v3.9.0 не меняется.
+не объявлены. Решение оператора 2026-11-03: WI-2 og-7sr перенесён в rc.5; release rc.4
+после полной приёмки WI-1, trusted finalize и operator merge. План v0.7 меняет только
+release boundary; WI-1 AC-01…AC-17 остаются. Latest v3.9.0 не меняется.
 
 
 ## История og-159 до merge — implementation candidate, acceptance pending
