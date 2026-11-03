@@ -128,6 +128,20 @@ class InstallTests(unittest.TestCase):
         plan=json.loads(self.plan.read_bytes());self.assertEqual(plan['conflicts'],[])
         self.assertTrue(all(op['before']==op['after'] if POSIX_MODES else op['before'] is not None and op['before']['sha256']==op['after']['sha256'] for op in plan['operations']))
 
+    def test_wi1_ntfs_replan_after_apply_has_equal_before_after(self):
+        # NTFS не представляет Git mode 0644/0755: повторный план обязан быть no-op.
+        self.make_plan();self.approve();self.apply()
+        installer=load_installer();current=installer.current
+        def ntfs_current(root,path):
+            observed=current(root,path)
+            return {**observed,'mode':0o666} if observed is not None else None
+        with mock.patch.object(installer,'current',side_effect=ntfs_current),mock.patch.object(installer.sys,'platform','win32'):
+            plan=installer.make_plan(self.source,self.sha,self.target,self.contract,PR_URL)
+        self.assertEqual(plan['conflicts'],[])
+        self.assertTrue(plan['operations'])
+        for operation in plan['operations']:
+            self.assertEqual(operation['before'],operation['after'],operation['target'])
+
     def test_wi1_custom_permissions_explicit_mode_stops_without_writes(self):
         path=self.target/'.claude/settings.json';path.parent.mkdir()
         custom={'permissions':{'allow':['Bash(project1)','Bash(project2)','Read(project3)','Edit(project4)'],'defaultMode':'manual'},'env':{'OWN':'x'},'language':'english'}
