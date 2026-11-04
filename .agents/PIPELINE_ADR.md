@@ -1,7 +1,7 @@
 ---
 title: "Pipeline ADRs"
 status: decision
-version: "4.0.0-rc.3"
+version: "4.0.0-rc.4"
 date: 2026-05-05
 source: "github.com/komleff/overgate/.agents/PIPELINE_ADR.md"
 tags: [pipeline, adr, decisions, history]
@@ -13,7 +13,7 @@ related:
 
 # ADR: Архитектура AI-пайплайна разработки
 
-> Current: §§3.28–3.32. Более ранние нормы сохраняются как история и superseded в конфликтующей части.
+> Current: §§3.28–3.33. Более ранние нормы сохраняются как история и superseded в конфликтующей части.
 
 **Статус:** Принято
 **Дата принятия:** 2026-04-05
@@ -249,6 +249,42 @@ U2 dogfood и POSIX fixtures не объявляются OverGate Windows/live P
 
 **Отклонено:** новые read allowlists, root redesign, глобальный rename внутренних U2 prefixes
 в rc.1 и новый Codex dispatcher route: меняют принятую точку совместимости.
+
+### 3.33 Автономная установка rc.4 (2026-10-28)
+
+**Статус:** принято по WI-1 v0.6 (blob `d9d760d`), решениям оператора и PM advisory A1–A3.
+Установленные source settings используют `auto`; `--mode bypass` меняет только значение
+`defaultMode`. Известные прежние settings обновляются, custom permissions/mode сохраняются;
+явная смена custom режима — только вручную в target PR. Режим сессии проверяется фактически:
+запуск Claude Code — `claude --permission-mode auto`, запасной startup —
+`claude --permission-mode bypassPermissions`. Project settings сами по себе не доказывают mode.
+
+После `apply` агент запускает строго `og-init-memory-bank.sh` → `bd-bootstrap.sh` →
+`og-protect-main.sh`. Memory Bank содержит шесть файлов (уточнение исторического §3.6),
+создаётся только при отсутствующем каталоге; существующий, даже частичный, сохраняется.
+Beads — embedded база единственного основного checkout, без generated instructions/hooks и
+Dolt remote/auto-push, первый полный snapshot публикуется штатным export. Поддерживается только
+проверенный bd 1.2.2; другие версии fail-closed. Helper не скачивает bd, агент ставит его по ОС.
+`--no-beads` исключает компонент Beads, сохраняет Memory Bank; режим immutable при upgrade.
+Без читаемого install-state Beads обязательны. В режиме без Beads triage defer допускает только
+существующий открытый GitHub issue репозитория PR; проверка через `gh issue view` обязательна.
+
+Поручение оператора установить OverGate подтверждает запись защиты default main на GitHub
+(§3.29): PR required, enforce admins, запрет force push/delete. Helper сохраняет более строгие
+правила и проверяет результат чтением. Коды 2 (нет admin), 3 (нет gh auth), 4 (тариф) и 5
+(ruleset, сверить правила) требуют записи в target PR и R8 в уже созданном Memory Bank;
+6 — stop. Git push из shell нужен для Beads; connector-only без gh auth работает с --no-beads.
+Окно og-9ic.10 (снятие protection прямым API) остаётся named risk вне WI-1.
+
+Tracked install-state хранит только source SHA/manifest version, modes и относительные пути/хеши.
+Явный rollback --backup допустим сразу после apply, до helpers/правок, и остаётся all-or-nothing:
+любой drift файла из журнала — stop. Helpers/база/remote protection этим rollback не снимаются.
+WI-1 финализируется executable trusted gate из `main@fa0681a6e3b842959143a22e66b93d2161c0f13c`:
+SKILL, validators и tools из trusted SHA, data из final PR HEAD; blob mismatch — stop.
+Изменённый WI-1 gate не сертифицирует себя. Live Claude/Codex и Windows evidence отдельны от fixtures.
+
+**Отклонённые варианты:** `guarded` с вопросами неспециалисту; Memory Bank через manifest
+(запрет managed `.memory-bank`/`.beads` сохраняется); частичный rollback (нарушает drift guard).
 
 ## 4. Ключевые решения
 

@@ -73,16 +73,28 @@ def check(root):
     return errors
 
 
-def closure(root):
+BEADS_RUNTIME={'scripts/bd-read.sh','scripts/bd-wt.sh','scripts/lib/bd-env.sh','scripts/lib/bd-read-engine.mjs',
+    'scripts/bd-sync-common.sh','scripts/bd-sync-export.sh','scripts/bd-sync-restore.sh','scripts/bd-bootstrap.sh','.claude/rules/beads.md'}
+TEMPLATE_RUNTIME={'.agents/templates/memory-bank/'+name+'.md' for name in
+    ('projectbrief','productContext','systemPatterns','techContext','activeContext','progress')}
+INSTALL_RUNTIME={'scripts/og-init-memory-bank.sh','scripts/og-protect-main.sh'}
+
+def beads_enabled(root):
+    try:return json.loads((root/'.overgate/install-state.json').read_text(encoding='utf-8')).get('beads') is not False
+    except (OSError,ValueError,AttributeError):return True
+
+def closure(root,beads=None):
     errors = []
     try:
         manifest = json.loads((root / '.agents/distribution-manifest.json').read_text(encoding='utf-8'))
-        entries = manifest['files']
+        if beads is None:beads=beads_enabled(root)
+        entries = [e for e in manifest['files'] if beads or e.get('component')!='beads']
+        runtime=((RUNTIME|BEADS_RUNTIME) if beads else RUNTIME-BEADS_RUNTIME)|INSTALL_RUNTIME|TEMPLATE_RUNTIME
         targets = [x['target'] for x in entries]
-        if len(targets) != len(set(targets)) or not RUNTIME <= set(targets):
+        if len(targets) != len(set(targets)) or not runtime <= set(targets):
             errors.append('CLOSURE-001: missing/duplicate runtime inventory')
         settings_index=targets.index('.claude/settings.json') if '.claude/settings.json' in targets else -1
-        before_settings={x for x in RUNTIME if x.startswith('.claude/hooks/')} | {
+        before_settings={x for x in runtime if x.startswith('.claude/hooks/')} | {
             '.claude/tools/run-python.sh','.claude/tools/with-timeout.sh'}
         if any(path not in targets or targets.index(path)>=settings_index for path in before_settings):
             errors.append('CLOSURE-005: guards/helpers/dispatcher must precede Claude settings')
@@ -130,10 +142,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--structure-only', action='store_true')
+    parser.add_argument('--no-beads',action='store_true',help='frozen payload preflight projection')
     args = parser.parse_args()
     errors = check(args.root.resolve())
     if not args.structure_only:
-        errors += closure(args.root.resolve())
+        errors += closure(args.root.resolve(),False if args.no_beads else None)
     for error in errors:
         print(error)
     print(f'reference structure: {"FAIL" if errors else "PASS"}')

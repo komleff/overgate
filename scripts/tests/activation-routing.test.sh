@@ -4,8 +4,26 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
+import json
+import re
 import sys
 root = Path(sys.argv[1])
+# Два простых YAML-поля нужны native discovery до чтения процедур; JSON-строка —
+# совместимый YAML scalar без внешней зависимости. Проверяется поставляемый payload.
+packaging_errors = []
+for name in ('canon-router', 'diagnose', 'handoff', 'product-gap', 'product-handoff'):
+    path = root / '.agents/skills' / name / 'SKILL.md'
+    text = path.read_text(encoding='utf-8')
+    match = re.match(r'\A---\nname: ([a-z0-9-]+)\ndescription: ("[^\n]+")\n---\n\n', text)
+    if not match:
+        packaging_errors.append(f'{name}: missing/invalid name + description YAML frontmatter')
+        continue
+    description = json.loads(match[2])
+    assert match[1] == name, f'{name}: loader name differs from canonical folder'
+    assert isinstance(description, str) and description.startswith('Use when ') and len(description) < 500, name
+    assert text[match.end():].startswith('# ' + name + '\n'), f'{name}: canonical body missing'
+    print('PASS skill packaging:', name)
+assert not packaging_errors, '\n'.join(packaging_errors)
 def case(name, path, *phrases):
     text = (root / path).read_text()
     for phrase in phrases:

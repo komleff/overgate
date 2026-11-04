@@ -1,6 +1,46 @@
 # Progress
 
-## og-159 — implementation candidate, acceptance pending
+## WI-1 rc.4 — implementation candidate, acceptance pending
+
+PR #12, branch plan/v4.0.0-rc.4-adoption. WI-1 AC/source plan v0.6 blob d9d760d сохранён
+как baseline; v0.7 меняет только release boundary по решению оператора 2026-11-03.
+Affected PLAN_REVIEW: PLAN_READY, 0 BLOCKER/ADVISORY; Windows/live/CI acceptance pending.
+Upstream og-159 MERGED fa0681a6, Beads CLOSED (текущий факт, подтверждён PM);
+интегрирован pure merge 4120e674; trusted finalize source fa0681a6.
+Реализация WI-1: modes/settings fingerprints, protection/Memory/Beads helpers, --no-beads,
+relative install-state/rollback, tracker defer, QUICKSTART/ADR3.33. Developer TDD и local
+reference checks — evidence реализации, не acceptance.
+
+История RV-WI1-F1: на source `0eeb492` тарифный403 предварительного GET protection давал6
+без R8; исправлен в `75677f9` (code4/R8 до PUT, прочие403 stop6, strict/readback сохранены).
+История RV-WI1-F2: actual installed Codex0.153.4 на source756 отвергал все пять inherited
+core SKILL.md без YAML metadata. Source `cc0f3f2` добавил только name/description из прежних
+names/Trigger, полностью сохранив тела процедур. Affected QA2 PASS; same Reviewer3 закрыл F1/F2;
+affected CODE_REVIEW APPROVED, 0 открытых findings; публикацией closure evidence управляет PM.
+
+Actual macOS target PR1: первоначальная native установка source756, затем отдельно approved
+upgrade sourcecc0 → target `1f64a07`. State auto/Beads JSONtrue, 73 операции сверены по bytes/modes.
+Native Codex catalog показывает все пять skills без прежних loader errors; actual canon-router
+invocation/read подтверждён в Codex, explicit canonical-owner Read route сохранён в Claude auto.
+Это адресная installed qualification, не fresh-native clean-project run прямо сcc0 и не полная
+приёмка WI-1. CI-budget fix ниже не меняет manifest/payload bytes/modes: прежние Mac receipts
+наследуются только для доказанно идентичного component scope, не как новые whole-HEAD runs.
+
+CI sourcecc0 run40719436761: Linux/macOS SUCCESS; Windows CANCELLED по job budget30m,
+не assertion failure: dispatcher/install/rollback SUCCESS27:58, installer50/50; wrapper
+прерван на30m. Предыдущий source756 Windows run40711543487 SUCCESS29:33, запас лишь27с.
+Windows job budget увеличен до40m; команды/tests/runtime и Linux15m/macOS30m неизменны.
+Требуется новый exact-HEAD CI с фактическим завершением Windows suite; его PASS ещё не заявлен.
+
+Mandatory pending: actual operator Windows simple/complex-path checklist, real server rejection
+прямого main push, оставшиеся live variants по contract и trusted whole AC16 finalization.
+PM ведёт affected QA2/same Reviewer3 recheck и exact-HEAD CI; overall acceptance/readiness
+не объявлены. Решение оператора 2026-11-03: WI-2 og-7sr перенесён в rc.5; release rc.4
+после полной приёмки WI-1, trusted finalize и operator merge. План v0.7 меняет только
+release boundary; WI-1 AC-01…AC-17 остаются. Latest v3.9.0 не меняется.
+
+
+## История og-159 до merge — implementation candidate, acceptance pending
 
 В PR #13 реализован перенос автоматического `/finalize-pr` в managed executable script
 с `--check`/`--publish`; SKILL сохраняет описание и ручной `--force`. Добавлены tests обоих

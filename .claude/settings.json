@@ -40,7 +40,6 @@
       "Bash(gh api *merge*)",
       "Bash(gh repo delete *)",
       "Bash(gh api -X DELETE *)",
-      "Bash(docker compose -f docker-compose.prod.yml*)",
       "Bash(docker compose * down*)",
       "Bash(gh repo edit*)",
       "Bash(gh secret set*)",
@@ -86,7 +85,7 @@
       "Bash(gh api --repo * *merge*)",
       "Bash(gh api --repo=* *merge*)"
     ],
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "auto"
   },
   "enableAllProjectMcpServers": false,
   "hooks": {

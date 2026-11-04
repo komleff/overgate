@@ -97,7 +97,12 @@ for number in [57,187,215,243,512,1946]:
     if number==512:
         assert expected.count('TRIAGE_ROWS=$(awk')==1
         expected=expected.replace('TRIAGE_ROWS=$(awk','TRIAGE_ROWS=$(LC_ALL=C awk',1)
-    assert expected in actual, ('AC-03 transfer drift', number)
+    compared=actual
+    if number==512:
+        assert actual.count('# tracker-defer:start')==1 and actual.count('# tracker-defer:end')==1
+        a=actual.index('      # tracker-defer:start');b=actual.index('      # tracker-defer:end',a)
+        compared=actual[:a]+actual[actual.index('\n',b)+1:]
+    assert expected in compared, ('AC-03 transfer drift outside WI-1 tracker extension', number)
 base=original_block(1900);base=base[base.index('BASE_SHA='):base.index('ENVELOPE_FINGERPRINT=')].replace('<PR_NUMBER>','${PR_NUMBER}')
 assert base in actual, 'AC-03 BASE_SHA drift'
 pub=original_block(2041);pub=pub[pub.index('PUBLISHER='):].replace('$REPO_ROOT/','$GATE_TREE/').replace('<PR_NUMBER>','${PR_NUMBER}').replace('<<< "$BODY"','< "$BODY_SNAPSHOT"')

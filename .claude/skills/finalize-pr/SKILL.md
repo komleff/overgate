@@ -516,3 +516,13 @@ fi
 | Расплывчатое «принимаю риски» вместо перечня | Не проходит: список Beads-ID записи обязан покрывать **каждую** незакрытую блокирующую находку |
 | PM самовольно переименовывает reviewer BLOCKER в advisory | Запрещено: классификацию BLOCKER/ADVISORY делает Reviewer; после настоящего BLOCKER fix нужен affected QA + scoped re-review. Отдельный confirming pass после advisory-only triage не требуется |
 | Занижение уровня `DECLARED_LIMIT`, чтобы обойти Шаг 8 | Reviewer проверяет честность contract limit (ADR 3.28, пункт Д) |
+
+### Triage без Beads (rc.4)
+
+Статус `defer to Beads` и колонка `Beads ID` сохраняют совместимость отчётов.
+Только при `beads: false` в `.overgate/install-state.json` рабочего PR checkout эта колонка
+принимает `#N` или `https://github.com/<owner>/<repo>/issues/<N>` того же репозитория.
+Executable gate проверяет через `gh issue view`, что это открытый issue, а не PR.
+Нет/нечитаем install-state → Beads обязателен; нет gh → stop. Beads ID проверяются как прежде.
+Оба runtime, Claude Code и Codex, запускают тот же executable; file settings не доказывают
+эффективный mode живой сессии. WI-1 сертифицируется upstream trusted gate, не этой новой версией.

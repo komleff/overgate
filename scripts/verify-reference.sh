@@ -42,5 +42,7 @@ done
 run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate_review_pass.sh
 # regression_pr183.sh is historical U2 live-comment tooling, not a deterministic reference fixture.
 run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.test.py
+run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
+run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
 printf 'PASS verify-reference; full logs: %s\n' "$LOG_DIR"

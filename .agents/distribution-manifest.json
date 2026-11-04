@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "4.0.0-rc.3",
+  "version": "4.0.0-rc.4",
   "legacy_source": "466ad2020b8c46e6c14b4bbe67b5335017726542",
   "files": [
     {
@@ -271,37 +271,44 @@
     {
       "source": "scripts/bd-read.sh",
       "target": "scripts/bd-read.sh",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "scripts/bd-wt.sh",
       "target": "scripts/bd-wt.sh",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "scripts/lib/bd-env.sh",
       "target": "scripts/lib/bd-env.sh",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "scripts/lib/bd-read-engine.mjs",
       "target": "scripts/lib/bd-read-engine.mjs",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "scripts/bd-sync-common.sh",
       "target": "scripts/bd-sync-common.sh",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "scripts/bd-sync-export.sh",
       "target": "scripts/bd-sync-export.sh",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "scripts/bd-sync-restore.sh",
       "target": "scripts/bd-sync-restore.sh",
-      "policy": "managed"
+      "policy": "managed",
+      "component": "beads"
     },
     {
       "source": "LICENSE",
@@ -311,7 +318,8 @@
     {
       "source": ".claude/rules/beads.md",
       "target": ".claude/rules/beads.md",
-      "policy": "preserve"
+      "policy": "preserve",
+      "component": "beads"
     },
     {
       "source": ".claude/rules/tests.md",
@@ -346,6 +354,52 @@
     {
       "source": "docs/baselines/2026-10-01-delivery-first-provenance.json",
       "target": "docs/baselines/2026-10-01-delivery-first-provenance.json",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/og-init-memory-bank.sh",
+      "target": "scripts/og-init-memory-bank.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/og-protect-main.sh",
+      "target": "scripts/og-protect-main.sh",
+      "policy": "managed"
+    },
+    {
+      "source": "scripts/bd-bootstrap.sh",
+      "target": "scripts/bd-bootstrap.sh",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": ".agents/templates/memory-bank/projectbrief.md",
+      "target": ".agents/templates/memory-bank/projectbrief.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/memory-bank/productContext.md",
+      "target": ".agents/templates/memory-bank/productContext.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/memory-bank/systemPatterns.md",
+      "target": ".agents/templates/memory-bank/systemPatterns.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/memory-bank/techContext.md",
+      "target": ".agents/templates/memory-bank/techContext.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/memory-bank/activeContext.md",
+      "target": ".agents/templates/memory-bank/activeContext.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/templates/memory-bank/progress.md",
+      "target": ".agents/templates/memory-bank/progress.md",
       "policy": "managed"
     }
   ],
@@ -588,5 +642,14 @@
         }
       ]
     }
+  },
+  "known_settings_fingerprints": {
+    "e75edfb4711109864edabd58f4f2c0518f2a99187c02b40a62699ae5631fbe02": "legacy",
+    "f86047ef9c09600ead8d9169c47e36f7bb836c2e1b79136ae11b6ecc5fb7b9d1": "auto",
+    "a304bc514402c2e63f22c1982daac2bbd9d61bab4c1c583bd321401057509c52": "bypass"
+  },
+  "beads_version": {
+    "min": "1.2.2",
+    "max_exclusive": "1.2.3"
   }
 }

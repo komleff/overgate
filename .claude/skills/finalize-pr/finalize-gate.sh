@@ -1441,6 +1441,82 @@ while IFS="$GS" read -r kind num status id_named rat_named bead_id rationale; do
       #    Исход `≥2` («grep не отработал») отсекается ДО ветвления:
       #    в прежней форме `if ! printf … | grep -q …` он попадал в ветку «невалидный
       #    идентификатор» — стоп верный, диагноз чужой.
+      # tracker-defer:start
+      # Только явно отключённый Beads разрешает issue; данные — WORK_TREE, код — GATE_TREE.
+      tracker_candidate=0
+      case "$bead_id" in
+        '#'* )
+          tracker_candidate=1
+          ;;
+        https://*)
+          tracker_candidate=1
+          ;;
+      esac
+      if [ "$tracker_candidate" = "1" ]; then
+          tracker_launcher="$GATE_TREE/.claude/tools/run-python.sh"
+          tracker_work="${WORK_TREE:-$GATE_TREE}"
+          tracker_enabled=$(
+            "$tracker_launcher" -I -c 'import json,sys
+from pathlib import Path
+try:
+ value=json.loads((Path(sys.argv[1])/".overgate/install-state.json").read_text(encoding="utf-8"))
+ enabled=isinstance(value,dict) and value.get("beads") is False
+except (OSError,ValueError):enabled=False
+print("yes" if enabled else "no")' "$tracker_work"
+          )
+          tracker_state_rc=$?
+          if [ "$tracker_state_rc" -ne 0 ] || [ "$tracker_enabled" != "yes" ]; then
+            echo "СТОП: tracker defer разрешён только при beads: false в install-state."
+            TRIAGE_FAILED=1
+            continue
+          fi
+          tracker_pr=$(run_with_timeout 10 gh pr view "${PR_NUMBER}" --json url)
+          tracker_pr_rc=$?
+          if [ "$tracker_pr_rc" -ne 0 ]; then
+            echo "СТОП: tracker defer проверить нечем — gh PR недоступен."
+            TRIAGE_FAILED=1
+            continue
+          fi
+          tracker_repo=$("$tracker_launcher" -I -c 'import json,re,sys
+try:
+ url=json.load(sys.stdin)["url"]
+ match=re.fullmatch(r"https://github.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[1-9][0-9]*",url)
+ if not match:sys.exit(1)
+ print(match[1])
+except (ValueError,KeyError,TypeError):sys.exit(1)' <<< "$tracker_pr")
+          tracker_repo_rc=$?
+          tracker_number=$("$tracker_launcher" -I -c 'import re,sys
+value=sys.argv[1];repo=sys.argv[2]
+match=re.fullmatch(r"#([1-9][0-9]*)",value) or re.fullmatch(r"https://github.com/"+re.escape(repo)+r"/issues/([1-9][0-9]*)",value)
+if not match:sys.exit(1)
+print(match[1])' "$bead_id" "$tracker_repo")
+          tracker_number_rc=$?
+          if [ "$tracker_repo_rc" -ne 0 ] || [ "$tracker_number_rc" -ne 0 ]; then
+            echo "СТОП: невалидный tracker ID или чужой репозиторий."
+            TRIAGE_FAILED=1
+            continue
+          fi
+          tracker_issue=$(run_with_timeout 10 gh issue view "$tracker_number" --repo "$tracker_repo" --json url,state,number)
+          tracker_issue_rc=$?
+          if [ "$tracker_issue_rc" -ne 0 ]; then
+            echo "СТОП: tracker issue не существует или проверить нечем."
+            TRIAGE_FAILED=1
+            continue
+          fi
+          "$tracker_launcher" -I -c 'import json,sys
+try:
+ issue=json.load(sys.stdin);number=int(sys.argv[2])
+ valid=issue.get("state")=="OPEN" and type(issue.get("number")) is int and issue["number"]==number and issue.get("url")=="https://github.com/"+sys.argv[1]+"/issues/"+str(number)
+ sys.exit(0 if valid else 1)
+except (ValueError,TypeError):sys.exit(1)' "$tracker_repo" "$tracker_number" <<< "$tracker_issue"
+          tracker_issue_valid=$?
+          if [ "$tracker_issue_valid" -ne 0 ]; then
+            echo "СТОП: tracker defer требует открытый issue этого PR repository, не pull request."
+            TRIAGE_FAILED=1
+          fi
+          continue
+      fi
+      # tracker-defer:end
       grep -qE '^[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+$' <<< "$bead_id"
       bead_form_rc=$?
       if [ "$bead_form_rc" -ge 2 ]; then

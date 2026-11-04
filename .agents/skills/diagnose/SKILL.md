@@ -1,3 +1,8 @@
+---
+name: diagnose
+description: "Use when the cause of an observed defect is unknown."
+---
+
 # diagnose
 
 ## Purpose

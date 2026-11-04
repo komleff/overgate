@@ -50,7 +50,8 @@ jobs:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: 1
     runs-on: windows-latest
-    timeout-minutes: 30
+    # Native install и wrapper занимают около 30 минут; нужен запас на разброс hosted runner.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:

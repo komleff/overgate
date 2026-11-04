@@ -1,7 +1,7 @@
 ---
 title: "OverGate — как работать"
 status: active
-version: "4.0.0-rc.3"
+version: "4.0.0-rc.4"
 date: 2026-10-03
 tags: [pipeline, usage]
 ---
@@ -26,6 +26,19 @@ capability, без автоматического login/setup/модельног
 
 Unfinished handoff использует `.agents/skills/handoff/SKILL.md`; завершённой работе отдельный
 handoff не нужен. Установка/upgrade/rollback: `.agents/INSTALL.md`.
+
+## Начало работы после установки rc.4
+
+Пошаговое поручение — [QUICKSTART](../QUICKSTART.md), подробности — INSTALL.md.
+Агент заполняет project verify.sh реальными проверками (создаёт минимальные тесты при отсутствии).
+После apply порядок: `bash scripts/og-init-memory-bank.sh` → `bash scripts/bd-bootstrap.sh` →
+`bash scripts/og-protect-main.sh`; --no-beads пропускает только второй helper. Memory Bank всегда
+содержит шесть шаблонов при новом каркасе; existing context остаётся. Коды защиты2/3/4/5
+фиксируются как R8 в target PR и Memory Bank; 6 останавливает. Beads требует bd1.2.2/main checkout.
+Запуск Claude из root: `claude --permission-mode auto`, approved fallback при недоступности auto —
+`claude --permission-mode bypassPermissions` вместе с installer --mode bypass; hooks/deny сохраняются.
+Режим файлов не доказывает effective runtime; actual Windows/Claude/Codex evidence отдельно.
+В --no-beads defer может ссылаться на открытый GitHub issue этого PR repo, проверенный gh.
 
 ## Beads: основной checkout, worktree и облачный агент
 

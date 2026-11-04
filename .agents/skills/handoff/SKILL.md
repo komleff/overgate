@@ -1,3 +1,8 @@
+---
+name: handoff
+description: "Use when unfinished work is transferred between agents, sessions, models, or machines, or the operator explicitly requests a handoff."
+---
+
 # handoff
 
 ## Purpose

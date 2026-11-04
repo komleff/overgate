@@ -1,3 +1,8 @@
+---
+name: product-gap
+description: "Use when user-facing or product behaviour is not defined by an authoritative source."
+---
+
 # product-gap
 
 ## Purpose
