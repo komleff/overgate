@@ -43,9 +43,11 @@ fi
 
 # 2. Извлечь снапшот во временный файл. Основной путь — .beads/issues.jsonl;
 #    fallback — .beads/backup/issues.jsonl (снапшоты до стандартизации пути).
-if git show "${REMOTE}/${BRANCH}:.beads/issues.jsonl" > "$SNAP" 2>/dev/null; then
+# На Git for Windows/MSYS symbolic rev:path с slash может преобразоваться в Windows path;
+# fetched+verified SHA исключает это преобразование и привязывает чтение к frozen tip.
+if git show "${remote_tip}:.beads/issues.jsonl" > "$SNAP" 2>/dev/null; then
   :
-elif git show "${REMOTE}/${BRANCH}:.beads/backup/issues.jsonl" > "$SNAP" 2>/dev/null; then
+elif git show "${remote_tip}:.beads/backup/issues.jsonl" > "$SNAP" 2>/dev/null; then
   echo "ВНИМАНИЕ: использован legacy-путь .beads/backup/issues.jsonl" >&2
 else
   echo "ОШИБКА: снапшот не найден в ${REMOTE}/${BRANCH}" >&2

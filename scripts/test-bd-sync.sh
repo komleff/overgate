@@ -72,6 +72,27 @@ fi
 bash "$RESTORE" >/dev/null 2>&1 && ok "restore runs" || no "restore runs"
 [ -s "$FAKE_BD_IMPORT_LOG" ] && ok "restore invoked bd import" || no "restore invoked bd import"
 
+# Git for Windows/MSYS может переписать symbolic rev:path в path-like argument
+# (origin/beads-backup:.beads/issues.jsonl → origin\beads-backup;.beads\issues.jsonl).
+# Имитируем отказ только symbolic show: restore обязан читать проверенный fetched SHA.
+mkdir -p "$TMP/win-git"
+cat > "$TMP/win-git/git" <<'GIT_STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = show ] && [[ "${2:-}" == origin/*:* ]]; then
+  echo 'fatal: symbolic rev:path converted by MSYS' >&2
+  exit 128
+fi
+exec "$BD_SYNC_REAL_GIT" "$@"
+GIT_STUB
+chmod +x "$TMP/win-git/git"
+: > "$FAKE_BD_IMPORT_LOG"
+if PATH="$TMP/win-git:$PATH" BD_SYNC_REAL_GIT="$(command -v git)" bash "$RESTORE" >/dev/null 2>&1; then
+  [ -s "$FAKE_BD_IMPORT_LOG" ] && ok "restore uses fetched SHA under symbolic rev:path conversion" \
+    || no "restore under symbolic conversion skipped import"
+else
+  no "restore uses fetched SHA under symbolic rev:path conversion"
+fi
+
 # 5. Last-seen / freshness guard.
 #    5a. Свежий клон B с непустым контентом, но БЕЗ restore (lastSeen пуст) → export блокируется
 #        (защита от stale same-id overwrite при пустом lastSeen).
