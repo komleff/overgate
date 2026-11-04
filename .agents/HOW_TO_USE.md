@@ -29,12 +29,27 @@ handoff не нужен. Установка/upgrade/rollback: `.agents/INSTALL.m
 
 ## Начало работы после установки rc.4
 
-Пошаговое поручение — [QUICKSTART](../QUICKSTART.md), подробности — INSTALL.md.
+Пошаговое поручение — [QUICKSTART rc.4](https://github.com/komleff/overgate/blob/8680c8b468ee6322f35470b4a2ac01cd988ddae7/QUICKSTART.md), подробности — INSTALL.md.
 Агент заполняет project verify.sh реальными проверками (создаёт минимальные тесты при отсутствии).
 После apply порядок: `bash scripts/og-init-memory-bank.sh` → `bash scripts/bd-bootstrap.sh` →
 `bash scripts/og-protect-main.sh`; --no-beads пропускает только второй helper. Memory Bank всегда
 содержит шесть шаблонов при новом каркасе; existing context остаётся. Коды защиты2/3/4/5
 фиксируются как R8 в target PR и Memory Bank; 6 останавливает. Beads требует bd1.2.2/main checkout.
+`bd init` делает собственный Git commit и включает весь предварительно staged index. Поэтому
+`bd-bootstrap.sh` останавливается при staged файлах; агент сохраняет их в запланированном
+коммите отдельно и запускает bootstrap с пустым index. При чистой fresh установке Beads
+commit ожидаем и проверяется перед публикацией PR.
+
+В свежем clone tracked `.beads/metadata.json` может существовать без ignored локальной
+`embeddeddolt` DB. Сначала подтвердите неизменный `origin/beads-backup` SHA и точный project
+issue prefix. Источник prefix — активное tracked `issue-prefix` в `.beads/config.yaml` либо
+внешний immutable receipt исходного primary от `bd --readonly config list --json` с SHA256.
+Для receipt route передайте `BD_BOOTSTRAP_PREFIX`, `BD_BOOTSTRAP_PREFIX_RECEIPT`,
+`BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256` и `BD_BOOTSTRAP_EXPECTED_R` (SHA ветки) в
+`bash scripts/bd-bootstrap.sh`. Без доказанного prefix helper откажет. Он создаёт только
+пустую локальную DB, восстанавливает frozen snapshot через `bd-sync-restore.sh` и сверяет
+полный read-back. Не подставляйте имя clone или `metadata.dolt_database`: они могут отличаться
+от issue prefix. При local/pending/unknown state — остановитесь, не запускайте `bd init --force`.
 Запуск Claude из root: `claude --permission-mode auto`, approved fallback при недоступности auto —
 `claude --permission-mode bypassPermissions` вместе с installer --mode bypass; hooks/deny сохраняются.
 Режим файлов не доказывает effective runtime; actual Windows/Claude/Codex evidence отдельно.

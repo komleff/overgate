@@ -28,7 +28,7 @@ Beads хранит задачи в локальном Dolt, **но Dolt — де
   в `.claude/settings.json`). `sync.remote` и Dolt-remote в этом репозитории отключены намеренно
   (`bd config` → `sync.remote` unset, `export.auto=false`).
 
-> ℹ️ **bd 1.0.2.** Старых команд `export-git` / `fetch-git` (как в прежних версиях bd) в
+> ℹ️ **bd 1.2.2.** Старых команд `export-git` / `fetch-git` (как в прежних версиях bd) в
 > установленной версии **не существует**. Синхронизация — через helper-скрипты выше
 > (`bd export` + ветка `beads-backup` + `bd import`), а не через `bd backup`.
 

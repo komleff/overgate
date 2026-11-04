@@ -64,6 +64,11 @@ BD_SYNC_FORCE=1 FAKE_BD_EXPORT="$TMP/exp1.jsonl" bash "$EXPORT" >/dev/null 2>&1 
 
 # 4. Restore → вызывает bd import непустым снапшотом.
 export FAKE_BD_IMPORT_LOG="$TMP/import.log"; : > "$FAKE_BD_IMPORT_LOG"
+if BD_SYNC_EXPECTED_SHA=0000000000000000000000000000000000000000 bash "$RESTORE" >/dev/null 2>&1; then
+  no "frozen SHA mismatch blocks restore"
+else
+  [ ! -s "$FAKE_BD_IMPORT_LOG" ] && ok "frozen SHA mismatch blocks restore before import" || no "frozen SHA mismatch imported tasks"
+fi
 bash "$RESTORE" >/dev/null 2>&1 && ok "restore runs" || no "restore runs"
 [ -s "$FAKE_BD_IMPORT_LOG" ] && ok "restore invoked bd import" || no "restore invoked bd import"
 
