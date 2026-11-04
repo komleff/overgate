@@ -1393,6 +1393,13 @@ def _classify_simple(
         return _classify_xargs_wrapper(arguments)
     if name == "git":
         return _classify_git(arguments)
+    if executable == "cp":
+        # cp не исполняет два буквальных пути; в общий non-carrier список его
+        # нельзя добавлять: repository guard обязан сканировать argv cp.
+        return (CommandClass.ORDINARY if len(arguments) == 2 and all(
+            argument and not argument.startswith("-") and not _is_dynamic(argument)
+            for argument in arguments
+        ) else CommandClass.AMBIGUOUS)
     if name == "eval":
         if not arguments:
             return CommandClass.ORDINARY

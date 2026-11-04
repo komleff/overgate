@@ -515,8 +515,16 @@ expect_class ambiguous 'foo ./-sh -c "$CMD"'
 expect_class ambiguous 'nice -- -sh -c "$CMD"'
 expect_class ambiguous 'timeout 5 -sh -c "$CMD"'
 expect_class ambiguous 'foo '\''-sh -c "$CMD"'\'''
-# Имена файлов-скриптов в аргументах правкой не затронуты (U2-z34lp).
-expect_class ambiguous "cp b.sh d/"
+# WB-02: ровно два буквальных пути у plain cp — данные, даже если source .sh.
+expect_class ordinary "cp b.sh d/"
+expect_class ordinary "cd C:/work/og-b-simple-auto && cp D:/CodexArtifacts/overgate-rc4-winqa-20261103/evidence/literal-b-simple-auto-project-verify-template.sh .agents/project/verify.sh && sha256sum .agents/project/verify.sh D:/CodexArtifacts/overgate-rc4-winqa-20261103/evidence/literal-b-simple-auto-project-verify-template.sh"
+expect_class ordinary "cp 'source dir/b.sh' 'target dir/verify.sh'"
+expect_class ambiguous "cp -R source target"
+expect_class ambiguous 'cp "$SOURCE" d/'
+expect_class ambiguous "cp source target extra"
+expect_class ambiguous "./cp b.sh d/"
+expect_class commit 'cp "$(git commit -m nested)" d/'
+expect_class ambiguous "future-wrapper b.sh d/"
 expect_class ambiguous "./x.sh"
 expect_class ordinary "bash x.sh"
 

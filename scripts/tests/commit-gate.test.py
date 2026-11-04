@@ -34,6 +34,18 @@ class CommitGate(unittest.TestCase):
         self.run_hook('git status --short', 0)
         self.assertFalse(self.marker.exists())
 
+    def test_literal_cp_of_shell_file_is_ordinary_without_suite(self):
+        command = ('cd C:/work/og-b-simple-auto && cp '
+                   'D:/CodexArtifacts/overgate-rc4-winqa-20261103/evidence/literal-b-simple-auto-project-verify-template.sh '
+                   '.agents/project/verify.sh && sha256sum .agents/project/verify.sh '
+                   'D:/CodexArtifacts/overgate-rc4-winqa-20261103/evidence/literal-b-simple-auto-project-verify-template.sh')
+        self.run_hook(command, 0)
+        self.assertFalse(self.marker.exists())
+
+    def test_cp_with_option_remains_ambiguous_without_suite(self):
+        self.run_hook('cp -R source target', 2)
+        self.assertFalse(self.marker.exists())
+
     def test_ambiguous_blocks_without_suite(self):
         self.run_hook('eval "$UNKNOWN"', 2)
         self.assertFalse(self.marker.exists())
