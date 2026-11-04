@@ -7,6 +7,7 @@ from unittest import mock
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
@@ -425,6 +426,18 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.target/'.gitignore').read_bytes(),self.source_blob('.agents/templates/gitignore.fragment'))
         self.assertNotIn('permissions',json.loads((self.target/'.codex/hooks.json').read_text(encoding='utf-8')))
         self.assert_replan_noop()
+
+    def test_fresh_installed_how_to_use_links_and_beads_version(self):
+        self.make_plan();self.approve();self.apply()
+        how=self.target/'.agents/HOW_TO_USE.md'
+        for link in re.findall(r'\[[^]]+\]\(([^)]+)\)',how.read_text(encoding='utf-8')):
+            if link.startswith(('https://','http://','#')):continue
+            self.assertTrue((how.parent/link.split('#',1)[0]).exists(),link)
+        manifest=json.loads((self.target/'.agents/distribution-manifest.json').read_text(encoding='utf-8'))
+        rule=(self.target/'.claude/rules/beads.md').read_text(encoding='utf-8')
+        self.assertEqual(manifest['beads_version']['min'],'1.2.2')
+        self.assertIn('bd 1.2.2',rule)
+        self.assertNotIn('bd 1.0.2',rule)
 
     def check_exact_rc_upgrade(self,sha,name):
         # AC-02 + AC-04 + AC-07: точная установка тега без overrides → upgrade → source rc.3.

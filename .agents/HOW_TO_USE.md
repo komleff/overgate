@@ -29,12 +29,34 @@ handoff не нужен. Установка/upgrade/rollback: `.agents/INSTALL.m
 
 ## Начало работы после установки rc.4
 
-Пошаговое поручение — [QUICKSTART](../QUICKSTART.md), подробности — INSTALL.md.
+Пошаговое поручение — [QUICKSTART rc.4](https://github.com/komleff/overgate/blob/8680c8b468ee6322f35470b4a2ac01cd988ddae7/QUICKSTART.md), подробности — INSTALL.md.
 Агент заполняет project verify.sh реальными проверками (создаёт минимальные тесты при отсутствии).
 После apply порядок: `bash scripts/og-init-memory-bank.sh` → `bash scripts/bd-bootstrap.sh` →
 `bash scripts/og-protect-main.sh`; --no-beads пропускает только второй helper. Memory Bank всегда
 содержит шесть шаблонов при новом каркасе; existing context остаётся. Коды защиты2/3/4/5
 фиксируются как R8 в target PR и Memory Bank; 6 останавливает. Beads требует bd1.2.2/main checkout.
+`bd init` делает собственный Git commit и включает весь предварительно staged index. Поэтому
+`bd-bootstrap.sh` останавливается при staged файлах; агент сохраняет их в запланированном
+коммите отдельно и запускает bootstrap с пустым index. При чистой fresh установке Beads
+commit ожидаем и проверяется перед публикацией PR. Helper после подтверждённо пустого
+fresh init записывает активный `issue-prefix` в tracked `.beads/config.yaml` из фактического
+`bd config list --json`. **До завершения install PR** агент проверяет effective prefix,
+читает task snapshot и включает изменённый config.yaml в project commit; незакоммиченный
+pin не доступен свежему clone. Existing DB/config helper этим путём не переписывает.
+
+В свежем clone tracked `.beads/metadata.json` может существовать без ignored локальной
+`embeddeddolt` DB. Сначала подтвердите неизменный `origin/beads-backup` SHA и точный project
+issue prefix. Источник prefix — только активное project-owned tracked `issue-prefix` в
+`.beads/config.yaml`. Исходный primary подтверждает его через `bd --readonly config list --json`,
+после чего проект сохраняет pin в своей Git-ветке, сверяет effective prefix после правки и
+читает прежние задачи/зависимости из исходной DB и опубликованного SHA без изменений. Внешний caller receipt
+и его SHA не доказывают происхождение и больше не принимаются. Если pin отсутствует или
+`BD_BOOTSTRAP_PREFIX` противоречит ему, `bash scripts/bd-bootstrap.sh` откажет до `bd init`.
+При необходимости `BD_BOOTSTRAP_EXPECTED_R` закрепляет ожидаемый SHA ветки. Helper создаёт только
+пустую локальную DB, восстанавливает frozen snapshot через `bd-sync-restore.sh` и сверяет
+полный read-back. Нулевой snapshot допустим до создания первой задачи, если файл в frozen SHA
+действительно пуст и read-back тоже пуст. Не подставляйте имя clone или `metadata.dolt_database`: они могут отличаться
+от issue prefix. При local/pending/unknown state — остановитесь, не запускайте `bd init --force`.
 Запуск Claude из root: `claude --permission-mode auto`, approved fallback при недоступности auto —
 `claude --permission-mode bypassPermissions` вместе с installer --mode bypass; hooks/deny сохраняются.
 Режим файлов не доказывает effective runtime; actual Windows/Claude/Codex evidence отдельно.
