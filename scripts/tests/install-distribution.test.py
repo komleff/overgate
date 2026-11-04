@@ -188,6 +188,104 @@ class InstallTests(unittest.TestCase):
                 self.assertIn('CLOSURE-',run.stdout)
                 path.write_bytes(bytes_before)
 
+    def test_wib_activation_refuses_unmerged_install_and_keeps_queue(self):
+        self.make_plan();self.approve();self.apply()
+        command=self.target/'scripts/bd-activate.sh'
+        self.assertTrue(command.is_file(),'managed activation helper must be installed')
+        work=self.root/'activation-work'
+        before=snapshot(self.target)
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',self.root/'publisher',
+                            '--peer-root',self.root/'peer','--bd-bin','/not/a/real/bd',
+                            '--prefix','big-heroes','--actor','agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2',
+                            '--title','Project task','--work-dir',work],cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('trusted',run.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertFalse((self.target/'.overgate-backups').is_symlink())
+
+    def test_wib_native_postmerge_activation_peer_and_lifecycle(self):
+        binary=Path('/opt/homebrew/bin/bd').resolve()
+        if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
+            self.skipTest('native qualified macOS bd 1.2.2 unavailable; platform QA required')
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main')
+        git(self.target,'push','-q','origin','main')
+        remote=self.root/'target-origin.git'
+        git(remote,'symbolic-ref','HEAD','refs/heads/main')
+        publisher=self.root/'publisher';peer=self.root/'peer'
+        subprocess.check_call(['git','clone','-q',str(remote),str(publisher)])
+        subprocess.check_call(['git','clone','-q',str(remote),str(peer)])
+        git(publisher,'config','--local','user.name','Fixture Publisher')
+        git(publisher,'config','--local','user.email','fixture-publisher@example.invalid')
+        actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2'
+        work=self.root/'activation-work';head=git(self.target,'rev-parse','HEAD')
+        index_before=(self.target/'.git/index').read_bytes()
+        wrong=self.root/'wrong-binary';wrong.write_bytes(b'#!/bin/sh\nexit 0\n');wrong.chmod(0o755)
+        denied=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
+                               '--bd-bin',wrong,'--prefix','big-heroes','--actor',actor,
+                               '--title','Actual project task','--work-dir',self.root/'denied-work'],
+                              cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(denied.returncode,0)
+        self.assertIn('native CLI qualification failed',denied.stderr)
+        self.assertFalse((self.target/'.beads').exists())
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
+                            '--bd-bin',binary,'--prefix','big-heroes','--actor',actor,
+                            '--title','Actual project task','--work-dir',work],cwd=self.target,capture_output=True,text=True,timeout=180)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+        result=json.loads(run.stdout)
+        self.assertEqual(result['status'],'activated')
+        self.assertRegex(result['id'],r'^big-heroes-[A-Za-z0-9.]+$')
+        self.assertTrue(result['claim_confirmed'])
+        self.assertEqual(result['published_sha'],result['peer_sha'])
+        self.assertEqual(git(self.target,'rev-parse','HEAD'),head)
+        self.assertEqual((self.target/'.git/index').read_bytes(),index_before)
+        self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),result['published_sha'])
+        self.assertTrue((work/'raw-intents.jsonl').is_file())
+        work=work.resolve()
+        lifecycle_raw=work/'lifecycle-raw.jsonl';lifecycle_prepared=work/'lifecycle.v2.jsonl'
+        lifecycle_raw.write_text(''.join(json.dumps(item)+'\n' for item in (
+            {'intent_id':'activation-update','op':'update','ref':result['id'],'description':'Verified project update'},
+            {'intent_id':'activation-close','op':'close','ref':result['id'],'close_reason':'Verified complete'})),encoding='utf-8')
+        env={**os.environ,'BD_BIN':str(binary)}
+        for commands in (['--prepare','--base',result['published_sha'],'--actor',actor,'--output',str(lifecycle_prepared),str(lifecycle_raw)],
+                         [str(lifecycle_prepared)]):
+            call=subprocess.run([BASH,'scripts/bd-apply-intents.sh',*commands],cwd=publisher,env=env,capture_output=True,text=True,timeout=120)
+            self.assertEqual(call.returncode,0,call.stdout+call.stderr)
+        closed=json.loads(call.stdout);self.assertEqual(closed['status'],'published')
+        read=subprocess.run([BASH,'scripts/bd-read.sh','show',result['id'],'--json'],cwd=peer,capture_output=True,text=True)
+        self.assertEqual(read.returncode,0,read.stdout+read.stderr)
+        task=json.loads(read.stdout)
+        self.assertEqual(task['status'],'closed')
+        self.assertEqual(task['description'],'Verified project update')
+        self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),closed['published_sha'])
+
+    def test_wib_unavailable_publisher_retains_queue_before_native_init(self):
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main');git(self.target,'push','-q','origin','main')
+        work=self.root/'queue-retained'
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',self.root/'missing-publisher',
+                            '--peer-root',self.root/'missing-peer','--bd-bin','/not/a/real/bd',
+                            '--prefix','big-heroes','--actor','agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2',
+                            '--title','Actual project task','--work-dir',work],cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('queue/base/actor retained',run.stderr)
+        self.assertTrue((work/'raw-intents.jsonl').is_file())
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertNotIn('refs/heads/beads-backup',git(self.target,'ls-remote','--heads','origin'))
+
+    def test_wib_rollback_stops_after_remote_task_publication(self):
+        self.make_plan();self.approve();self.apply();before=snapshot(self.target)
+        git(self.target,'commit','--allow-empty','-qm','published task branch fixture')
+        git(self.target,'push','-q','origin','HEAD:refs/heads/beads-backup')
+        result=self.call('rollback','--target',self.target,'--backup',self.backup(),ok=False)
+        self.assertIn('published',result.stderr)
+        self.assertEqual(snapshot(self.target),before)
+
     def backup(self):
         return max((self.target/'.overgate-backups').glob('*/rollback.json'),key=lambda p:p.stat().st_mtime_ns)
 

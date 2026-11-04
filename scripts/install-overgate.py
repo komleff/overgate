@@ -69,11 +69,12 @@ def beads_inventory(root):
             elif item.is_dir():items.append({'path':relative,'kind':'directory'})
             else:items.append({'path':relative,'kind':'unknown'});reasons.append(name+': unknown entry')
         observed[name]=items;reasons.append(name+': retained state')
-    config=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-regexp',r'^(overgate\.beads|core\.hooksPath)'],capture_output=True)
+    config=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-regexp',r'^(overgate\.beads|beads-sync\.|beads\.|core\.hooksPath)'],capture_output=True)
     if config.returncode not in (0,1):reasons.append('local Git writer config unreadable')
     elif config.stdout:
         observed['git_config_sha256']=digest(config.stdout)
-        if b'overgate.beads' in config.stdout:reasons.append('registered Beads writer')
+        if any(prefix in config.stdout for prefix in (b'overgate.beads',b'beads-sync.',b'beads.')):
+            reasons.append('registered Beads writer/override')
     prompt_env={**os.environ,'GIT_TERMINAL_PROMPT':'0'}
     try:
         remote=subprocess.run(['git','-C',str(root),'ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup'],
@@ -334,6 +335,15 @@ def apply(plan_path,approval_path):
 def rollback(target,backup):
     root=target.resolve();journal=json.loads(backup.read_bytes())
     if journal.get('target')!=str(root) or not journal.get('complete'):raise InstallError('invalid/incomplete rollback manifest')
+    state_path=safe(root,STATE)
+    if state_path.is_file():
+        state=json.loads(state_path.read_bytes())
+        if state.get('beads_protocol')=='managed-v1':
+            inventory=beads_inventory(root)
+            if inventory['remote']['status']!='verified-absent':
+                raise InstallError('rollback after published/unknown Beads state denied; preserve managed ledger and snapshot')
+            if inventory['blocked']:
+                raise InstallError('rollback with local Beads state requires preservation before removing managed helpers')
     for entry in journal['entries']:
         path=entry['target'];safe(root,path)
         if current(root,path)!=journal['after'].get(path):raise InstallError('rollback drift: '+path)

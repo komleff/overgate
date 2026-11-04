@@ -299,6 +299,18 @@
       "component": "beads"
     },
     {
+      "source": "scripts/bd-activate.sh",
+      "target": "scripts/bd-activate.sh",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-activate.py",
+      "target": "scripts/bd-activate.py",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
       "source": "scripts/bd-publisher-setup.mjs",
       "target": "scripts/bd-publisher-setup.mjs",
       "policy": "managed",

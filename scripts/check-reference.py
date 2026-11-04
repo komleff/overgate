@@ -75,7 +75,8 @@ def check(root):
 
 BEADS_RUNTIME={'scripts/bd-read.sh','scripts/bd-wt.sh','scripts/lib/bd-env.sh','scripts/lib/bd-read-engine.mjs',
     'scripts/bd-sync-common.sh','scripts/bd-sync-export.sh','scripts/bd-sync-restore.sh','scripts/bd-bootstrap.sh','.claude/rules/beads.md',
-    'scripts/bd-apply-intents.sh','scripts/bd-publisher-setup.mjs','scripts/lib/bd-publisher-push-guard.mjs',
+    'scripts/bd-apply-intents.sh','scripts/bd-activate.sh','scripts/bd-activate.py',
+    'scripts/bd-publisher-setup.mjs','scripts/lib/bd-publisher-push-guard.mjs',
     'scripts/lib/bd-managed-cli.mjs','scripts/lib/bd-managed-contract.mjs','scripts/lib/bd-managed-entry.mjs',
     'scripts/lib/bd-managed-git.mjs','scripts/lib/bd-managed-journal.mjs','scripts/lib/bd-managed-project.mjs',
     'scripts/lib/bd-managed-read-check.mjs','scripts/lib/bd-managed-transaction.mjs','scripts/lib/bd-snapshot.mjs'}
