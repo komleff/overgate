@@ -8,10 +8,11 @@ import { canonical, validateQueue, planReplay, replayHandles, validateBlockingGr
 
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
 const defaultRun = (binary, args, options) => execFileSync(binary, args, { ...options, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
-// Только два actual qualified build; новая версия/платформа требует disposable proof.
+// Actual qualified builds; новая версия/платформа требует disposable proof.
 const qualifiedBuilds = new Map([
   ['cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355', 'darwin'],
   ['b1f3609fea1d9f0f19b2ed49098b3628acfa6ca115aa28b01a1ee178c3a214de', 'win32'],
+  ['54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e', 'linux'],
 ]);
 function streamFingerprint(binary) {
   const hash = createHash('sha256'), buffer = Buffer.alloc(1024 * 1024), started = Date.now(), fd = fs.openSync(binary, 'r');
@@ -24,7 +25,7 @@ function streamFingerprint(binary) {
   } finally { fs.closeSync(fd); }
 }
 export function qualifyBinary(binary, { fingerprint = streamFingerprint, platform = process.platform } = {}) {
-  requireThat(['darwin', 'win32'].includes(platform), 'native writer platform not qualified: retain queue and use an available qualified publisher/disposable qualification');
+  requireThat(['darwin', 'win32', 'linux'].includes(platform), 'native writer platform not qualified: retain queue and use an available qualified publisher/disposable qualification');
   requireThat(fs.realpathSync(binary) === path.resolve(binary) && fs.statSync(binary).isFile(), 'CLI fingerprint requires resolved regular binary');
   const digest = fingerprint(binary);
   requireThat(qualifiedBuilds.get(digest) === platform, `CLI fingerprint not qualified (${digest}); retain queue for an available qualified publisher or disposable qualification`);
