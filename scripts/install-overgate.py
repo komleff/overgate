@@ -48,6 +48,10 @@ def current(root,path):
     if not p.exists(): return None
     return {'sha256':digest(p.read_bytes()),'mode':p.stat().st_mode & 0o777}
 
+def observable_mode(mode):
+    # Native Windows показывает только read-only, а не Git executable bit.
+    return (0o666 if mode & 0o200 else 0o444) if sys.platform=='win32' else mode
+
 def projected_entries(manifest,beads):
     return [e for e in manifest['files'] if beads or e.get('component')!='beads']
 
@@ -223,7 +227,7 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False):
             blob=git(target,'hash-object',str(p)).decode().strip()
             if old['sha256']!=prior and blob!=m.get('legacy_blobs',{}).get(path):
                 conflicts.append(path+': conflict with project override; no force overwrite');continue
-        operations.append({'source':entry['source'],'target':path,'before':old,'after':{'sha256':digest(data),'mode':mode},
+        operations.append({'source':entry['source'],'target':path,'before':old,'after':{'sha256':digest(data),'mode':observable_mode(mode)},
                            'data':base64.b64encode(data).decode() if policy in {'settings','ignore'} or (entry['source']=='.agents/templates/AGENTS.template.md' and not beads) else None})
     return {'format':1,'source':str(source),'source_sha':sha,'target':str(target),'branch':branch,
             'target_pr':target_pr,'contract':str(contract),'contract_sha256':digest(contract.read_bytes()),
