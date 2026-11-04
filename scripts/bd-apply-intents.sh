@@ -5,11 +5,22 @@
 #        bash scripts/bd-apply-intents.sh --bootstrap <known preservation.json>
 #        bash scripts/bd-apply-intents.sh --resolve <old queue hash> <new prepared queue>
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repo_root="$(git rev-parse --show-toplevel)"
+repo_root="$(cd "$repo_root" && pwd -P)"
+if [ "$SCRIPT_DIR" != "$repo_root/scripts" ] || [ -L "$SCRIPT_DIR/bd-apply-intents.sh" ] || [ -L "$SCRIPT_DIR/lib" ]; then
+  echo "ERROR: trusted publisher helper path must be target main checkout scripts/ (fail-closed)." >&2
+  exit 6
+fi
+cd "$repo_root"
+for helper in scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; do
+  if [ ! -f "$helper" ] || [ -L "$helper" ] || ! git ls-files --error-unmatch -- "$helper" >/dev/null 2>&1; then
+    echo "ERROR: tracked publisher tooling closure incomplete (fail-closed)." >&2
+    exit 6
+  fi
+done
 . "${SCRIPT_DIR}/lib/bd-env.sh"
 bd_env_assert_main_checkout "bd-apply-intents.sh"
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
 
 branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 head="$(git rev-parse HEAD)"

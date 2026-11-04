@@ -60,6 +60,15 @@ test('setup binds generic registration to current trusted main and installed gua
     assert.equal(new ManagedGit({ cwd: publisher }).readPublished().R, ZERO);
     assert.equal(fs.existsSync(path.join(primary, '.git', 'hooks', 'pre-push')), true);
     assert.equal(fs.existsSync(path.join(publisher, '.git', 'hooks', 'pre-push')), true);
+    const trustedHelper = spawnSync('bash', ['scripts/bd-apply-intents.sh', '--read-state'], { cwd: publisher, encoding: 'utf8' });
+    assert.equal(trustedHelper.status, 0, trustedHelper.stderr);
+    assert.equal(JSON.parse(trustedHelper.stdout).R, ZERO);
+    const untrackedModule = path.join(publisher, 'scripts/lib/bd-managed-untracked.mjs');
+    fs.writeFileSync(untrackedModule, 'export const injected = true;\n');
+    const untrackedHelper = spawnSync('bash', ['scripts/bd-apply-intents.sh', '--read-state'], { cwd: publisher, encoding: 'utf8' });
+    assert.notEqual(untrackedHelper.status, 0);
+    assert.match(untrackedHelper.stderr, /tracked publisher tooling closure incomplete/);
+    fs.unlinkSync(untrackedModule);
     fs.appendFileSync(path.join(publisher, 'scripts/lib/bd-managed-entry.mjs'), '\n// staged fixture drift\n');
     git(publisher, 'add', 'scripts/lib/bd-managed-entry.mjs');
     const stagedHelper = spawnSync('bash', ['scripts/bd-apply-intents.sh', '--read-state'], { cwd: publisher, encoding: 'utf8' });

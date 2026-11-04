@@ -9,6 +9,7 @@
 |-----|------|--------|
 | [ADR-0000](ADR-0000-ADR-Process.md) | Процесс ведения ADR | accepted |
 | [Pipeline ADR §§3.28–3.33](../../.agents/PIPELINE_ADR.md) | Delivery First generic binding, lifecycle, single finalize, пять skills, автономная установка rc.4 | accepted for v4 RC |
+| [Pipeline ADR §3.34](../../.agents/PIPELINE_ADR.md) | Managed Beads publication, typed queue и trusted publisher | proposed for rc.5 WI-A |
 
 ## Решения проекта
 

@@ -38,6 +38,8 @@ new_fixture() {
   : > "$FX_MAIN/sub/.keep"
   git_q -C "$FX_MAIN" add .
   git_q -C "$FX_MAIN" commit -q -m init
+  git_q init -q --bare "$base/remote.git"
+  git_q -C "$FX_MAIN" remote add origin "$base/remote.git"
   git_q -C "$FX_MAIN/sub" worktree add -q -b "wt-$1" "$FX_WT"
   mkdir -p "$FX_MAIN/.beads"
   FX_ROOT="$(git -C "$FX_WT" worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"

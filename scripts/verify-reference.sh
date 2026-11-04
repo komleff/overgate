@@ -43,6 +43,7 @@ run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate
 # regression_pr183.sh is historical U2 live-comment tooling, not a deterministic reference fixture.
 run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.test.py
 run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
+run bd-bootstrap-native "$PYTHON" scripts/tests/bd-bootstrap-native.test.py
 run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
 run bd-managed-prefix node scripts/tests/bd-managed-prefix.test.mjs
@@ -50,4 +51,5 @@ run bd-managed-snapshot node scripts/tests/bd-managed-snapshot.test.mjs
 run bd-managed-two-clone node scripts/tests/bd-managed-two-clone.test.mjs
 run bd-publisher-guard node scripts/tests/bd-publisher-guard.test.mjs
 run bd-publisher-setup node scripts/tests/bd-publisher-setup.test.mjs
+run bd-managed-routes node scripts/tests/bd-managed-routes.test.mjs
 printf 'PASS verify-reference; full logs: %s\n' "$LOG_DIR"

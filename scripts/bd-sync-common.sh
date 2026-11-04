@@ -5,6 +5,8 @@
 
 # Валидация env-параметров + guard окружения. Возврат 0 — ок, 1 — ошибка (вызывающий делает exit).
 bd_sync_validate() {
+  BD_SYNC_VALIDATED_PRESENT=0
+  BD_SYNC_VALIDATED_TIP=""
   # Whitelist ветки (а не blacklist — последний неполон: BD_SYNC_BRANCH=feature/x схлопнул бы
   # рабочую ветку до snapshot-файла). Разрешены только канон-ветка и её именованные варианты.
   case "$BRANCH" in
@@ -28,4 +30,46 @@ bd_sync_validate() {
     echo "ОШИБКА: запуск из git-worktree запрещён — bd привязан к основному checkout." >&2
     return 1
   fi
+  # Старый export/restore не может писать поверх managed protocol, даже если этот
+  # clone ещё не зарегистрирован: marker проверяется на свежем remote tip.
+  if git config --local --get overgate.beadsPublisher >/dev/null 2>&1; then
+    echo "ОШИБКА: managed publisher зарегистрирован; legacy sync запрещён. Используй trusted typed queue publisher." >&2
+    return 1
+  fi
+  local remote_rc=0
+  git ls-remote --exit-code --heads "$REMOTE" "refs/heads/${BRANCH}" >/dev/null 2>&1 || remote_rc=$?
+  case "$remote_rc" in
+    0)
+      if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+        echo "ОШИБКА: partial history не подтверждает отсутствие managed protocol; legacy sync остановлен." >&2
+        return 1
+      fi
+      if ! git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"; then
+        echo "ОШИБКА: не удалось подтвердить remote task state перед legacy sync (fail-closed)." >&2
+        return 1
+      fi
+      local frozen_tip
+      if ! frozen_tip="$(git rev-parse --verify "refs/remotes/${REMOTE}/${BRANCH}^{commit}" 2>/dev/null)"; then
+        echo "ОШИБКА: fetched task ref не разрешён в commit SHA; legacy sync остановлен." >&2
+        return 1
+      fi
+      if git cat-file -e "${frozen_tip}:.beads/overgate-managed-v1.json" 2>/dev/null \
+        || git cat-file -e "${frozen_tip}:.beads/overgate-outcomes-v1.json" 2>/dev/null; then
+        echo "ОШИБКА: remote managed protocol активен; legacy sync запрещён. Используй managed publisher." >&2
+        return 1
+      fi
+      local protocol_history
+      if ! protocol_history="$(git log -1 --format=%H "$frozen_tip" -- .beads/overgate-managed-v1.json .beads/overgate-outcomes-v1.json)"; then
+        echo "ОШИБКА: remote protocol history недоступна; legacy sync остановлен." >&2
+        return 1
+      fi
+      if [ -n "$protocol_history" ]; then
+        echo "ОШИБКА: remote managed protocol был удалён (downgrade); legacy sync запрещён." >&2
+        return 1
+      fi
+      BD_SYNC_VALIDATED_PRESENT=1
+      BD_SYNC_VALIDATED_TIP="$frozen_tip" ;;
+    2) ;;
+    *) echo "ОШИБКА: remote task state недоступен; legacy sync остановлен (fail-closed)." >&2; return 1 ;;
+  esac
 }

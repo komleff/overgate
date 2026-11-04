@@ -286,6 +286,34 @@ SKILL, validators и tools из trusted SHA, data из final PR HEAD; blob misma
 **Отклонённые варианты:** `guarded` с вопросами неспециалисту; Memory Bank через manifest
 (запрет managed `.memory-bank`/`.beads` сохраняется); частичный rollback (нарушает drift guard).
 
+### 3.34 Managed Beads publication (rc.5 candidate)
+
+**Статус:** proposed в WI-A PR #14; source сам по себе не активирует установленный проект.
+Product authority, merge и включение writer после install остаются у проекта/оператора.
+
+**Решение:** `beads-backup` хранит полный `bd export --all` snapshot вместе с versioned
+protocol marker и append-only outcomes ledger. Typed queue v2 фиксирует base SHA, actor,
+payload hash и preconditions. Trusted publisher из exact target `origin/main` создаёт отдельный
+временный CLI store, сверяет full-object round-trip и публикует Git commit non-force.
+Настоящий task ID, confirmed claim и `published_sha` предъявляются после peer read-back;
+локальный успех `bd` или `tmp:` не означает выполненную задачу. Prefix берётся из
+`bd --readonly config list --json` при регистрации и закрепляется в publisher control;
+имя Dolt database не является issue prefix.
+
+До перехода inventory/preservation проверяет legacy DB, remote snapshot и pending queues.
+Существующее либо неизвестное state останавливает bootstrap. Publisher setup устанавливает
+pre-push guards для прежнего основного checkout и выделенного publisher: старый writer,
+force/rewind и удаление managed ledger отклоняются. `bd-sync-export/restore` остаются
+только для `legacy-v0`; при managed marker или его удалении из видимой истории они
+отказывают. `bd-wt` в managed mode читает опубликованный snapshot, а typed queue из linked
+worktree или isolated reader применяет только trusted publisher. Нет доступа к нему — queue
+остаётся pending с точным blocker. Другой авторизованный checkout не получает право writer
+лишь потому, что видит Git tree; CLI binary и platform требуют отдельной квалификации.
+
+**Отклонено:** direct Dolt write, restore-over-pending, silent legacy upgrade, force push,
+local JSONL как authority и исполнение helper из PR branch. Старые проектные записи и
+U2-specific repair exception не входят в generic protocol.
+
 ## 4. Ключевые решения
 
 ### 3.1 Пять ролей агентов
