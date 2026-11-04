@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { canonical } from './lib/bd-managed-contract.mjs';
 import { qualifyBinary } from './lib/bd-managed-cli.mjs';
+import { cleanGitEnvironment, cleanBeadsEnvironment } from './lib/bd-git-environment.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 function fileSha256(name) {
@@ -16,23 +17,18 @@ function fileSha256(name) {
   return hash.digest('hex');
 }
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
-const GIT_ENVIRONMENT = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_NAMESPACE'];
 const SOURCE_FILES = Object.freeze([
   'scripts/bd-apply-intents.sh', 'scripts/bd-publisher-setup.mjs', 'scripts/bd-sync-export.sh', 'scripts/bd-wt.sh', 'scripts/lib/bd-env.sh',
   'scripts/lib/bd-publisher-push-guard.mjs', 'scripts/lib/bd-managed-entry.mjs', 'scripts/lib/bd-managed-cli.mjs',
   'scripts/lib/bd-managed-contract.mjs', 'scripts/lib/bd-managed-journal.mjs', 'scripts/lib/bd-managed-transaction.mjs',
   'scripts/lib/bd-managed-git.mjs', 'scripts/lib/bd-managed-project.mjs', 'scripts/lib/bd-snapshot.mjs',
+  'scripts/lib/bd-git-environment.mjs',
 ]);
 const RUNTIME_FILES = ['bd-publisher-push-guard.mjs', 'bd-managed-cli.mjs', 'bd-managed-git.mjs', 'bd-managed-contract.mjs',
-  'bd-managed-journal.mjs', 'bd-managed-project.mjs', 'bd-snapshot.mjs'];
+  'bd-managed-journal.mjs', 'bd-managed-project.mjs', 'bd-snapshot.mjs', 'bd-git-environment.mjs'];
 const REGISTRATION_KEYS = ['overgate.beadsPublisher', 'overgate.beadsCli', 'overgate.beadsPrefix'];
 const CONTROL_CONFIG_KEYS = [...REGISTRATION_KEYS, 'core.hooksPath'];
 
-function cleanGitEnvironment() {
-  const environment = { ...process.env, MSYS2_ARG_CONV_EXCL: '*' };
-  for (const name of GIT_ENVIRONMENT) delete environment[name];
-  return environment;
-}
 function git(cwd, args, { encoding = 'utf8', input } = {}) {
   return execFileSync('git', args, { cwd, encoding, input, timeout: 15000, maxBuffer: 32 * 1024 * 1024,
     env: cleanGitEnvironment(), stdio: ['pipe', 'pipe', 'pipe'] });
@@ -166,7 +162,7 @@ function assertQualified(cli, qualifyCli) {
 function issuePrefix(primary, cli, readIssuePrefix) {
   const prefix = readIssuePrefix ? readIssuePrefix(primary.root, cli)
     : JSON.parse(execFileSync(cli, ['--readonly', 'config', 'list', '--json'], { cwd: primary.root, encoding: 'utf8', timeout: 30000,
-      maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })).issue_prefix;
+      maxBuffer: 1024 * 1024, env: cleanBeadsEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] })).issue_prefix;
   requireThat(typeof prefix === 'string' && /^[A-Za-z][A-Za-z0-9-]*$/.test(prefix), 'qualified CLI issue prefix invalid');
   return prefix;
 }

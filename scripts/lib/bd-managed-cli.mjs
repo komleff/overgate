@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { parseSnapshot, normalizeSnapshot, assertExactSnapshot } from './bd-snapshot.mjs';
+import { cleanGitEnvironment } from './bd-git-environment.mjs';
 import { canonical, validateQueue, planReplay, replayHandles, validateBlockingGraph, appendOutcome, assertLedgerExtension, timestampIdentity, getProjectPrefix, isRealId } from './bd-managed-contract.mjs';
 
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
@@ -32,9 +33,9 @@ export function qualifyBinary(binary, { fingerprint = streamFingerprint, platfor
   return digest;
 }
 const childEnvironment = (cwd, temporary) => {
-  const env = { ...process.env };
+  const env = cleanGitEnvironment();
   // Не наследуем endpoint/redirect/autopush и чужой Git index/context. HOME не меняется.
-  for (const key of Object.keys(env)) if (/^(BEADS_|DOLT_|BD_|OTEL_|GIT_CONFIG_)/.test(key) || ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE'].includes(key)) delete env[key];
+  for (const key of Object.keys(env)) if (/^(BEADS_|DOLT_|BD_|OTEL_)/.test(key)) delete env[key];
   return { ...env, BEADS_DIR: path.join(cwd, '.beads'), DOLT_ROOT_PATH: path.join(cwd, 'dolt-global'), DOLT_METRICS_DISABLED: '1', BD_DISABLE_METRICS: '1',
     TMPDIR: temporary, TMP: temporary, TEMP: temporary, GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
 };
