@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Bootstrap только канонического checkout; generated hooks bd не заменяют OverGate guards.
 set -euo pipefail
+if [ -n "${GIT_INDEX_FILE:-}" ]; then
+  echo 'STOP: GIT_INDEX_FILE override запрещён для Beads bootstrap; canonical Git index должен быть проверен.' >&2
+  exit 1
+fi
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 . "$ROOT/scripts/lib/bd-env.sh"
@@ -25,7 +29,7 @@ if [ -e "$ROOT/.beads/metadata.json" ] && { [ -e "$ROOT/.beads/embeddeddolt" ] |
   bd_env_resolve_main_db "$ROOT" || { echo 'STOP: existing Beads database unavailable; no auto-start/overwrite.' >&2; exit 1; }
 fi
 "$ROOT/.claude/tools/run-python.sh" -I - "$ROOT" <<'PY'
-import hashlib,json,os,re,shutil,subprocess,sys,tempfile
+import hashlib,json,os,re,shutil,stat,subprocess,sys,tempfile
 from pathlib import Path
 root=Path(sys.argv[1])
 def call(*args,env=None):
@@ -61,6 +65,30 @@ def fresh_prefix(name):
     if not slug:slug='project-'+hashlib.sha256(name.encode('utf-8')).hexdigest()[:8]
     if not slug[0].isalpha() or len(slug)<2:slug='p-'+slug
     return slug
+def pin_fresh_prefix(prefix):
+    # Только после нового пустого init; существующую конфигурацию другого проекта не переписываем.
+    config=root/'.beads/config.yaml'
+    if config.is_symlink() or not config.is_file():raise RuntimeError('fresh init config.yaml missing or unsafe')
+    original=config.read_bytes()
+    if re.search(rb'(?m)^\s*issue-prefix\s*:',original):
+        raise RuntimeError('fresh init has pre-existing active issue-prefix; no rewrite')
+    effective=json.loads(bd('config','list','--json'))
+    if not isinstance(effective,dict) or effective.get('issue_prefix')!=prefix or value('issue_prefix')!=prefix:
+        raise RuntimeError('fresh init effective issue prefix mismatch')
+    with tempfile.TemporaryDirectory(prefix='overgate-bd-empty-') as tmp:
+        exported=Path(tmp)/'empty.jsonl';bd('export','--all','-o',str(exported))
+        if exported.read_bytes():raise RuntimeError('fresh init contains task state; no config pin')
+    pinned=original+(b'' if original.endswith(b'\n') else b'\n')+('issue-prefix: '+json.dumps(prefix)+'\n').encode('utf-8')
+    temporary=config.with_name(config.name+'.overgate-pin-tmp')
+    try:
+        with temporary.open('xb') as output:
+            output.write(pinned);output.flush();os.fsync(output.fileno())
+        os.chmod(temporary,stat.S_IMODE(config.stat().st_mode))
+        os.replace(temporary,config)
+    finally:
+        if temporary.exists():temporary.unlink()
+    if value('issue_prefix')!=prefix or config.read_bytes()!=pinned:
+        raise RuntimeError('fresh issue prefix pin read-back mismatch; no publication')
 def clone_recovery():
     beads=root/'.beads'
     if os.environ.get('BD_SYNC_FORCE') or os.environ.get('BD_SYNC_REMOTE','origin')!='origin' or os.environ.get('BD_SYNC_BRANCH','beads-backup')!='beads-backup':
@@ -92,29 +120,13 @@ def clone_recovery():
             active.append(prefix_value)
     if len(active)>1 or active and not active[0]:
         raise RuntimeError('tracked issue-prefix ambiguous')
+    if not active:
+        raise RuntimeError('active project-owned tracked issue-prefix required; caller receipt/SHA and clone/database names are not provenance')
     expected=os.environ.get('BD_BOOTSTRAP_PREFIX','')
-    receipt_path=os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT','')
-    receipt_sha=os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256','')
-    def verify_receipt(prefix):
-        if not receipt_path or not re.fullmatch(r'[0-9a-f]{64}',receipt_sha):
-            raise RuntimeError('verified issue prefix receipt and SHA256 required')
-        receipt=Path(receipt_path)
-        if receipt.is_symlink() or not receipt.is_file():
-            raise RuntimeError('issue prefix receipt must be a regular file')
-        raw=receipt.read_bytes()
-        receipt_data=json.loads(raw)
-        if not isinstance(receipt_data,dict) or hashlib.sha256(raw).hexdigest()!=receipt_sha or receipt_data.get('issue_prefix')!=prefix:
-            raise RuntimeError('issue prefix receipt hash/value mismatch')
-    if active:
-        prefix=active[0]
-        if expected and expected!=prefix:raise RuntimeError('explicit prefix differs from tracked project config')
-        if receipt_path or receipt_sha:verify_receipt(prefix)
-    else:
-        prefix=expected
-        if not prefix:raise RuntimeError('verified issue prefix required; database name/clone name are not prefixes')
-        verify_receipt(prefix)
-        if not os.environ.get('BD_BOOTSTRAP_EXPECTED_R'):
-            raise RuntimeError('receipt route requires frozen expected beads-backup SHA')
+    if os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT') or os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256'):
+        raise RuntimeError('caller receipt/SHA route removed; use tracked project issue-prefix')
+    prefix=active[0]
+    if expected and expected!=prefix:raise RuntimeError('explicit prefix differs from tracked project config')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9-]+',prefix):
         raise RuntimeError('verified issue prefix invalid')
     expected_r=os.environ.get('BD_BOOTSTRAP_EXPECTED_R','')
@@ -209,6 +221,8 @@ try:
         clone_recovery();sys.exit(0)
     if not (root/'.beads/metadata.json').exists():
         # --remote '' исключает авто-Dolt origin; sandbox блокирует побочную auto-push публикацию.
+        if call('git','ls-remote','--heads','origin','beads-backup').strip() or call('git','ls-remote','origin','refs/dolt/data').strip():
+            raise RuntimeError('remote Beads state exists; fresh init would create competing local state')
         prefix=fresh_prefix(root.name)
         init_args=['init','--skip-agents','--skip-hooks','--non-interactive','--remote','']
         if prefix!=root.name:init_args+=['--prefix',prefix]
@@ -218,6 +232,7 @@ try:
         bd('config','set','export.auto','false');bd('config','set','backup.git-push','false')
         bd('config','unset','sync.remote')
         for remote in remotes():bd('dolt','remote','remove',remote['name'])
+        pin_fresh_prefix(prefix)
     postcondition()
     published=call('git','ls-remote','--heads','origin','beads-backup').strip()
     if published:

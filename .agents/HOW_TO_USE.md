@@ -38,15 +38,21 @@ handoff не нужен. Установка/upgrade/rollback: `.agents/INSTALL.m
 `bd init` делает собственный Git commit и включает весь предварительно staged index. Поэтому
 `bd-bootstrap.sh` останавливается при staged файлах; агент сохраняет их в запланированном
 коммите отдельно и запускает bootstrap с пустым index. При чистой fresh установке Beads
-commit ожидаем и проверяется перед публикацией PR.
+commit ожидаем и проверяется перед публикацией PR. Helper после подтверждённо пустого
+fresh init записывает активный `issue-prefix` в tracked `.beads/config.yaml` из фактического
+`bd config list --json`. **До завершения install PR** агент проверяет effective prefix,
+читает task snapshot и включает изменённый config.yaml в project commit; незакоммиченный
+pin не доступен свежему clone. Existing DB/config helper этим путём не переписывает.
 
 В свежем clone tracked `.beads/metadata.json` может существовать без ignored локальной
 `embeddeddolt` DB. Сначала подтвердите неизменный `origin/beads-backup` SHA и точный project
-issue prefix. Источник prefix — активное tracked `issue-prefix` в `.beads/config.yaml` либо
-внешний immutable receipt исходного primary от `bd --readonly config list --json` с SHA256.
-Для receipt route передайте `BD_BOOTSTRAP_PREFIX`, `BD_BOOTSTRAP_PREFIX_RECEIPT`,
-`BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256` и `BD_BOOTSTRAP_EXPECTED_R` (SHA ветки) в
-`bash scripts/bd-bootstrap.sh`. Без доказанного prefix helper откажет. Он создаёт только
+issue prefix. Источник prefix — только активное project-owned tracked `issue-prefix` в
+`.beads/config.yaml`. Исходный primary подтверждает его через `bd --readonly config list --json`,
+после чего проект сохраняет pin в своей Git-ветке, сверяет effective prefix после правки и
+читает прежние задачи/зависимости из исходной DB и опубликованного SHA без изменений. Внешний caller receipt
+и его SHA не доказывают происхождение и больше не принимаются. Если pin отсутствует или
+`BD_BOOTSTRAP_PREFIX` противоречит ему, `bash scripts/bd-bootstrap.sh` откажет до `bd init`.
+При необходимости `BD_BOOTSTRAP_EXPECTED_R` закрепляет ожидаемый SHA ветки. Helper создаёт только
 пустую локальную DB, восстанавливает frozen snapshot через `bd-sync-restore.sh` и сверяет
 полный read-back. Не подставляйте имя clone или `metadata.dolt_database`: они могут отличаться
 от issue prefix. При local/pending/unknown state — остановитесь, не запускайте `bd init --force`.

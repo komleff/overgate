@@ -25,18 +25,21 @@ if kind=='bd':
  if a and a[0]=='init':
   (root/'.beads').mkdir(exist_ok=True);(root/'.beads/embeddeddolt').mkdir(exist_ok=True)
   (root/'.beads/metadata.json').write_text('{"dolt_mode":"embedded"}')
-  (root/'bdconfig').write_text('{}');sys.exit()
+  (root/'.beads/config.yaml').write_text('# issue-prefix: ""\n')
+  prefix=a[a.index('--prefix')+1] if '--prefix' in a else root.name
+  (root/'bdconfig').write_text(json.dumps({'issue_prefix':prefix}));sys.exit()
  config=json.loads((root/'bdconfig').read_text(encoding='utf-8')) if (root/'bdconfig').exists() else {}
  if a[:2]==['config','set']:config[a[2]]=a[3];(root/'bdconfig').write_text(json.dumps(config))
  elif a[:2]==['config','unset']:config.pop(a[2],None);(root/'bdconfig').write_text(json.dumps(config))
  elif a[:2]==['config','get']: print(json.dumps({'key':a[2],'value':config.get(a[2],'')}))
+ elif a[:2]==['config','list']: print(json.dumps(dict(config,schema_version=1)))
  elif a[:3]==['dolt','remote','list']:print('[]')
  elif a[:1]==['ready']:
   counter=root/'ready-count';n=int(counter.read_text(encoding='utf-8')) if counter.exists() else 0;counter.write_text(str(n+1))
   if os.environ.get('OG_READY_FAIL_AFTER') and n>=int(os.environ['OG_READY_FAIL_AFTER']):sys.exit(9)
   print('[]')
  elif a[:1]==['export']:
-  pathlib.Path(a[a.index('-o')+1]).write_text('')
+  pathlib.Path(a[a.index('-o')+1]).write_text(os.environ.get('OG_EXPORT_CONTENT',''))
  else:sys.exit(12)
  sys.exit()
 if args[:2]==['auth','status']:sys.exit(1 if s=='auth' else 0)
@@ -182,8 +185,24 @@ class Helpers(unittest.TestCase):
     def test_beads_fresh_postconditions_remote_snapshot_and_noop(self):
         self.remote();self.run_helper('bd-bootstrap');calls=self.calls();self.assertIn(['bd','--sandbox','init','--skip-agents','--skip-hooks','--non-interactive','--remote','','--prefix','demo'],calls)
         self.assertTrue(self.git('ls-remote','--heads','origin','beads-backup'))
-        ready=next(i for i,c in enumerate(calls) if 'ready' in c);export=next(i for i,c in enumerate(calls) if 'export' in c);self.assertLess(ready,export)
+        ready=next(i for i,c in enumerate(calls) if 'ready' in c)
+        exports=[i for i,c in enumerate(calls) if 'export' in c]
+        self.assertLess(exports[0],ready)  # empty-init check перед публикацией
+        self.assertLess(ready,exports[-1])
         (self.root/'calls').unlink();self.run_helper('bd-bootstrap');self.assertFalse(any('init' in c or 'export' in c or 'set' in c for c in self.calls()))
+    def test_beads_partial_existing_config_and_nonempty_fresh_init_stop(self):
+        self.remote()
+        beads=self.root/'.beads';beads.mkdir()
+        config=beads/'config.yaml';config.write_text('issue-prefix: "project"\n')
+        self.run_helper('bd-bootstrap',1)
+        self.assertEqual(self.calls(),[])
+        self.assertEqual(config.read_text(),'issue-prefix: "project"\n')
+        shutil.rmtree(beads)
+        self.env['OG_EXPORT_CONTENT']='{"_type":"issue","id":"pending-1"}\n'
+        output=self.run_helper('bd-bootstrap',1)
+        self.assertIn('fresh init contains task state',output)
+        self.assertNotIn('issue-prefix: "demo"',(beads/'config.yaml').read_text())
+        self.assertEqual(self.git('ls-remote','--heads','origin','beads-backup'),'')
     def test_beads_staged_index_stops_before_bd_init(self):
         self.remote();self.git('commit','--allow-empty','-qm','initial')
         sentinel=self.root/'staged-sentinel.txt';sentinel.write_bytes(b'user staged bytes\n')
@@ -197,6 +216,21 @@ class Helpers(unittest.TestCase):
         self.assertEqual(sentinel.read_bytes(),b'user staged bytes\n')
         self.assertEqual(self.git('ls-remote','--heads','origin','beads-backup'),'')
         self.assertFalse((self.root/'.beads').exists())
+    def test_beads_alternate_clean_index_cannot_hide_staged_default_index(self):
+        self.remote();self.git('commit','--allow-empty','-qm','initial')
+        sentinel=self.root/'staged-sentinel.txt';sentinel.write_bytes(b'user staged bytes\n')
+        self.git('add','staged-sentinel.txt')
+        index=self.root/'.git/index';before=index.read_bytes();head=self.git('rev-parse','HEAD')
+        alternate=Path(self.temp.name)/'clean-index'
+        subprocess.check_call(['git','read-tree','--empty'],cwd=self.root,
+                              env=dict(os.environ,GIT_INDEX_FILE=str(alternate)))
+        self.env['GIT_INDEX_FILE']=str(alternate)
+        output=self.run_helper('bd-bootstrap',1)
+        self.assertIn('GIT_INDEX_FILE',output)
+        self.assertEqual(self.calls(),[])
+        self.assertEqual(index.read_bytes(),before)
+        self.assertEqual(self.git('rev-parse','HEAD'),head)
+        self.assertEqual(sentinel.read_bytes(),b'user staged bytes\n')
     def test_existing_live_server_is_preserved_and_dead_server_stops_before_bd(self):
         self.remote();self.ready_database();(self.root/'.beads/dolt').mkdir()
         meta=self.root/'.beads/metadata.json';meta.write_text('{"dolt_mode":"server"}')
@@ -219,7 +253,10 @@ class Helpers(unittest.TestCase):
         for args in ('--sandbox init --skip-agents --skip-hooks --non-interactive --remote  --prefix demo','--sandbox config set export.auto false','--sandbox config set backup.git-push false','--sandbox config unset sync.remote','--sandbox dolt remote list --json','--sandbox ready --json'):
             with self.subTest(args=args):
                 shutil.rmtree(self.root/'.beads',ignore_errors=True);(self.root/'calls').unlink(missing_ok=True);(self.root/'bdconfig').unlink(missing_ok=True)
-                self.env['OG_FAIL']=args;self.run_helper('bd-bootstrap',1);self.assertFalse(any('export' in c for c in self.calls()));self.assertEqual(self.git('ls-remote','--heads','origin','beads-backup'),'')
+                self.env['OG_FAIL']=args;self.run_helper('bd-bootstrap',1)
+                exports=[c for c in self.calls() if 'export' in c]
+                self.assertEqual(len(exports),1 if args=='--sandbox ready --json' else 0)  # пустой init проверяется до ready
+                self.assertEqual(self.git('ls-remote','--heads','origin','beads-backup'),'')
     def test_fresh_prefix_basename_is_portable_and_gate_compatible(self):
         # Исполняем pure функцию, извлечённую из production helper, без второй копии алгоритма.
         import ast,hashlib,re

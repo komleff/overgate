@@ -88,12 +88,16 @@ class NativeClone(unittest.TestCase):
         return target
 
     def environment(self, **overrides):
-        env = dict(os.environ, BD_BOOTSTRAP_PREFIX='big-heroes',
-                   BD_BOOTSTRAP_PREFIX_RECEIPT=str(self.receipt),
-                   BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256=self.receipt_hash,
-                   BD_BOOTSTRAP_EXPECTED_R=self.base)
+        env = dict(os.environ, BD_BOOTSTRAP_EXPECTED_R=self.base)
         env.update(overrides)
         return env
+
+    def pin_prefix(self):
+        config = self.primary / '.beads/config.yaml'
+        config.write_text(config.read_text(encoding='utf-8') + '\nissue-prefix: big-heroes\n', encoding='utf-8')
+        git(self.primary, 'add', '.beads/config.yaml')
+        git(self.primary, 'commit', '-q', '-m', 'project owned prefix')
+        git(self.primary, 'push', '-q', 'origin', 'main')
 
     def test_clean_fresh_helper_commits_only_beads_and_publishes_snapshot(self):
         remote = self.root / 'fresh-remote.git'
@@ -120,8 +124,24 @@ class NativeClone(unittest.TestCase):
         self.assertNotIn('untracked-sentinel.txt', committed)
         self.assertEqual((target / 'untracked-sentinel.txt').read_bytes(), b'untouched project bytes\n')
         self.assertTrue(git(target, 'ls-remote', 'origin', 'refs/heads/beads-backup'))
+        config = (target / '.beads/config.yaml').read_text(encoding='utf-8')
+        self.assertIn('issue-prefix: "fresh-project"', config)
+        self.assertEqual(json.loads(run(target, 'bd', '--readonly', 'config', 'get', 'issue_prefix', '--json').stdout)['value'], 'fresh-project')
+        self.assertIn('.beads/config.yaml',git(target,'status','--short','--','.beads/config.yaml'))
+        git(target,'add','.beads/config.yaml')
+        git(target,'commit','-q','-m','project pins issue prefix')
+        git(target,'push','-q','origin','main')
+        issue=run(target,'bd','--sandbox','create','--title','Published after pin','--silent').stdout.strip()
+        run(target,'bash','scripts/bd-sync-export.sh')
+        peer=self.root/'fresh-peer'
+        run(self.root,'git','clone','-q',str(remote),str(peer))
+        self.configure(peer)
+        result=run(peer,'bash','scripts/bd-bootstrap.sh',check=False)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertIn(issue,run(peer,'bd','--readonly','show',issue,'--json').stdout)
 
     def test_clone_restores_full_snapshot_without_git_or_metadata_change(self):
+        self.pin_prefix()
         target = self.clone('arbitrary-clone-name')
         metadata = (target / '.beads/metadata.json').read_bytes()
         config = (target / '.beads/config.yaml').read_bytes()
@@ -144,11 +164,15 @@ class NativeClone(unittest.TestCase):
         self.assertEqual({row['id'] for row in records(export.read_text()) if row.get('_type') == 'issue'}, set(self.ids))
 
     def test_unknown_and_wrong_prefix_refuse_before_database_creation(self):
+        forged = self.root / 'forged-receipt.json'
+        forged.write_text('{"issue_prefix":"big-heroes"}\n', encoding='utf-8')
         for name, env in (
             ('unknown', dict(BD_BOOTSTRAP_PREFIX='')),
-            ('wrong', dict(BD_BOOTSTRAP_PREFIX='other')),
-            ('receipt-hash', dict(BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256='0' * 64)),
-            ('advanced', dict(BD_BOOTSTRAP_EXPECTED_R='0' * 40)),
+            ('forged', dict(BD_BOOTSTRAP_PREFIX='big-heroes', BD_BOOTSTRAP_PREFIX_RECEIPT=str(forged),
+                            BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256=hashlib.sha256(forged.read_bytes()).hexdigest())),
+            ('genuine-untracked', dict(BD_BOOTSTRAP_PREFIX='big-heroes',
+                                       BD_BOOTSTRAP_PREFIX_RECEIPT=str(self.receipt),
+                                       BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256=self.receipt_hash)),
         ):
             with self.subTest(name=name):
                 target = self.clone(name)
@@ -158,6 +182,17 @@ class NativeClone(unittest.TestCase):
                 self.assertFalse((target / '.beads/embeddeddolt').exists())
                 self.assertEqual(git(target, 'rev-parse', 'HEAD'), head)
                 self.assertEqual(git(target, 'ls-remote', 'origin', 'refs/heads/beads-backup').split()[0], self.base)
+        self.pin_prefix()
+        for name, env in (
+            ('wrong', dict(BD_BOOTSTRAP_PREFIX='other')),
+            ('receipt-hash', dict(BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256='0' * 64)),
+            ('advanced', dict(BD_BOOTSTRAP_EXPECTED_R='0' * 40)),
+        ):
+            with self.subTest(name=name):
+                target = self.clone(name)
+                result = run(target, 'bash', 'scripts/bd-bootstrap.sh', env=self.environment(**env), check=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse((target / '.beads/embeddeddolt').exists())
         missing = self.root / 'missing.git'
         run(self.root, 'git', 'init', '-q', '--bare', str(missing))
         git(self.primary, 'push', str(missing), 'main:main')
@@ -170,15 +205,10 @@ class NativeClone(unittest.TestCase):
         self.assertFalse((target / '.beads/embeddeddolt').exists())
 
     def test_active_tracked_prefix_restores_without_external_receipt(self):
-        config = self.primary / '.beads/config.yaml'
-        config.write_text(config.read_text(encoding='utf-8') + '\nissue-prefix: big-heroes\n', encoding='utf-8')
-        git(self.primary, 'add', '.beads/config.yaml')
-        git(self.primary, 'commit', '-q', '-m', 'project owned prefix')
-        git(self.primary, 'push', '-q', 'origin', 'main')
+        self.pin_prefix()
         target = self.clone('tracked-prefix-clone')
         result = run(target, 'bash', 'scripts/bd-bootstrap.sh',
-                     env=self.environment(BD_BOOTSTRAP_PREFIX='', BD_BOOTSTRAP_PREFIX_RECEIPT='',
-                                          BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256=''), check=False)
+                     env=self.environment(), check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(run(target, 'bd', '--readonly', 'config', 'get', 'issue_prefix', '--json').stdout)['value'], 'big-heroes')
         self.assertEqual(git(target, 'config', '--local', '--get', 'beads-sync.lastSeen'), self.base)
@@ -207,6 +237,7 @@ class NativeClone(unittest.TestCase):
         self.assertEqual(git(target, 'ls-remote', 'origin', 'refs/heads/beads-backup').split()[0], self.base)
 
     def test_staged_pending_unknown_and_corrupt_state_refuse_before_init(self):
+        self.pin_prefix()
         for name in ('staged', 'pending', 'unknown-file', 'unsupported-mode', 'force-override'):
             with self.subTest(name=name):
                 target = self.clone(name)
