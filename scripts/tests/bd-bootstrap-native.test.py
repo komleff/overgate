@@ -182,6 +182,14 @@ class NativeClone(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(run(target, 'bd', '--readonly', 'config', 'get', 'issue_prefix', '--json').stdout)['value'], 'big-heroes')
         self.assertEqual(git(target, 'config', '--local', '--get', 'beads-sync.lastSeen'), self.base)
+        conflicting = self.root / 'conflicting-receipt.json'
+        conflicting.write_text('{"issue_prefix":"other"}\n', encoding='utf-8')
+        conflict = self.clone('conflicting-receipt-clone')
+        result = run(conflict, 'bash', 'scripts/bd-bootstrap.sh', env=self.environment(
+            BD_BOOTSTRAP_PREFIX='', BD_BOOTSTRAP_PREFIX_RECEIPT=str(conflicting),
+            BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256=hashlib.sha256(conflicting.read_bytes()).hexdigest()), check=False)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((conflict / '.beads/embeddeddolt').exists())
 
     def test_existing_unsynced_local_database_is_preserved(self):
         target = self.clone('local-pending')

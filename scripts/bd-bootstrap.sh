@@ -93,15 +93,11 @@ def clone_recovery():
     if len(active)>1 or active and not active[0]:
         raise RuntimeError('tracked issue-prefix ambiguous')
     expected=os.environ.get('BD_BOOTSTRAP_PREFIX','')
-    if active:
-        prefix=active[0]
-        if expected and expected!=prefix:raise RuntimeError('explicit prefix differs from tracked project config')
-    else:
-        prefix=expected
-        receipt_path=os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT','')
-        receipt_sha=os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256','')
-        if not prefix or not receipt_path or not re.fullmatch(r'[0-9a-f]{64}',receipt_sha):
-            raise RuntimeError('verified issue prefix receipt and SHA256 required; database name/clone name are not prefixes')
+    receipt_path=os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT','')
+    receipt_sha=os.environ.get('BD_BOOTSTRAP_PREFIX_RECEIPT_SHA256','')
+    def verify_receipt(prefix):
+        if not receipt_path or not re.fullmatch(r'[0-9a-f]{64}',receipt_sha):
+            raise RuntimeError('verified issue prefix receipt and SHA256 required')
         receipt=Path(receipt_path)
         if receipt.is_symlink() or not receipt.is_file():
             raise RuntimeError('issue prefix receipt must be a regular file')
@@ -109,6 +105,14 @@ def clone_recovery():
         receipt_data=json.loads(raw)
         if not isinstance(receipt_data,dict) or hashlib.sha256(raw).hexdigest()!=receipt_sha or receipt_data.get('issue_prefix')!=prefix:
             raise RuntimeError('issue prefix receipt hash/value mismatch')
+    if active:
+        prefix=active[0]
+        if expected and expected!=prefix:raise RuntimeError('explicit prefix differs from tracked project config')
+        if receipt_path or receipt_sha:verify_receipt(prefix)
+    else:
+        prefix=expected
+        if not prefix:raise RuntimeError('verified issue prefix required; database name/clone name are not prefixes')
+        verify_receipt(prefix)
         if not os.environ.get('BD_BOOTSTRAP_EXPECTED_R'):
             raise RuntimeError('receipt route requires frozen expected beads-backup SHA')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9-]+',prefix):
