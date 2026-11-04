@@ -23,7 +23,7 @@ const SOURCE_FILES = Object.freeze([
   'scripts/lib/bd-managed-contract.mjs', 'scripts/lib/bd-managed-journal.mjs', 'scripts/lib/bd-managed-transaction.mjs',
   'scripts/lib/bd-managed-git.mjs', 'scripts/lib/bd-managed-project.mjs', 'scripts/lib/bd-snapshot.mjs',
 ]);
-const RUNTIME_FILES = ['bd-publisher-push-guard.mjs', 'bd-managed-git.mjs', 'bd-managed-contract.mjs',
+const RUNTIME_FILES = ['bd-publisher-push-guard.mjs', 'bd-managed-cli.mjs', 'bd-managed-git.mjs', 'bd-managed-contract.mjs',
   'bd-managed-journal.mjs', 'bd-managed-project.mjs', 'bd-snapshot.mjs'];
 const REGISTRATION_KEYS = ['overgate.beadsPublisher', 'overgate.beadsCli', 'overgate.beadsPrefix'];
 const CONTROL_CONFIG_KEYS = [...REGISTRATION_KEYS, 'core.hooksPath'];

@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { canonical, emptyLedger, parseLedger, assertLedgerExtension } from './bd-managed-contract.mjs';
 import { normalizeSnapshot } from './bd-snapshot.mjs';
+import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
 import { validateManagedHistory } from './bd-managed-journal.mjs';
 import { loadProjectPrefix } from './bd-managed-project.mjs';
 
@@ -85,10 +86,16 @@ export class ManagedGit {
     const history = segment.map(sha => {
       const raw = this.optional(sha, ledgerPath), protocol = this.optional(sha, protocolPath);
       requireThat((raw === null) === (protocol === null), 'managed ledger/protocol downgrade in retained history');
-      if (raw !== null) this.readAt(sha);
-      return { sha, ledger: raw === null ? null : parseLedger(raw) };
+      const state = this.readAt(sha);
+      return { sha, ledger: raw === null ? null : parseLedger(raw), snapshot: state.snapshot };
     });
     const checked = validateManagedHistory(history, seen);
+    let previous = start > 0 ? this.readAt(commits[start - 1]) : this.readAt(ZERO);
+    for (const [index, item] of history.entries()) {
+      if (item.ledger !== null && !(seen && index === 0))
+        assertAuthorizedSnapshotTransition(previous.snapshot, item.snapshot, previous.ledger, item.ledger);
+      previous = { snapshot: item.snapshot, ledger: item.ledger || emptyLedger() };
+    }
     requireThat((fs.existsSync(shallowFile) ? fs.readFileSync(shallowFile, 'utf8') : '') === shallowRaw, 'Git history boundary changed during proof; retry published read');
     const state = { ...this.readAt(R), activation: checked.activation, history: commits };
     if (state.activated && seen !== R) {

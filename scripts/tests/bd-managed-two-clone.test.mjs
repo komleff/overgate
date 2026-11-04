@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { configureProjectPrefix, emptyLedger, prepareQueue, planReplay } from '../lib/bd-managed-contract.mjs';
+import { appendOutcome, configureProjectPrefix, emptyLedger, prepareQueue, planReplay } from '../lib/bd-managed-contract.mjs';
 import { ManagedGit, ZERO } from '../lib/bd-managed-git.mjs';
 import { runTransaction } from '../lib/bd-managed-transaction.mjs';
 
@@ -74,9 +74,20 @@ try {
   assert.equal(peer.ledger.outcomes.length, 2);
   assert.equal(peer.ledger.outcomes[0].result.ref, 'big-heroes-A');
   assert.equal(JSON.parse(peer.snapshot.trim()).assignee, actor);
+  const forgedLoss = publisher.commitCandidate({ base: published.published_sha, snapshot: '', ledger: peer.ledger });
+  publisher.pushCandidate(forgedLoss);
+  assert.throws(() => project(second).readPublished(), /snapshot|outcome|preserv|postcondition/);
+  git(root, '--git-dir', remote, 'update-ref', 'refs/heads/beads-backup', published.published_sha);
   assert.equal(runTransaction({ repository: publisher, directory, intents: queue, acknowledgement, materialize: () => { throw new Error('replay called CLI'); } }).mutations, 0);
-  const stale = publisher.commitCandidate({ base: published.published_sha, snapshot: peer.snapshot.replace('Fixture task', 'stale task'), ledger: peer.ledger });
-  const newer = publisher.commitCandidate({ base: published.published_sha, snapshot: peer.snapshot.replace('Fixture task', 'newer task'), ledger: peer.ledger });
+  const updateCandidate = (intent_id, title) => {
+    const [intent] = prepareQueue(JSON.stringify({ intent_id, op: 'update', ref: 'big-heroes-A', title }),
+      [JSON.parse(peer.snapshot.trim())], peer.ledger, { base: published.published_sha, actor });
+    return publisher.commitCandidate({ base: published.published_sha,
+      snapshot: peer.snapshot.replace('Fixture task', title),
+      ledger: appendOutcome(peer.ledger, intent, { ref: 'big-heroes-A' }) });
+  };
+  const stale = updateCandidate('stale-title', 'stale task');
+  const newer = updateCandidate('newer-title', 'newer task');
   publisher.pushCandidate(newer);
   assert.throws(() => publisher.pushCandidate(stale));
   assert.equal(project(second).readPublished().R, newer);

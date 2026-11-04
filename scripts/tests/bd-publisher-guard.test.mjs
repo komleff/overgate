@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { guardPush } from '../lib/bd-publisher-push-guard.mjs';
-import { configureProjectPrefix, emptyLedger } from '../lib/bd-managed-contract.mjs';
+import { appendOutcome, configureProjectPrefix, emptyLedger, prepareQueue } from '../lib/bd-managed-contract.mjs';
 import { ManagedGit } from '../lib/bd-managed-git.mjs';
 
 const ZERO = '0'.repeat(40);
@@ -52,5 +52,36 @@ test('managed guard permits exact CAS activation and denies force or ledger down
     const tree = indexed(['write-tree']);
     const downgraded = git(root, 'commit-tree', tree, '-p', activation, '-m', 'drop managed ledger');
     assert.throws(() => guardPush({ config, input: record(downgraded, activation), readIssuePrefix: () => 'big-heroes' }), /protocol|ledger|managed/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('managed guard binds every snapshot transition to new authorized outcomes', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'overgate-managed-preservation-')));
+  try {
+    git(root, 'init', '-q');
+    git(root, 'config', 'user.name', 'fixture'); git(root, 'config', 'user.email', 'fixture@example.invalid');
+    git(root, 'config', '--local', 'overgate.beadsPrefix', 'big-heroes');
+    fs.mkdirSync(path.join(root, '.beads'));
+    fs.writeFileSync(path.join(root, '.beads/metadata.json'), JSON.stringify({ backend: 'dolt', dolt_mode: 'embedded', dolt_database: 'big_heroes' }));
+    configureProjectPrefix('big-heroes');
+    const repo = new ManagedGit({ cwd: root, readIssuePrefix: () => 'big-heroes' });
+    const issue = { _type: 'issue', id: 'big-heroes-A', title: 'Retained', status: 'open', priority: 2, issue_type: 'task' };
+    const baseSnapshot = JSON.stringify(issue) + '\n';
+    const base = repo.commitCandidate({ base: ZERO, snapshot: baseSnapshot, ledger: emptyLedger() });
+    const config = { version: 1, mode: 'managed', repositoryRoot: root };
+    const check = candidate => guardPush({ config,
+      input: Buffer.from(`refs/heads/beads-backup ${candidate} refs/heads/beads-backup ${base}\n`), readIssuePrefix: () => 'big-heroes' });
+    for (const snapshot of ['', JSON.stringify({ ...issue, title: 'Forged' }) + '\n']) {
+      const candidate = repo.commitCandidate({ base, snapshot, ledger: emptyLedger() });
+      assert.throws(() => check(candidate), /snapshot|outcome|preserv|postcondition/);
+    }
+    const actor = 'agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2';
+    const [intent] = prepareQueue(JSON.stringify({ intent_id: 'note-a', op: 'update', ref: issue.id, notes: 'Authorized' }),
+      [issue], emptyLedger(), { base, actor });
+    const ledger = appendOutcome(emptyLedger(), intent, { ref: issue.id });
+    const valid = repo.commitCandidate({ base, snapshot: JSON.stringify({ ...issue, notes: 'Authorized' }) + '\n', ledger });
+    assert.doesNotThrow(() => check(valid));
+    const missing = repo.commitCandidate({ base, snapshot: '', ledger });
+    assert.throws(() => check(missing), /snapshot|outcome|preserv|postcondition/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

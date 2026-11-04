@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { configureProjectPrefix, emptyLedger } from '../lib/bd-managed-contract.mjs';
+import { appendOutcome, configureProjectPrefix, emptyLedger, prepareQueue } from '../lib/bd-managed-contract.mjs';
 import { ManagedGit, ZERO } from '../lib/bd-managed-git.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -30,9 +30,17 @@ test('managed reader/worktree use published snapshot and both legacy sync writer
     fs.writeFileSync(path.join(main, '.beads/metadata.json'), JSON.stringify({ backend: 'dolt', dolt_mode: 'embedded', dolt_database: 'big_heroes' }));
     configureProjectPrefix('big-heroes');
     const publisher = new ManagedGit({ cwd: main, readIssuePrefix: () => 'big-heroes' });
-    const snapshot = JSON.stringify({ _type: 'issue', id: 'big-heroes-A', title: 'Published task', status: 'open',
-      priority: 2, issue_type: 'task', dependency_count: 0 }) + '\n';
-    publisher.pushCandidate(publisher.commitCandidate({ base: ZERO, snapshot, ledger: emptyLedger() }));
+    const activation = publisher.commitCandidate({ base: ZERO, snapshot: '', ledger: emptyLedger() });
+    publisher.pushCandidate(activation);
+    const actor = 'agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2';
+    const [create] = prepareQueue(JSON.stringify({ intent_id: 'fixture-create', op: 'create', handle: 'tmp:task', title: 'Published task' }),
+      [], emptyLedger(), { base: activation, actor });
+    const issue = { _type: 'issue', id: 'big-heroes-A', title: 'Published task', status: 'open',
+      priority: 2, issue_type: 'task', external_ref: 'intent:fixture-create', dependency_count: 0 };
+    const snapshot = JSON.stringify(issue) + '\n';
+    const ledger = appendOutcome(emptyLedger(), create, { ref: issue.id, handles: { 'tmp:task': issue.id } });
+    const published = publisher.commitCandidate({ base: activation, snapshot, ledger });
+    publisher.pushCandidate(published);
     const conversionBin = path.join(root, 'conversion-bin'); fs.mkdirSync(conversionBin);
     const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
     const conversionGit = path.join(conversionBin, 'git');
@@ -80,6 +88,11 @@ exec "$OG_TEST_REAL_GIT" "$@"
     git(root, 'clone', '-q', '--depth', '1', `file://${remote}`, shallow);
     const partial = run(shallow, 'bd-read.sh', ['ready', '--json']);
     assert.notEqual(partial.status, 0); assert.match(partial.stderr, /partial|shallow|history/);
+    const forgedLoss = publisher.commitCandidate({ base: published, snapshot: '', ledger });
+    publisher.pushCandidate(forgedLoss);
+    const lost = run(linked, 'bd-read.sh', ['ready', '--json']);
+    assert.notEqual(lost.status, 0); assert.match(lost.stderr, /snapshot|outcome|postcondition|preserv/);
+    git(remote, 'update-ref', 'refs/heads/beads-backup', published);
     const initial = git(main, 'ls-remote', '--heads', 'origin', 'refs/heads/beads-backup').split('\t')[0];
     const index = path.join(root, 'fixture-index');
     const indexed = (args, input) => execFileSync('git', args, { cwd: main, env: { ...process.env, GIT_INDEX_FILE: index },

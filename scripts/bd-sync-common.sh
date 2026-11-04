@@ -69,7 +69,17 @@ bd_sync_validate() {
       fi
       BD_SYNC_VALIDATED_PRESENT=1
       BD_SYNC_VALIDATED_TIP="$frozen_tip" ;;
-    2) ;;
+    2)
+      # Отсутствие ветки на remote не доказывает fresh state, если этот clone
+      # уже видел её историю. Иначе старый writer может восстановить удалённый
+      # managed marker как legacy snapshot.
+      if git show-ref --verify --quiet "refs/remotes/${REMOTE}/${BRANCH}" \
+        || git show-ref --verify --quiet "refs/heads/${BRANCH}" \
+        || { [ "$BRANCH" = beads-backup ] \
+          && [ -n "$(git config --local --get beads-sync.lastSeen 2>/dev/null || true)" ]; }; then
+        echo "ОШИБКА: remote task branch отсутствует, но локальная история/lastSeen существует; legacy sync остановлен (fail-closed)." >&2
+        return 1
+      fi ;;
     *) echo "ОШИБКА: remote task state недоступен; legacy sync остановлен (fail-closed)." >&2; return 1 ;;
   esac
 }

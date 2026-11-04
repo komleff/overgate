@@ -7,6 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { preparePublisherControl, installPublisherControl } from '../bd-publisher-setup.mjs';
 import { ManagedGit, ZERO } from '../lib/bd-managed-git.mjs';
+import { emptyLedger } from '../lib/bd-managed-contract.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
@@ -81,5 +82,9 @@ test('setup binds generic registration to current trusted main and installed gua
     assert.notEqual(oldWriter.status, 0);
     assert.match(oldWriter.stderr, /retired checkout cannot publish/);
     assert.equal(git(primary, 'ls-remote', '--heads', 'origin', 'refs/heads/beads-backup'), '');
+    const activated = new ManagedGit({ cwd: publisher }).commitCandidate({ base: ZERO, snapshot: '', ledger: emptyLedger() });
+    git(publisher, 'push', 'origin', `${activated}:refs/heads/beads-backup`);
+    assert.equal(git(primary, 'ls-remote', '--heads', 'origin', 'refs/heads/beads-backup').split('\t')[0], activated,
+      'installed managed hook loads its complete trusted runtime and permits empty activation');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

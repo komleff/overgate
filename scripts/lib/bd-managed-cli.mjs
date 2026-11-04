@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { parseSnapshot, normalizeSnapshot, assertExactSnapshot } from './bd-snapshot.mjs';
-import { canonical, validateQueue, planReplay, replayHandles, validateBlockingGraph, appendOutcome, timestampIdentity, getProjectPrefix, isRealId } from './bd-managed-contract.mjs';
+import { canonical, validateQueue, planReplay, replayHandles, validateBlockingGraph, appendOutcome, assertLedgerExtension, timestampIdentity, getProjectPrefix, isRealId } from './bd-managed-contract.mjs';
 
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
 const defaultRun = (binary, args, options) => execFileSync(binary, args, { ...options, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
@@ -180,6 +180,28 @@ function verifyBatch(beforeRows, afterRaw, intents, handles, actor) {
   const memories = rows => canonical(rows.filter(row => row._type === 'memory').sort((a, b) => canonical(a).localeCompare(canonical(b))));
   requireThat(memories(beforeRows) === memories(afterRows), 'postcondition snapshot memories changed');
   validateBlockingGraph(afterRows, []);
+}
+
+// Та же проверка postcondition действует на Git candidate и peer readback:
+// marker/hash и append-only ledger сами по себе не доказывают сохранность задач.
+export function assertAuthorizedSnapshotTransition(before, after, beforeLedger, afterLedger) {
+  assertLedgerExtension(beforeLedger, afterLedger);
+  normalizeSnapshot(before, 'previous snapshot');
+  normalizeSnapshot(after, 'candidate snapshot');
+  const additions = afterLedger.outcomes.slice(beforeLedger.outcomes.length);
+  if (!additions.length) {
+    requireThat(after === before, 'snapshot changed without authorized outcome');
+    return;
+  }
+  const intents = validateQueue(additions.map(outcome => canonical(outcome.intent)).join('\n'));
+  const handles = new Map(additions.filter(outcome => outcome.intent.op === 'create')
+    .map(outcome => [outcome.intent.handle, outcome.result.ref]));
+  for (const outcome of additions) {
+    const expected = outcome.intent.op === 'create' ? handles.get(outcome.intent.handle)
+      : handles.get(outcome.intent.ref) || outcome.intent.ref;
+    requireThat(outcome.result.ref === expected, 'outcome result ref differs from authorized intent');
+  }
+  verifyBatch(parseSnapshot(before).map(({ record }) => record), after, intents, handles, intents[0].actor);
 }
 
 export function executeBatch(store, intents, ledger) {

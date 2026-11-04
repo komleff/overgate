@@ -18,3 +18,8 @@ assert.throws(() => assertExactSnapshot(expected, JSON.stringify({ ...issue, com
 assert.throws(() => assertExactSnapshot(expected, JSON.stringify({ ...issue, dependencies: [], dependency_count: 0 }) + '\n' + JSON.stringify(memory) + '\n'),
   /full-content roundtrip mismatch/);
 assert.throws(() => normalizeSnapshot(JSON.stringify({ ...issue, future_field: 'unqualified' }) + '\n'), /unsupported field/);
+assert.equal(normalizeSnapshot(''), '[]');
+for (const malformed of ['\n', ' \n\t\n', expected + '\n']) {
+  assert.throws(() => normalizeSnapshot(malformed), /empty|blank|строка/);
+  assert.throws(() => assertExactSnapshot(malformed, ''), /empty|blank|строка/);
+}

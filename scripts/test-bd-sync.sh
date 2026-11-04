@@ -200,7 +200,27 @@ for mode in export restore; do
   fi
 done
 
-# 8. Worktree-guard: запуск из linked-worktree → блок (с проверкой что worktree реально создан).
+# 8. Удалённая ветка исчезла после того, как clone видел managed marker.
+# Кэшированная история не позволяет старому writer считать это fresh remote.
+git -C "$TMP/race-work" remote set-url origin "$TMP/race-export.git"
+git -C "$TMP/race-work" fetch -q origin '+refs/heads/beads-backup:refs/remotes/origin/beads-backup'
+cached_tip=$(git -C "$TMP/race-work" rev-parse refs/remotes/origin/beads-backup)
+[ "$cached_tip" = "$race_managed" ] && ok "managed history cached before remote disappearance" || no "managed history cache setup"
+git --git-dir="$TMP/race-export.git" update-ref -d refs/heads/beads-backup
+for mode in export restore; do
+  script="$EXPORT"; [ "$mode" = restore ] && script="$RESTORE"
+  : > "$FAKE_BD_IMPORT_LOG"
+  if (cd "$TMP/race-work" && BD_SYNC_FORCE=1 FAKE_BD_EXPORT="$TMP/race-new.jsonl" bash "$script" >/dev/null 2>&1); then
+    no "missing remote with cached managed state stops legacy ${mode}"
+  elif [ -z "$(git --git-dir="$TMP/race-export.git" for-each-ref refs/heads/beads-backup)" ] \
+      && [ ! -s "$FAKE_BD_IMPORT_LOG" ]; then
+    ok "missing remote with cached managed state stops legacy ${mode}"
+  else
+    no "missing remote with cached managed state preserves branch/import for ${mode}"
+  fi
+done
+
+# 9. Worktree-guard: запуск из linked-worktree → блок (с проверкой что worktree реально создан).
 if git -C "$TMP/work" worktree add -q "$TMP/wt" HEAD >/dev/null 2>&1 && [ -e "$TMP/wt/.git" ]; then
   if (cd "$TMP/wt" && FAKE_BD_EXPORT="$TMP/exp.jsonl" bash "$EXPORT" >/dev/null 2>&1); then no "worktree guard blocks"; else ok "worktree guard blocks"; fi
 else

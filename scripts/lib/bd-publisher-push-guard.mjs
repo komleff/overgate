@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ManagedGit } from './bd-managed-git.mjs';
-import { assertLedgerExtension } from './bd-managed-contract.mjs';
+import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
 
 const ZERO = '0'.repeat(40);
 const BEADS_REF = 'refs/heads/beads-backup';
@@ -89,7 +89,7 @@ function validateManaged(repositoryRoot, record, readIssuePrefix) {
   const repository = new ManagedGit({ cwd: repositoryRoot, readIssuePrefix });
   const current = repository.readAt(record.remoteOid), candidate = repository.readAt(record.localOid);
   requireThat(candidate.activated, 'managed candidate must activate/preserve protocol; raw snapshot push denied');
-  assertLedgerExtension(current.ledger, candidate.ledger);
+  assertAuthorizedSnapshotTransition(current.snapshot, candidate.snapshot, current.ledger, candidate.ledger);
 }
 
 function routeDiagnostic(repositoryRoot) {

@@ -7,9 +7,12 @@ import { canonical, isRealId } from './bd-managed-contract.mjs';
 export function parseSnapshot(raw, label = 'snapshot') {
   const records = [], identities = new Set();
   const nonempty = (value) => typeof value === 'string' && value.trim().length > 0;
-  raw.split(/\n/).forEach((line, i) => {
-    if (!line.trim()) return;
+  if (raw === '') return records;
+  const lines = raw.split(/\n/);
+  lines.forEach((line, i) => {
+    if (i === lines.length - 1 && line === '' && raw.endsWith('\n')) return;
     const invalid = (reason) => { throw new Error(`${label}: строка ${i + 1} — ${reason} (fail-closed)`); };
+    if (!line.trim()) invalid('пустая строка в непустом snapshot');
     let record;
     try { record = JSON.parse(line); } catch { invalid('невалидный JSON'); }
     if (!record || typeof record !== 'object' || Array.isArray(record)) invalid('ожидалась запись-объект');
