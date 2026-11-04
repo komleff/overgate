@@ -61,7 +61,8 @@ try {
   assert.throws(() => runTransaction({ repository: failOnce, directory, intents: queue, acknowledgement, materialize }),
     error => error.code === 'PENDING_PUBLICATION' && error.summary.status === 'pending');
   assert.equal(publisher.readPublished().R, ZERO);
-  const published = runTransaction({ repository: publisher, directory, intents: queue, acknowledgement,
+  const resumedPublisher = project(first);
+  const published = runTransaction({ repository: resumedPublisher, directory, intents: queue, acknowledgement,
     materialize: () => { throw new Error('retry repeated CLI mutations'); } });
   assert.equal(published.status, 'published');
   assert.equal(published.mutations, 0);
@@ -86,6 +87,10 @@ try {
   const unrelated = prepareQueue(JSON.stringify({ intent_id: 'unrelated-notes', op: 'update', ref: 'big-heroes-A', notes: 'local notes' }),
     [JSON.parse(peer.snapshot.trim())], peer.ledger, { base: published.published_sha, actor });
   assert.equal(planReplay(unrelated, [changed], peer.ledger).conflicts.length, 0);
+  const staleClose = prepareQueue(JSON.stringify({ intent_id: 'stale-close', op: 'close', ref: 'big-heroes-A', close_reason: 'done' }),
+    [JSON.parse(peer.snapshot.trim())], peer.ledger, { base: published.published_sha, actor });
+  const reassigned = { ...JSON.parse(peer.snapshot.trim()), status: 'open', assignee: 'agent-other' };
+  assert.notEqual(planReplay(staleClose, [reassigned], peer.ledger).conflicts.length, 0);
   git(second, 'config', '--local', 'overgate.beadsPrefix', 'wrong');
   assert.throws(() => project(second), /prefix registration mismatch/);
   git(second, 'config', '--local', 'overgate.beadsPrefix', 'big-heroes');

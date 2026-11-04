@@ -18,7 +18,8 @@ if [ "$branch" != main ] || [ -z "$trusted" ] || [ "$head" != "$trusted" ]; then
   echo "ERROR: managed publisher требует exact trusted origin/main HEAD (fail-closed)." >&2
   exit 6
 fi
-if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; then
+if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs \
+  || ! git diff --cached --quiet HEAD -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; then
   echo "ERROR: managed publisher tooling изменён в worktree." >&2
   exit 6
 fi

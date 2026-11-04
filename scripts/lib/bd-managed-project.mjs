@@ -17,6 +17,23 @@ function readIssuePrefix(root) {
 }
 
 export function loadProjectPrefix(root, { readIssuePrefix: readPrefix = readIssuePrefix } = {}) {
+  let pinned;
+  try { pinned = execFileSync('git', ['config', '--local', '--get', 'overgate.beadsPrefix'], { cwd: root, encoding: 'utf8' }).trim(); }
+  catch { throw new Error('publisher prefix registration missing'); }
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(pinned)) throw new Error('publisher prefix registration invalid');
+  const control = path.join(root, '.git', 'overgate-bd-publisher-control');
+  const guardFile = path.join(control, 'guard-config.json'), receiptFile = path.join(control, 'installed.json');
+  if (fs.existsSync(guardFile) && fs.existsSync(receiptFile)) {
+    for (const file of [guardFile, receiptFile]) {
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('publisher control file invalid');
+    }
+    const guard = JSON.parse(fs.readFileSync(guardFile, 'utf8'));
+    if (guard.version !== 1 || guard.mode !== 'managed' || guard.repositoryRoot !== root || guard.publisherRoot !== root
+      || guard.projectPrefix !== pinned) throw new Error('publisher control prefix mismatch');
+    configureProjectPrefix(pinned);
+    return pinned;
+  }
   const beadsRoot = path.join(root, '.beads');
   if (fs.lstatSync(beadsRoot).isSymbolicLink()) throw new Error('project Beads directory symlink denied');
   const metadataFile = path.join(beadsRoot, 'metadata.json');
@@ -37,9 +54,6 @@ export function loadProjectPrefix(root, { readIssuePrefix: readPrefix = readIssu
     if (lines.length === 1 && lines[0].replace(/^\s*issue-prefix\s*:\s*/, '').trim().replace(/^['"]|['"]$/g, '') !== prefix)
       throw new Error('project Beads config/metadata prefix mismatch');
   }
-  let pinned;
-  try { pinned = execFileSync('git', ['config', '--local', '--get', 'overgate.beadsPrefix'], { cwd: root, encoding: 'utf8' }).trim(); }
-  catch { throw new Error('publisher prefix registration missing'); }
   if (pinned !== prefix) throw new Error('publisher prefix registration mismatch');
   configureProjectPrefix(prefix);
   return prefix;
