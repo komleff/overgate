@@ -70,7 +70,7 @@ TEST_PR = "645"
 
 class PublisherTest(unittest.TestCase):
     def setUp(self):
-        self.sandbox = Path(tempfile.mkdtemp(prefix="u2-publisher-test-"))
+        self.sandbox = Path(tempfile.mkdtemp(prefix="overgate-publisher-test-"))
         self.repo = self.sandbox / "repo"
         self.repo.mkdir()
         state_patch = mock.patch.dict(

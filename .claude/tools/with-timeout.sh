@@ -26,7 +26,7 @@ run_native_timeout() {
   native_timeout="$1"
   shift
 
-  status_dir=$(mktemp -d "${TMPDIR:-/tmp}/u2-with-timeout.XXXXXX") || {
+  status_dir=$(mktemp -d "${TMPDIR:-/tmp}/overgate-with-timeout.XXXXXX") || {
     echo "ОШИБКА: не удалось создать временный каталог для контроля timeout." >&2
     return 127
   }
@@ -217,7 +217,7 @@ for handled_signal in handled_signals:
 # На машине без нативного timeout это боевой маршрут, а не только тестовый.
 # Поэтому пауза (а) не длиннее самого предела и (б) вычитается из ожидания:
 # суммарное время обёртки с крючком и без него одинаково.
-startup_pause = os.environ.get("U2_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS")
+startup_pause = os.environ.get("OVERGATE_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS")
 paused_seconds = 0.0
 if startup_pause:
     try:
