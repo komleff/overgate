@@ -45,4 +45,7 @@ run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.
 run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
 run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
+run bd-managed-prefix node scripts/tests/bd-managed-prefix.test.mjs
+run bd-managed-snapshot node scripts/tests/bd-managed-snapshot.test.mjs
+run bd-managed-two-clone node scripts/tests/bd-managed-two-clone.test.mjs
 printf 'PASS verify-reference; full logs: %s\n' "$LOG_DIR"
