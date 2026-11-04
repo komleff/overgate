@@ -38,6 +38,9 @@ def init(root):
     git(root,'init','-q','-b','fixture')
     git(root,'config','user.email','fixture@example.invalid')
     git(root,'config','user.name','Fixture')
+    remote=root.parent/(root.name+'-origin.git')
+    subprocess.check_call(['git','init','-q','--bare',str(remote)])
+    git(root,'remote','add','origin',str(remote))
 
 def snapshot(root):
     return {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*')
@@ -97,6 +100,94 @@ class InstallTests(unittest.TestCase):
         return self.call('plan','--source',self.source,'--source-sha',self.sha,'--target',self.target,
                          '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan,*extra)
 
+    def test_wib_fresh_protocol_is_managed_without_beads_mutation(self):
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_protocol'],'managed-v1')
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'verified-absent')
+        self.approve();self.apply()
+        state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
+        self.assertEqual(state['beads_protocol'],'managed-v1')
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertFalse((self.target/'.bd-intents').exists())
+        self.assertNotIn('refs/heads/beads-backup',git(self.target,'ls-remote','--heads','origin'))
+
+    def test_wib_unknown_local_or_remote_state_stops_before_target_write(self):
+        existing=self.target/'.beads/metadata.json';existing.parent.mkdir();existing.write_text('{"backend":"dolt"}')
+        before=snapshot(self.target)
+        result=self.make_plan()
+        plan=json.loads(self.plan.read_bytes())
+        self.assertTrue(plan['beads_inventory']['blocked'])
+        self.approve();self.assertIn('preservation',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+        existing.unlink();existing.parent.rmdir()
+        self.make_plan();self.approve()
+        (self.target/'.bd-intents').mkdir();(self.target/'.bd-intents/pending.jsonl').write_text('{}\n')
+        before=snapshot(self.target)
+        self.assertIn('drift',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+
+    def test_wib_remote_unavailable_and_remote_advance_are_not_absent(self):
+        git(self.target,'remote','remove','origin')
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'unknown')
+        self.approve();before=snapshot(self.target)
+        self.assertIn('preservation',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+        remote=self.root/'target-origin.git';git(self.target,'remote','add','origin',str(remote))
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'verified-absent')
+        self.approve();git(self.target,'commit','--allow-empty','-qm','remote fixture')
+        git(self.target,'push','-q','origin','HEAD:refs/heads/beads-backup')
+        before=snapshot(self.target)
+        self.assertIn('drift',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'present')
+        self.assertRegex(plan['beads_inventory']['remote']['R'],r'^[0-9a-f]{40}$')
+        self.approve();self.assertIn('preservation',self.apply(ok=False).stderr)
+
+    def test_wib_symlinked_local_beads_stops_without_writes(self):
+        outside=self.root/'outside';outside.mkdir()
+        try:(self.target/'.beads').symlink_to(outside,target_is_directory=True)
+        except OSError as error:
+            if sys.platform=='win32' and getattr(error,'winerror',None)==1314:self.skipTest('Windows symlink privilege 1314')
+            raise
+        before=snapshot(self.target)
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertTrue(plan['beads_inventory']['blocked'])
+        self.assertTrue(any('symlink' in reason for reason in plan['beads_inventory']['reasons']))
+        self.approve();self.assertIn('preservation',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+
+    def test_wib_rc4_beads_false_maps_to_none_without_beads_closure(self):
+        state=self.target/'.overgate/install-state.json';state.parent.mkdir()
+        state.write_text(json.dumps({'format':2,'source_sha':'0'*40,'manifest_version':'4.0.0-rc.4',
+                                     'mode':'auto','beads':False,'installed':{}}),encoding='utf-8')
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_protocol'],'none')
+        self.assertFalse(plan['beads'])
+        self.approve();self.apply()
+        installed=json.loads(state.read_bytes())
+        self.assertEqual(installed['beads_protocol'],'none')
+        for entry in self.source_manifest()['files']:
+            if entry.get('component')=='beads':self.assertFalse((self.target/entry['target']).exists(),entry['target'])
+        self.assertNotIn('overgate:beads',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
+
+    def test_wib_managed_imports_and_helpers_are_required(self):
+        self.make_plan();self.approve();self.apply()
+        checker=self.target/'scripts/check-reference.py'
+        managed=[e['target'] for e in self.source_manifest()['files'] if e.get('component')=='beads'
+                 and ('bd-managed-' in e['target'] or 'bd-publisher-' in e['target']
+                      or e['target'] in ('scripts/lib/bd-snapshot.mjs','scripts/bd-apply-intents.sh'))]
+        self.assertGreaterEqual(len(managed),12)
+        for name in managed:
+            with self.subTest(name=name):
+                path=self.target/name;bytes_before=path.read_bytes();path.unlink()
+                run=subprocess.run([sys.executable,str(checker),'--root',str(self.target)],capture_output=True,text=True)
+                self.assertNotEqual(run.returncode,0,name)
+                self.assertIn('CLOSURE-',run.stdout)
+                path.write_bytes(bytes_before)
+
     def backup(self):
         return max((self.target/'.overgate-backups').glob('*/rollback.json'),key=lambda p:p.stat().st_mtime_ns)
 
@@ -107,7 +198,7 @@ class InstallTests(unittest.TestCase):
         self.assertNotIn(b'docker-compose.prod.yml',source)
         self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
         state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
-        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.4'))
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.5'))
         self.assertNotIn('source',state);self.assertNotIn('backup',state)
         def no_absolute(value):
             if isinstance(value,dict):
@@ -161,7 +252,7 @@ class InstallTests(unittest.TestCase):
         self.make_plan('--no-beads');plan=json.loads(self.plan.read_bytes());self.assertIs(plan['beads'],False)
         self.approve();self.apply();state=(self.target/'.overgate/install-state.json').read_bytes()
         manifest=self.source_manifest();beads=[e['target'] for e in manifest['files'] if e.get('component')=='beads']
-        self.assertEqual(len(beads),9)
+        self.assertGreater(len(beads),9)
         for path in beads:self.assertFalse((self.target/path).exists(),path)
         self.assertNotIn('overgate:beads',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
         self.assertNotIn('Beads:',(self.target/'AGENTS.md').read_text(encoding='utf-8'))

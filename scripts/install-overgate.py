@@ -48,6 +48,44 @@ def current(root,path):
     if not p.exists(): return None
     return {'sha256':digest(p.read_bytes()),'mode':p.stat().st_mode & 0o777}
 
+def beads_inventory(root):
+    # Инвентаризация не обновляет refs целевого checkout и не открывает Dolt.
+    common=Path(git(root,'rev-parse','--path-format=absolute','--git-common-dir').decode().strip())
+    observed={};reasons=[]
+    for name,base in (('.beads',root/'.beads'),('.bd-intents',root/'.bd-intents'),
+                      ('git/bd-receipts',common/'bd-receipts'),('git/bd-apply.lock.d',common/'bd-apply.lock.d'),
+                      ('git/overgate-bd-managed',common/'overgate-bd-managed'),
+                      ('git/overgate-bd-publisher-control',common/'overgate-bd-publisher-control')):
+        if not base.exists() and not base.is_symlink():continue
+        items=[]
+        for item in [base,*sorted(base.rglob('*'))] if base.is_dir() and not base.is_symlink() else [base]:
+            relative='.' if item==base else item.relative_to(base).as_posix()
+            if item.is_symlink():items.append({'path':relative,'kind':'symlink'});reasons.append(name+': symlink');continue
+            if item.is_file():
+                with item.open('rb') as stream:
+                    hasher=hashlib.sha256()
+                    for chunk in iter(lambda:stream.read(1024*1024),b''):hasher.update(chunk)
+                items.append({'path':relative,'kind':'file','sha256':hasher.hexdigest(),'size':item.stat().st_size})
+            elif item.is_dir():items.append({'path':relative,'kind':'directory'})
+            else:items.append({'path':relative,'kind':'unknown'});reasons.append(name+': unknown entry')
+        observed[name]=items;reasons.append(name+': retained state')
+    config=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-regexp',r'^(overgate\.beads|core\.hooksPath)'],capture_output=True)
+    if config.returncode not in (0,1):reasons.append('local Git writer config unreadable')
+    elif config.stdout:
+        observed['git_config_sha256']=digest(config.stdout)
+        if b'overgate.beads' in config.stdout:reasons.append('registered Beads writer')
+    prompt_env={**os.environ,'GIT_TERMINAL_PROMPT':'0'}
+    try:
+        remote=subprocess.run(['git','-C',str(root),'ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup'],
+                              capture_output=True,env=prompt_env,timeout=30)
+        if remote.returncode==2 and not remote.stdout:remote_state={'status':'verified-absent','R':None}
+        elif remote.returncode==0 and re.fullmatch(rb'[0-9a-f]{40}\trefs/heads/beads-backup\n?',remote.stdout):
+            remote_state={'status':'present','R':remote.stdout.split(b'\t',1)[0].decode()};reasons.append('remote beads-backup present')
+        else:remote_state={'status':'unknown','R':None};reasons.append('remote beads-backup unavailable')
+    except subprocess.TimeoutExpired:
+        remote_state={'status':'unknown','R':None};reasons.append('remote beads-backup timed out')
+    return {'remote':remote_state,'local':observed,'blocked':bool(reasons),'reasons':sorted(set(reasons))}
+
 def observable_mode(mode):
     # Native Windows показывает только read-only, а не Git executable bit.
     return (0o666 if mode & 0o200 else 0o444) if sys.platform=='win32' else mode
@@ -201,6 +239,10 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False):
     beads=state.get('beads') is not False
     if state_exists and no_beads and beads:raise InstallError('смена режима Beads при upgrade запрещена')
     if not state_exists:beads=not no_beads
+    protocol=state.get('beads_protocol', 'legacy-v0' if beads else 'none') if state_exists else ('managed-v1' if beads else 'none')
+    if protocol not in ('managed-v1','legacy-v0','none') or (protocol=='none')!= (not beads):
+        raise InstallError('invalid Beads protocol in previous install-state')
+    inventory=beads_inventory(target)
     m,payload=load_manifest(source,sha,beads)
     previous=state.get('installed',{})
     operations=[];conflicts=[];notes=[];agent_mode='auto'
@@ -231,7 +273,8 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False):
                            'data':base64.b64encode(data).decode() if policy in {'settings','ignore'} or (entry['source']=='.agents/templates/AGENTS.template.md' and not beads) else None})
     return {'format':1,'source':str(source),'source_sha':sha,'target':str(target),'branch':branch,
             'target_pr':target_pr,'contract':str(contract),'contract_sha256':digest(contract.read_bytes()),
-            'mode':agent_mode,'requested_mode':requested_mode,'beads':beads,'no_beads':no_beads,'notes':notes,'manifest_version':m['version'],
+            'mode':agent_mode,'requested_mode':requested_mode,'beads':beads,'beads_protocol':protocol,
+            'beads_inventory':inventory,'no_beads':no_beads,'notes':notes,'manifest_version':m['version'],
             'operations':operations,'conflicts':conflicts,'state_before':current(target,STATE)}
 
 def write_atomic(root,path,data,mode):
@@ -258,6 +301,8 @@ def apply(plan_path,approval_path):
     now=make_plan(Path(plan['source']),plan['source_sha'],Path(plan['target']),Path(plan['contract']),plan['target_pr'],plan.get('requested_mode'),plan.get('no_beads',False))
     if now!=plan:raise InstallError('target/source plan drift after Plan Review; regenerate plan in same PR')
     if plan['conflicts']:raise InstallError('conflicts require explicit project resolution: '+'; '.join(plan['conflicts']))
+    if plan['beads_inventory']['blocked']:
+        raise InstallError('Beads preservation required before install: '+'; '.join(plan['beads_inventory']['reasons']))
     root=Path(plan['target']);_,payload=load_manifest(Path(plan['source']),plan['source_sha'],plan['beads'])
     if (root/'.overgate-backups').is_symlink():raise InstallError('symlink backup directory')
     backup=root/'.overgate-backups'/uuid.uuid4().hex
@@ -277,7 +322,7 @@ def apply(plan_path,approval_path):
             write_atomic(root,op['target'],data,op['after']['mode'])
         installed={op['target']:op['after'] for op in plan['operations']}
         state={'format':2,'source_sha':plan['source_sha'],'manifest_version':plan['manifest_version'],
-               'mode':plan['mode'],'beads':plan['beads'],'installed':installed}
+               'mode':plan['mode'],'beads':plan['beads'],'beads_protocol':plan['beads_protocol'],'installed':installed}
         write_atomic(root,STATE,json_bytes(state),0o644)
         journal['after']={x['target']:current(root,x['target']) for x in entries};journal['complete']=True
         backup_file.write_bytes(json_bytes(journal))
