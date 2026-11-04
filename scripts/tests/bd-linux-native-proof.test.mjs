@@ -78,6 +78,9 @@ try {
   git(seed, 'remote', 'add', 'origin', remote); git(seed, 'push', '-q', 'origin', 'main');
   git(remote, 'symbolic-ref', 'HEAD', 'refs/heads/main');
   for (const clone of [primary, publisher, peerRoot]) git(root, 'clone', '-q', remote, clone);
+  git(publisher, 'config', '--local', 'user.name', 'Fixture Publisher');
+  git(publisher, 'config', '--local', 'user.email', 'fixture-publisher@example.invalid');
+  assert.equal(git(publisher, 'config', '--local', '--get', 'user.name'), 'Fixture Publisher');
   const plan = path.join(root, 'setup-plan.json');
   const setup = { primaryRoot: primary, publisherRoot: publisher, qualifiedCli: binary, output: plan,
     qualifyCli: () => true, readIssuePrefix: () => prefix };
