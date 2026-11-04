@@ -69,13 +69,18 @@ test('managed guard binds every snapshot transition to new authorized outcomes',
     const baseSnapshot = JSON.stringify(issue) + '\n';
     const base = repo.commitCandidate({ base: ZERO, snapshot: baseSnapshot, ledger: emptyLedger() });
     const config = { version: 1, mode: 'managed', repositoryRoot: root };
-    const check = candidate => guardPush({ config,
-      input: Buffer.from(`refs/heads/beads-backup ${candidate} refs/heads/beads-backup ${base}\n`), readIssuePrefix: () => 'big-heroes' });
+    const check = (candidate, remote = base) => guardPush({ config,
+      input: Buffer.from(`refs/heads/beads-backup ${candidate} refs/heads/beads-backup ${remote}\n`), readIssuePrefix: () => 'big-heroes' });
     for (const snapshot of ['', JSON.stringify({ ...issue, title: 'Forged' }) + '\n']) {
       const candidate = repo.commitCandidate({ base, snapshot, ledger: emptyLedger() });
       assert.throws(() => check(candidate), /snapshot|outcome|preserv|postcondition/);
     }
     const actor = 'agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2';
+    const [stale] = prepareQueue(JSON.stringify({ intent_id: 'stale-title', op: 'update', ref: issue.id, title: 'Forged' }),
+      [{ ...issue, title: 'Old' }], emptyLedger(), { base, actor });
+    const forged = repo.commitCandidate({ base, snapshot: JSON.stringify({ ...issue, title: 'Forged' }) + '\n',
+      ledger: appendOutcome(emptyLedger(), stale, { ref: issue.id }) });
+    assert.throws(() => check(forged), /precondition|conflict|stale/);
     const [intent] = prepareQueue(JSON.stringify({ intent_id: 'note-a', op: 'update', ref: issue.id, notes: 'Authorized' }),
       [issue], emptyLedger(), { base, actor });
     const ledger = appendOutcome(emptyLedger(), intent, { ref: issue.id });
@@ -83,5 +88,34 @@ test('managed guard binds every snapshot transition to new authorized outcomes',
     assert.doesNotThrow(() => check(valid));
     const missing = repo.commitCandidate({ base, snapshot: '', ledger });
     assert.throws(() => check(missing), /snapshot|outcome|preserv|postcondition/);
+    const noted = { ...issue, notes: 'Authorized' };
+    const [closeIntent] = prepareQueue(JSON.stringify({ intent_id: 'close-a', op: 'close', ref: issue.id, close_reason: 'done' }),
+      [noted], ledger, { base: valid, actor });
+    const closed = { ...noted, status: 'closed', close_reason: 'done' };
+    const closeLedger = appendOutcome(ledger, closeIntent, { ref: issue.id });
+    const close = repo.commitCandidate({ base: valid, snapshot: JSON.stringify(closed) + '\n', ledger: closeLedger });
+    assert.doesNotThrow(() => check(close, valid));
+    const [reopenIntent] = prepareQueue(JSON.stringify({ intent_id: 'reopen-a', op: 'update', ref: issue.id,
+      status: 'open', assignee: 'agent-other' }), [closed], closeLedger, { base: close, actor });
+    const reopened = { ...closed, status: 'open', assignee: 'agent-other' };
+    const reopenLedger = appendOutcome(closeLedger, reopenIntent, { ref: issue.id });
+    const reopen = repo.commitCandidate({ base: close, snapshot: JSON.stringify(reopened) + '\n', ledger: reopenLedger });
+    assert.doesNotThrow(() => check(reopen, close));
+    const [staleClose] = prepareQueue(JSON.stringify({ intent_id: 'stale-close-a', op: 'close', ref: issue.id, close_reason: 'stale' }),
+      [issue], emptyLedger(), { base, actor });
+    const replay = repo.commitCandidate({ base: reopen, snapshot: JSON.stringify({ ...reopened, status: 'closed', close_reason: 'stale' }) + '\n',
+      ledger: appendOutcome(reopenLedger, staleClose, { ref: issue.id }) });
+    assert.throws(() => check(replay, reopen), /precondition|conflict|stale/);
+    const [titleIntent] = prepareQueue(JSON.stringify({ intent_id: 'concurrent-title', op: 'update', ref: issue.id, title: 'Concurrent' }),
+      [issue], emptyLedger(), { base, actor });
+    const concurrent = { ...issue, title: 'Concurrent' };
+    const concurrentLedger = appendOutcome(emptyLedger(), titleIntent, { ref: issue.id });
+    const remoteTitle = repo.commitCandidate({ base, snapshot: JSON.stringify(concurrent) + '\n', ledger: concurrentLedger });
+    assert.doesNotThrow(() => check(remoteTitle));
+    const [localNotes] = prepareQueue(JSON.stringify({ intent_id: 'local-notes', op: 'update', ref: issue.id, notes: 'Local' }),
+      [issue], emptyLedger(), { base, actor });
+    const rebased = repo.commitCandidate({ base: remoteTitle, snapshot: JSON.stringify({ ...concurrent, notes: 'Local' }) + '\n',
+      ledger: appendOutcome(concurrentLedger, localNotes, { ref: issue.id }) });
+    assert.doesNotThrow(() => check(rebased, remoteTitle));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -78,6 +78,14 @@ try {
   publisher.pushCandidate(forgedLoss);
   assert.throws(() => project(second).readPublished(), /snapshot|outcome|preserv|postcondition/);
   git(root, '--git-dir', remote, 'update-ref', 'refs/heads/beads-backup', published.published_sha);
+  const [staleIntent] = prepareQueue(JSON.stringify({ intent_id: 'forged-stale-title', op: 'update', ref: 'big-heroes-A', title: 'Forged' }),
+    [{ ...JSON.parse(peer.snapshot.trim()), title: 'Old' }], peer.ledger, { base: published.published_sha, actor });
+  const forgedStale = publisher.commitCandidate({ base: published.published_sha,
+    snapshot: peer.snapshot.replace('Fixture task', 'Forged'),
+    ledger: appendOutcome(peer.ledger, staleIntent, { ref: 'big-heroes-A' }) });
+  publisher.pushCandidate(forgedStale);
+  assert.throws(() => project(second).readPublished(), /precondition|conflict|stale/);
+  git(root, '--git-dir', remote, 'update-ref', 'refs/heads/beads-backup', published.published_sha);
   assert.equal(runTransaction({ repository: publisher, directory, intents: queue, acknowledgement, materialize: () => { throw new Error('replay called CLI'); } }).mutations, 0);
   const updateCandidate = (intent_id, title) => {
     const [intent] = prepareQueue(JSON.stringify({ intent_id, op: 'update', ref: 'big-heroes-A', title }),

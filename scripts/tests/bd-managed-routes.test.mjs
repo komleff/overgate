@@ -93,6 +93,14 @@ exec "$OG_TEST_REAL_GIT" "$@"
     const lost = run(linked, 'bd-read.sh', ['ready', '--json']);
     assert.notEqual(lost.status, 0); assert.match(lost.stderr, /snapshot|outcome|postcondition|preserv/);
     git(remote, 'update-ref', 'refs/heads/beads-backup', published);
+    const [stale] = prepareQueue(JSON.stringify({ intent_id: 'forged-stale-title', op: 'update', ref: issue.id, title: 'Forged' }),
+      [{ ...issue, title: 'Old' }], ledger, { base: published, actor });
+    const staleCandidate = publisher.commitCandidate({ base: published, snapshot: JSON.stringify({ ...issue, title: 'Forged' }) + '\n',
+      ledger: appendOutcome(ledger, stale, { ref: issue.id }) });
+    publisher.pushCandidate(staleCandidate);
+    const staleRead = run(linked, 'bd-read.sh', ['ready', '--json']);
+    assert.notEqual(staleRead.status, 0); assert.match(staleRead.stderr, /precondition|conflict|stale/);
+    git(remote, 'update-ref', 'refs/heads/beads-backup', published);
     const initial = git(main, 'ls-remote', '--heads', 'origin', 'refs/heads/beads-backup').split('\t')[0];
     const index = path.join(root, 'fixture-index');
     const indexed = (args, input) => execFileSync('git', args, { cwd: main, env: { ...process.env, GIT_INDEX_FILE: index },

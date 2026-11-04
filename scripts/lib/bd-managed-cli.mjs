@@ -194,6 +194,10 @@ export function assertAuthorizedSnapshotTransition(before, after, beforeLedger, 
     return;
   }
   const intents = validateQueue(additions.map(outcome => canonical(outcome.intent)).join('\n'));
+  const beforeRows = parseSnapshot(before).map(({ record }) => record);
+  const replay = planReplay(intents, beforeRows, beforeLedger);
+  requireThat(!replay.conflicts.length && !replay.skipped.length && replay.pending.length === intents.length,
+    `snapshot outcome precondition conflict against prior published state: ${canonical(replay.conflicts)}`);
   const handles = new Map(additions.filter(outcome => outcome.intent.op === 'create')
     .map(outcome => [outcome.intent.handle, outcome.result.ref]));
   for (const outcome of additions) {
@@ -201,7 +205,7 @@ export function assertAuthorizedSnapshotTransition(before, after, beforeLedger, 
       : handles.get(outcome.intent.ref) || outcome.intent.ref;
     requireThat(outcome.result.ref === expected, 'outcome result ref differs from authorized intent');
   }
-  verifyBatch(parseSnapshot(before).map(({ record }) => record), after, intents, handles, intents[0].actor);
+  verifyBatch(beforeRows, after, intents, handles, intents[0].actor);
 }
 
 export function executeBatch(store, intents, ledger) {
