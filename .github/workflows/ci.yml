@@ -17,6 +17,37 @@ jobs:
           persist-credentials: false
       - name: Verify generic reference
         run: bash scripts/verify-reference.sh
+  beads-linux-native-proof:
+    name: beads-linux-native-proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Qualified binary and disposable full-object/publisher proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof_dir="$(mktemp -d)"
+          trap 'rm -rf "$proof_dir"' EXIT
+          curl -fsSL --retry 3 \
+            'https://github.com/gastownhall/beads/releases/download/v1.2.2/beads_1.2.2_linux_amd64.tar.gz' \
+            -o "$proof_dir/beads.tar.gz"
+          printf '%s  %s\n' '8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8' "$proof_dir/beads.tar.gz" | sha256sum -c -
+          tar -xzf "$proof_dir/beads.tar.gz" -C "$proof_dir" bd
+          chmod +x "$proof_dir/bd"
+          printf '%s  %s\n' '54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e' "$proof_dir/bd" | sha256sum -c -
+          file "$proof_dir/bd"
+          BD_BIN="$proof_dir/bd" \
+            BD_EXPECTED_SHA256='54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e' \
+            BD_EXPECTED_PLATFORM=linux \
+            node scripts/tests/bd-linux-native-proof.test.mjs
   verify-reference-macos:
     name: verify-reference-macos
     env:
