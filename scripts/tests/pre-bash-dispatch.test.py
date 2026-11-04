@@ -248,8 +248,13 @@ class SessionDirectory(unittest.TestCase):
 
     def test_git_environment_cannot_replace_cwd_checkout_identity(self):
         own=make_tree();other=make_tree();nested=own/'nested';nested.mkdir()
-        own_recovery="cd '"+own.resolve().as_posix()+"'"
-        other_recovery="cd '"+other.resolve().as_posix()+"'"
+        def recovery_for(tree):
+            completed=subprocess.run([BASH,'-c','pwd -P'],cwd=tree,capture_output=True,
+                                     text=True,encoding='utf-8')
+            self.assertEqual(completed.returncode,0,completed.stderr)
+            return "cd '"+completed.stdout.strip().replace("'", "'\"'\"'")+"'"
+        own_recovery=recovery_for(own)
+        other_recovery=recovery_for(other)
         env={'GIT_DIR':str(other/'.git'),'GIT_WORK_TREE':str(other)}
         code,err=run(ENTRY,own_recovery,nested,str(other),env)
         self.assertEqual(code,0,err)
