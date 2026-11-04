@@ -131,6 +131,33 @@ class NativeClone(unittest.TestCase):
         git(target,'add','.beads/config.yaml')
         git(target,'commit','-q','-m','project pins issue prefix')
         git(target,'push','-q','origin','main')
+        frozen_empty=git(target,'ls-remote','origin','refs/heads/beads-backup').split()[0]
+        self.assertEqual(git(target,'show',f'{frozen_empty}:.beads/issues.jsonl'),'')
+        unknown=self.root/'fresh-unknown'
+        run(self.root,'git','clone','-q',str(remote),str(unknown))
+        (unknown/'.beads/local-only').write_bytes(b'pending local state')
+        rejected=run(unknown,'bash','scripts/bd-bootstrap.sh',check=False)
+        self.assertNotEqual(rejected.returncode,0,rejected.stdout+rejected.stderr)
+        self.assertFalse((unknown/'.beads/embeddeddolt').exists())
+        empty_peer=self.root/'fresh-empty-peer'
+        run(self.root,'git','clone','-q',str(remote),str(empty_peer))
+        self.configure(empty_peer)
+        metadata=(empty_peer/'.beads/metadata.json').read_bytes()
+        config_bytes=(empty_peer/'.beads/config.yaml').read_bytes()
+        index_path=empty_peer/git(empty_peer,'rev-parse','--git-path','index')
+        index=index_path.read_bytes();head=git(empty_peer,'rev-parse','HEAD')
+        empty_result=run(empty_peer,'bash','scripts/bd-bootstrap.sh',check=False)
+        self.assertEqual(empty_result.returncode,0,empty_result.stdout+empty_result.stderr)
+        self.assertEqual((empty_peer/'.beads/metadata.json').read_bytes(),metadata)
+        self.assertEqual((empty_peer/'.beads/config.yaml').read_bytes(),config_bytes)
+        self.assertEqual(index_path.read_bytes(),index)
+        self.assertEqual(git(empty_peer,'rev-parse','HEAD'),head)
+        self.assertEqual(git(empty_peer,'config','--local','--get','beads-sync.lastSeen'),frozen_empty)
+        self.assertEqual(git(empty_peer,'ls-remote','origin','refs/heads/beads-backup').split()[0],frozen_empty)
+        self.assertEqual(json.loads(run(empty_peer,'bd','--readonly','dolt','remote','list','--json').stdout),[])
+        empty_export=self.root/'empty-peer.jsonl'
+        run(empty_peer,'bd','--sandbox','export','--all','-o',str(empty_export))
+        self.assertEqual(empty_export.read_bytes(),b'')
         issue=run(target,'bd','--sandbox','create','--title','Published after pin','--silent').stdout.strip()
         run(target,'bash','scripts/bd-sync-export.sh')
         peer=self.root/'fresh-peer'
@@ -272,6 +299,8 @@ class NativeClone(unittest.TestCase):
             ('syntax', '{not json}\n'),
             ('type', '{"_type":"future","id":"big-heroes-x"}\n'),
             ('edge', '{"_type":"issue","id":"big-heroes-x","title":"x","status":"open","priority":2,"issue_type":"task","dependencies":[{"issue_id":"big-heroes-x","depends_on_id":"big-heroes-missing","type":"alien"}]}\n'),
+            ('whitespace', '\n'),
+            ('memory-only', '{"_type":"memory","id":"big-heroes-note"}\n'),
         )
         for name, body in invalid_rows:
             invalid = self.root / f'{name}.jsonl'

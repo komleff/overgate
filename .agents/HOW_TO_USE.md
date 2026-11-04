@@ -54,7 +54,8 @@ issue prefix. Источник prefix — только активное project-
 `BD_BOOTSTRAP_PREFIX` противоречит ему, `bash scripts/bd-bootstrap.sh` откажет до `bd init`.
 При необходимости `BD_BOOTSTRAP_EXPECTED_R` закрепляет ожидаемый SHA ветки. Helper создаёт только
 пустую локальную DB, восстанавливает frozen snapshot через `bd-sync-restore.sh` и сверяет
-полный read-back. Не подставляйте имя clone или `metadata.dolt_database`: они могут отличаться
+полный read-back. Нулевой snapshot допустим до создания первой задачи, если файл в frozen SHA
+действительно пуст и read-back тоже пуст. Не подставляйте имя clone или `metadata.dolt_database`: они могут отличаться
 от issue prefix. При local/pending/unknown state — остановитесь, не запускайте `bd init --force`.
 Запуск Claude из root: `claude --permission-mode auto`, approved fallback при недоступности auto —
 `claude --permission-mode bypassPermissions` вместе с installer --mode bypass; hooks/deny сохраняются.

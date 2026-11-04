@@ -159,7 +159,7 @@ def clone_recovery():
                 raise RuntimeError('published snapshot namespace differs from verified prefix')
             issues.append(issue_id)
         rows.append(row)
-    if not issues:raise RuntimeError('published snapshot has no issue namespace to verify')
+    if not issues and snapshot:raise RuntimeError('published snapshot has no issue namespace to verify')
     if len(issues)!=len(set(issues)):raise RuntimeError('published snapshot has duplicate issue ID')
     edge_types={'blocks','tracks','related','parent-child','discovered-from','until','caused-by','validates','relates-to','supersedes'}
     for row in rows:
