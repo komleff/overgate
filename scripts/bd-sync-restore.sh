@@ -36,6 +36,10 @@ fi
 #    remote-tracking ref → `git show <remote>/<branch>:...` ниже не нашёл бы снапшот.
 git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
 remote_tip=$(git rev-parse "refs/remotes/${REMOTE}/${BRANCH}")
+if [ "$BD_SYNC_VALIDATED_PRESENT" != 1 ] || [ "$remote_tip" != "$BD_SYNC_VALIDATED_TIP" ]; then
+  echo "ОШИБКА: remote tip изменился после legacy guard; импорт отменён." >&2
+  exit 1
+fi
 if [ -n "${BD_SYNC_EXPECTED_SHA:-}" ] && [ "$remote_tip" != "$BD_SYNC_EXPECTED_SHA" ]; then
   echo "ОШИБКА: frozen beads-backup SHA изменился до restore; импорт отменён." >&2
   exit 1

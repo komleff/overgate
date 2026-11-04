@@ -23,6 +23,11 @@ tests, gh для PR evidence. `bd` 1.2.2 обязателен для автон�
 
 ### Beads и облачный агент
 
+Описанный ниже installer и его manifest по-прежнему поставляют legacy v0. Source rc.5
+WI-A добавляет managed helpers и инструкции, но не включает их через install/upgrade;
+выбор protocol, preservation и activation — отдельный WI-B. Не применять managed publisher
+из install PR или поверх существующей базы без этого перехода.
+
 Для fresh Beads target `bd-bootstrap.sh` после пустого init закрепляет фактический issue
 prefix активной строкой в tracked `.beads/config.yaml`. Перед завершением project install PR
 проверьте `bd --readonly config list --json`, прочтите опубликованный snapshot и включите

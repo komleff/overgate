@@ -44,12 +44,30 @@ blob=$(git hash-object -w "$SNAP")
 
 # 2. Родитель = актуальный remote tip. Явный destination-refspec для single-branch/CI-клонов.
 parent=""
-if git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null 2>&1; then
-  git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
-  parent=$(git rev-parse "refs/remotes/${REMOTE}/${BRANCH}")
-elif git rev-parse --verify -q "refs/heads/${BRANCH}" >/dev/null; then
-  parent=$(git rev-parse "refs/heads/${BRANCH}")
-fi
+remote_rc=0
+git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null 2>&1 || remote_rc=$?
+case "$remote_rc" in
+  0)
+    if [ "$BD_SYNC_VALIDATED_PRESENT" != 1 ]; then
+      echo "ОШИБКА: remote появился после legacy guard; публикация остановлена." >&2
+      exit 1
+    fi
+    git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
+    parent=$(git rev-parse --verify "refs/remotes/${REMOTE}/${BRANCH}^{commit}")
+    if [ "$parent" != "$BD_SYNC_VALIDATED_TIP" ]; then
+      echo "ОШИБКА: remote tip изменился после legacy guard; публикация остановлена." >&2
+      exit 1
+    fi ;;
+  2)
+    if [ "$BD_SYNC_VALIDATED_PRESENT" != 0 ]; then
+      echo "ОШИБКА: remote исчез после legacy guard; публикация остановлена." >&2
+      exit 1
+    fi
+    if git rev-parse --verify -q "refs/heads/${BRANCH}" >/dev/null; then
+      parent=$(git rev-parse --verify "refs/heads/${BRANCH}^{commit}")
+    fi ;;
+  *) echo "ОШИБКА: remote task state недоступен после legacy guard; публикация остановлена." >&2; exit 1 ;;
+esac
 
 # 2a. No-op skip: снапшот побайтно идентичен remote — публикация не нужна, безопасно при любом
 #     состоянии lastSeen. Фиксируем sync-состояние и выходим.
