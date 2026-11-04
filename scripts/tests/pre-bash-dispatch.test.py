@@ -199,16 +199,20 @@ class SessionDirectory(unittest.TestCase):
                     tree=make_tree();holder=Path(directory);target=holder/name
                     shutil.move(str(tree),target)
                     nested=target/'nested';nested.mkdir()
+                    bash_root=subprocess.run([BASH,'-c','pwd -P'],cwd=target,capture_output=True,
+                                             text=True,encoding='utf-8')
+                    self.assertEqual(bash_root.returncode,0,bash_root.stderr)
+                    root=bash_root.stdout.strip()
                     code,err=run(ENTRY,'ls',nested,str(OUTSIDE))
                     self.assertEqual(code,2,err)
                     recovery=err.split('Восстановление: ',1)[1].splitlines()[0]
-                    expected="cd '"+target.resolve().as_posix().replace("'", "'\"'\"'")+"'"
+                    expected="cd '"+root.replace("'", "'\"'\"'")+"'"
                     self.assertEqual(recovery,expected)
                     code,err=run(ENTRY,recovery,nested,str(OUTSIDE))
                     self.assertEqual(code,0,err)
                     completed=subprocess.run([BASH,'-c',recovery+' && pwd -P'],cwd=nested,capture_output=True,text=True,encoding='utf-8')
                     self.assertEqual(completed.returncode,0,completed.stderr)
-                    self.assertEqual(Path(completed.stdout.strip()).resolve(),target.resolve())
+                    self.assertEqual(completed.stdout.strip(),root)
                     for bad in (recovery+'; true',recovery+' && true',recovery+'\ntrue',
                                 'cd "'+target.as_posix()+'"', 'cd '+target.as_posix(),
                                 'cd $(echo '+target.as_posix()+')', 'cd $HOME', 'cd ../'):
@@ -268,16 +272,46 @@ class SessionDirectory(unittest.TestCase):
         prefix=' -c "import json,os,sys;'
         self.assertIn(prefix,ENTRY)
         parser='import json,os,sys;'+ENTRY.split(prefix,1)[1].split('" 2>/dev/null',1)[0]
-        for command,expected in (('cd C:/own/root',0),('cd D:/own/root',1),
-                                 ('cd C:/other/root',1),('cd C:own/root',1),
-                                 ('cd C:/own/root && true',1)):
-            with self.subTest(command=command):
-                env={**os.environ,'R':'/c/own/root'}
+        for root,command,expected in (
+                ('/d/own/root','cd /d/own/root',0),
+                ('/d/own/root','cd D:/own/root',0),
+                ('D:/own/root','cd /d/own/root',0),
+                ('D:/own/root','cd D:/own/root',0),
+                ('D:/own/complex path',"cd '/d/own/complex path'",0),
+                ('D:/own/root','cd C:/own/root',1),
+                ('D:/own/root','cd /c/own/root',1),
+                ('D:/own/root','cd D:/other/root',1),
+                ('D:/own/root','cd D:own/root',1),
+                ('D:/own/root','cd /d/own/root && true',1)):
+            with self.subTest(root=root,command=command):
+                env={**os.environ,'R':root}
                 payload=json.dumps({'tool_input':{'command':command}})
                 result=subprocess.run([sys.executable,'-c',parser],input=payload,env=env,
                                       capture_output=True,text=True,encoding='utf-8')
                 self.assertEqual(result.returncode,expected,result.stderr)
-                if expected==0:self.assertEqual(result.stdout,'C:/own/root')
+                if expected==0:self.assertEqual(result.stdout,command[3:].strip("'"))
+
+    @unittest.skipUnless(WINDOWS, 'native Git Bash drive aliases need Windows')
+    def test_native_windows_same_root_drive_aliases(self):
+        tree=make_tree();nested=tree/'nested';nested.mkdir()
+        native=tree.resolve().as_posix()
+        bash_root=subprocess.run([BASH,'-c','pwd -P'],cwd=tree,capture_output=True,
+                                 text=True,encoding='utf-8')
+        self.assertEqual(bash_root.returncode,0,bash_root.stderr)
+        msys=bash_root.stdout.strip()
+        if not native[1:3]==':/' or not all(ch.isascii() and
+                (ch.isalnum() or ch in '_:/.-') for ch in native):
+            self.skipTest('native fixture path is not a simple drive path')
+        self.assertTrue(msys.startswith('/'+native[0].lower()+'/'),msys)
+        for path in (native,msys):
+            with self.subTest(path=path):
+                code,err=run(ENTRY,'cd '+path,nested,None)
+                self.assertEqual(code,0,err)
+        other='D' if native[0].upper()!='D' else 'C'
+        for path in (other+native[1:],'/'+other.lower()+msys[2:]):
+            with self.subTest(foreign=path):
+                code,err=run(ENTRY,'cd '+path,nested,None)
+                self.assertEqual(code,2,err)
 
     def test_relative_cd_into_checkout_is_blocked(self):
         """Из родителя checkout `cd <имя каталога>` — относительный путь, не форма восстановления."""

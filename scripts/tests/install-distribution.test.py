@@ -255,6 +255,14 @@ class InstallTests(unittest.TestCase):
         with self.assertRaisesRegex(installer.InstallError,'custom managed runtime hook'):
             installer.select_claude(json.dumps(old).encode(),source,manifest,None,[])
 
+    def test_current_wic_settings_modes_remain_managed_for_upgrade(self):
+        installer=load_installer();manifest=self.source_manifest();source=self.source_blob('.claude/settings.json')
+        for mode in ('auto','bypass'):
+            with self.subTest(mode=mode):
+                existing=installer.claude_variant(source,mode)
+                got,detected=installer.select_claude(existing,source,manifest,None,[])
+                self.assertEqual((got,detected),(existing,mode))
+
     def test_wi1_install_state_drift_refuses_rollback(self):
         self.make_plan();self.approve();self.apply();path=self.target/'.overgate/install-state.json';path.write_bytes(path.read_bytes()+b' ')
         before=snapshot(self.target)
