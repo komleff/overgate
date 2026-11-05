@@ -54,7 +54,10 @@ python3 /trusted/overgate/scripts/bd-upgrade-preserve.py --target /project \
 Packet и snapshot остаются вне репозитория. `pending-retained` сохраняет очередь
 и владельца, но блокирует switch до отдельного разрешения. Сверьте frozen `R`,
 native export каждого clone, DB/queue/receipt/config/hooks, fetch и все push URL
-origin. Unknown/unupgraded writer, drift либо неполный список — stop. Сначала
+origin. Каждый push destination должен показывать те же `main` и task `R`, что
+fetch; plan/apply заново сверяют frozen Git snapshot и native local export,
+включая pending и executable mode hook. Unknown/unupgraded writer, drift либо
+неполный список — stop. Сначала
 установите проверенную legacy helper closure во всех перечисленных клонах через
 отдельный project PR, выполните operator merge и обновите клоны до одного trusted
 `main`. Повторно создайте packet и включите fence до первой managed publication:

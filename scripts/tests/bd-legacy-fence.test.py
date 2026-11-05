@@ -14,6 +14,35 @@ def git(root,*args):
     return subprocess.check_output(['git','-C',str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
 
 class LegacyFence(unittest.TestCase):
+    def test_linked_worktree_honors_common_marker_without_config(self):
+        with tempfile.TemporaryDirectory(prefix='overgate-linked-fence-') as holder:
+            base=Path(holder).resolve();target=base/'target';linked=base/'linked';remote=base/'remote.git'
+            git(base,'init','-q','-b','main',target);git(base,'init','-q','--bare',remote)
+            git(target,'config','user.name','fixture');git(target,'config','user.email','fixture@example.invalid')
+            git(target,'remote','add','origin',remote)
+            (target/'scripts/lib').mkdir(parents=True)
+            shutil.copy2(ROOT/'scripts/bd-wt.sh',target/'scripts/bd-wt.sh')
+            shutil.copy2(ROOT/'scripts/lib/bd-env.sh',target/'scripts/lib/bd-env.sh')
+            (target/'.claude/tools').mkdir(parents=True)
+            shutil.copy2(ROOT/'.claude/tools/run-python.sh',target/'.claude/tools/run-python.sh')
+            git(target,'add','scripts','.claude');git(target,'commit','-qm','trusted helpers')
+            git(target,'push','-q','origin','main');git(remote,'symbolic-ref','HEAD','refs/heads/main')
+            git(target,'worktree','add','-q','-b','linked',linked)
+            (target/'.beads/embeddeddolt').mkdir(parents=True)
+            (target/'.beads/metadata.json').write_text('{"backend":"dolt","dolt_mode":"embedded"}\n')
+            marker=target/'.git/overgate-bd-legacy-fence.json';marker.write_text('{}\n')
+            log=base/'bd-calls';binary=base/'bd'
+            binary.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$BD_LOG"\nexit 0\n');binary.chmod(0o755)
+            env={**os.environ,'PATH':str(base)+os.pathsep+os.environ['PATH'],'BD_BIN':str(binary),'BD_LOG':str(log)}
+            before=(git(target,'rev-parse','HEAD'),(target/'.git/index').read_bytes(),marker.read_bytes())
+            result=subprocess.run(['bash','scripts/bd-wt.sh','update','legacy-a','--claim'],cwd=linked,
+                                  env=env,capture_output=True,text=True,timeout=45)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('legacy writer fenced',result.stderr)
+            self.assertFalse(log.exists(),'marker-only partial fence must block native bd')
+            self.assertEqual((git(target,'rev-parse','HEAD'),(target/'.git/index').read_bytes(),marker.read_bytes()),before)
+            self.assertEqual(git(target,'ls-remote','--heads','origin','refs/heads/beads-backup'),'')
+
     def test_each_old_writer_refuses_before_bd_or_remote_write(self):
         for script,args in (('bd-wt.sh',['update','legacy-a','--claim']),
                             ('bd-sync-export.sh',[]),('bd-sync-restore.sh',[]),('bd-bootstrap.sh',[])):

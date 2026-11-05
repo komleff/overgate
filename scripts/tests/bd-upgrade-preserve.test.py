@@ -66,9 +66,30 @@ class PreserveTests(unittest.TestCase):
             (seed/'.beads').mkdir();(seed/'.beads/issues.jsonl').write_bytes(snapshot.read_bytes())
             git(seed,'add','.beads/issues.jsonl');git(seed,'commit','-qm','legacy snapshot')
             git(seed,'push','-q','origin','beads-backup')
+            hook=primary/'.git/hooks/pre-push';hook.write_text('#!/bin/sh\nexit 0\n');hook.chmod(0o755)
             packet=root/'packet.json';cmd=[sys.executable,ROOT/'scripts/bd-upgrade-preserve.py','--target',primary,
                 '--writer-root',primary,'--writer-root',second,'--bd-bin',BINARY,'--actor',ACTOR,
                 '--outcome','verified-clean','--output',packet]
+            divergent=root/'divergent-push.git';git(root,'clone','-q','--bare',remote,divergent)
+            git(divergent,'update-ref','refs/heads/beads-backup',git(primary,'rev-parse','HEAD'))
+            for clone in (primary,second):
+                git(clone,'remote','set-url','--push','origin',divergent)
+                git(clone,'config','--local','--add','remote.origin.pushurl',remote)
+            diverged=root/'diverged.json'
+            no_push=subprocess.run([str(item) for item in [*cmd[:-1],diverged]],cwd=ROOT,
+                                   capture_output=True,text=True,timeout=90)
+            self.assertNotEqual(no_push.returncode,0,'different push task R must stop packet before publication')
+            self.assertFalse(diverged.exists())
+            self.assertEqual(git(primary,'ls-remote','--heads','origin','refs/heads/beads-backup').split()[0],
+                             git(seed,'rev-parse','HEAD'))
+            git(divergent,'update-ref','refs/heads/beads-backup',git(seed,'rev-parse','HEAD'))
+            git(divergent,'update-ref','refs/heads/main',git(seed,'rev-parse','HEAD'))
+            bad_main=root/'diverged-main.json'
+            no_main=subprocess.run([str(item) for item in [*cmd[:-1],bad_main]],cwd=ROOT,
+                                   capture_output=True,text=True,timeout=90)
+            self.assertNotEqual(no_main.returncode,0,'different push main must stop packet')
+            self.assertFalse(bad_main.exists())
+            for clone in (primary,second):git(clone,'config','--local','--unset-all','remote.origin.pushurl')
             head=git(primary,'rev-parse','HEAD');index=(primary/'.git/index').read_bytes()
             receipt=json.loads(run(cmd,ROOT))
             self.assertEqual(receipt['writers'],2)
@@ -81,6 +102,31 @@ class PreserveTests(unittest.TestCase):
                 self.assertEqual(Path(value['snapshot_path']).stat().st_mode & 0o077,0,'private snapshot permissions')
             self.assertEqual(git(primary,'rev-parse','HEAD'),head)
             self.assertEqual((primary/'.git/index').read_bytes(),index)
+            spec=importlib.util.spec_from_file_location('installer_under_test',ROOT/'scripts/install-overgate.py')
+            installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
+            original_packet=packet.read_bytes();original_snapshot=Path(value['snapshot_path']).read_bytes()
+            forged_rows=[json.loads(line) for line in original_snapshot.decode().splitlines()]
+            forged_rows[0]['title']='Forged legacy task'
+            forged_bytes=('\n'.join(json.dumps(row,ensure_ascii=False) for row in forged_rows)+'\n').encode()
+            Path(value['snapshot_path']).write_bytes(forged_bytes)
+            forged_value=json.loads(original_packet);forged_value['snapshot_sha256']=hashlib.sha256(forged_bytes).hexdigest()
+            packet.write_bytes(installer.json_bytes(forged_value))
+            with self.assertRaisesRegex(installer.InstallError,'frozen.*snapshot'):
+                installer.preservation_packet(primary,installer.beads_inventory(primary),packet)
+            packet.write_bytes(original_packet);Path(value['snapshot_path']).write_bytes(original_snapshot)
+            hook.chmod(0o644)
+            with self.assertRaisesRegex(installer.InstallError,'hook'):
+                installer.preservation_packet(primary,installer.beads_inventory(primary),packet)
+            hook.chmod(0o755)
+            (primary/'.bd-intents').mkdir();(primary/'.bd-intents/pending.jsonl').write_text('{}\n')
+            pending_packet=root/'pending-packet.json';pending_cmd=[*cmd]
+            pending_cmd[pending_cmd.index('verified-clean')]='pending-retained';pending_cmd[-1]=pending_packet
+            run(pending_cmd,ROOT)
+            forged_pending=json.loads(pending_packet.read_bytes());forged_pending['outcome']='verified-clean'
+            pending_packet.write_bytes(installer.json_bytes(forged_pending))
+            with self.assertRaisesRegex(installer.InstallError,'clean outcome'):
+                installer.preservation_packet(primary,installer.beads_inventory(primary),pending_packet)
+            shutil.rmtree(primary/'.bd-intents')
             fence_command=[sys.executable,primary/'scripts/bd-upgrade-fence.py','--packet']
             rejected=subprocess.run([*map(str,fence_command),str(packet)],cwd=primary,capture_output=True,text=True)
             self.assertNotEqual(rejected.returncode,0)
@@ -99,8 +145,6 @@ class PreserveTests(unittest.TestCase):
             packet=root/'upgraded-packet.json';cmd[-1]=packet
             value=json.loads(run(cmd,ROOT))
             frozen=json.loads(packet.read_bytes())
-            spec=importlib.util.spec_from_file_location('installer_under_test',ROOT/'scripts/install-overgate.py')
-            installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
             spoof_push=root/'spoof-push.git';git(root,'clone','-q','--bare',remote,spoof_push)
             before_local={clone.name:installer.beads_inventory(clone) for clone in (primary,second)}
             before_git={clone.name:(git(clone,'rev-parse','HEAD'),(clone/'.git/index').read_bytes())

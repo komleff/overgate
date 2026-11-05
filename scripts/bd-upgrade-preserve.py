@@ -38,22 +38,10 @@ def writer(root,origin):
     if common!=directory:raise PreservationError('linked worktree cannot be a legacy writer')
     if installer.origin_identity(root)!=origin:raise PreservationError('writer origin differs from target')
     inventory=installer.beads_inventory(root)
-    hook_config=subprocess.run(['git','-C',str(root),'config','--local','--get','core.hooksPath'],
-                               capture_output=True,env=installer.git_environment())
-    if hook_config.returncode not in (0,1):raise PreservationError('writer hooksPath unreadable')
-    try: hooks_path=hook_config.stdout.decode('utf-8','strict').strip()
-    except UnicodeDecodeError as exc:raise PreservationError('writer hooksPath is not UTF-8') from exc
-    hook_dir=(Path(hooks_path) if hook_config.returncode==0 else common/'hooks')
-    if not hook_dir.is_absolute():hook_dir=root/hook_dir
-    hook_dir=hook_dir.resolve()
-    if not (hook_dir==common or common in hook_dir.parents or hook_dir==root or root in hook_dir.parents):
-        raise PreservationError('writer hook path outside owned checkout')
-    hook=hook_dir/'pre-push'
-    if hook.is_symlink() or (hook.exists() and not hook.is_file()):raise PreservationError('writer pre-push hook unsafe')
-    return {'root':str(root),'head':git(root,'rev-parse','HEAD'),'inventory':inventory,
-            'hook_path':str(hook),'hook_sha256':sha(hook.read_bytes()) if hook.exists() else None,
-            'hook_mode':hook.stat().st_mode & 0o777 if hook.exists() else None,
-            'hooks_path_config':hooks_path if hook_config.returncode==0 else None}
+    head=git(root,'rev-parse','HEAD')
+    if inventory['remote']['status']!='present':raise PreservationError('legacy remote task R unavailable')
+    installer.assert_legacy_origin_heads(root,head,inventory['remote']['R'])
+    return {'root':str(root),'head':head,'inventory':inventory,**installer.legacy_hook_state(root)}
 
 def fence_receipt(root):
     marker=root/'.git/overgate-bd-legacy-fence.json'
@@ -68,16 +56,6 @@ def fence_receipt(root):
        or configured.stdout.decode('utf-8','strict').strip()!=receipt:
         raise PreservationError('legacy fence receipt mismatch')
     return receipt
-
-def remote_snapshot(target,R):
-    origin=installer.origin_identity(target)[0]
-    with tempfile.TemporaryDirectory(prefix='overgate-legacy-remote-') as name:
-        bare=Path(name).resolve()
-        call(['git','init','-q','--bare',bare],bare.parent,'disposable Git init')
-        call(['git','-C',bare,'remote','add','origin',origin],bare,'disposable remote registration')
-        call(['git','-C',bare,'fetch','-q','--no-tags','origin','refs/heads/beads-backup'],bare,'disposable remote fetch',timeout=120)
-        if git(bare,'rev-parse','FETCH_HEAD')!=R:raise PreservationError('remote R advanced during frozen read')
-        return call(['git','-C',bare,'show',R+':.beads/issues.jsonl'],bare,'frozen legacy snapshot read')
 
 def local_export(root,binary,temp,actor):
     beads=root/'.beads'
@@ -120,14 +98,12 @@ def packet(args):
     frozen={item['inventory']['remote']['R'] for item in before}
     if len(frozen)!=1 or None in frozen or any(item['inventory']['remote']['status']!='present' for item in before):
         raise PreservationError('all listed writers must observe one present frozen remote R')
-    R=frozen.pop();snapshot=remote_snapshot(target,R)
+    R=frozen.pop();snapshot=installer.frozen_legacy_snapshot(target,R)
     with tempfile.TemporaryDirectory(prefix='overgate-legacy-local-') as name:
         temp=Path(name).resolve()
         binary=Path(args.bd_bin).resolve()
         if not binary.is_file() or binary.is_symlink():raise PreservationError('qualified native CLI unavailable')
-        qualified=call(['node','--input-type=module','-e',
-            "import {qualifyBinary} from './scripts/lib/bd-managed-cli.mjs'; process.stdout.write(qualifyBinary(process.argv[1]))",
-            binary],SCRIPT.parents[1],'native CLI qualification').decode()
+        qualified=installer.qualify_legacy_cli(binary)
         local={str(root):local_export(root,binary,temp,args.actor) for root in writers}
     after=[writer(root,origin) for root in writers]
     if before!=after or [fence_receipt(root) for root in writers]!=fence_receipts:
@@ -145,7 +121,7 @@ def packet(args):
     value={'version':1,'outcome':args.outcome,'complete_writer_list':True,'target':str(target),
            'target_state_sha256':sha(state_path.read_bytes()),'target_head':git(target,'rev-parse','HEAD'),
            'origin_sha256':installer.origin_sha256(target),'fence_packet_sha256':fence_packet_sha256,
-           'R':R,'snapshot_path':str(snapshot_path),
+           'R':R,'snapshot_path':str(snapshot_path),'cli_path':str(binary),
            'snapshot_sha256':sha(snapshot),'actor':args.actor,'cli_sha256':qualified,
            'writers':before,'local_export_sha256':{root:sha(data) for root,data in local.items()}}
     write_private(snapshot_path,snapshot)

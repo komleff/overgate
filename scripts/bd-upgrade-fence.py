@@ -98,6 +98,7 @@ def main(packet_name):
         if git(root,'config','--local','--get','overgate.beadsLegacyFence')!=packet_sha \
            or destination.read_bytes()!=content or installer.beads_inventory(root)['remote']!={'status':'present','R':packet['R']}:
             raise FenceError('legacy fence read-back/remote drift; partial fences retained')
+        installer.assert_legacy_origin_heads(root,head,packet['R'])
     return {'status':'fenced','writers':len(writers),'R':packet['R'],'packet_sha256':packet_sha}
 
 if __name__=='__main__':

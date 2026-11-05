@@ -53,6 +53,84 @@ def origin_identity(root):
 
 def origin_sha256(root):return digest(json_bytes(origin_identity(root)))
 
+def origin_heads(root,destination):
+    raw=git(root,'ls-remote','--heads',destination,'refs/heads/main','refs/heads/beads-backup')
+    heads={}
+    for line in raw.splitlines():
+        match=re.fullmatch(rb'([0-9a-f]{40})\trefs/heads/(main|beads-backup)',line)
+        if not match:raise InstallError('origin fetch/push branch response invalid')
+        name=match.group(2).decode('ascii')
+        if name in heads:raise InstallError('origin fetch/push branch duplicated')
+        heads[name]=match.group(1).decode('ascii')
+    return heads
+
+def assert_legacy_origin_heads(root,main,R):
+    fetch,pushes=origin_identity(root)
+    required={'main':main,'beads-backup':R}
+    if origin_heads(root,fetch)!=required:raise InstallError('origin fetch main/task R changed or incomplete')
+    for destination in pushes:
+        if origin_heads(root,destination)!=required:
+            raise InstallError('origin push destination main/task R differs from frozen fetch')
+
+def frozen_legacy_snapshot(root,R):
+    fetch=origin_identity(root)[0]
+    with tempfile.TemporaryDirectory(prefix='overgate-legacy-frozen-') as name:
+        bare=Path(name)/'remote.git'
+        init=subprocess.run(['git','init','-q','--bare',str(bare)],capture_output=True,env=git_environment())
+        if init.returncode:raise InstallError('disposable remote read setup failed')
+        git(bare,'remote','add','origin',fetch)
+        git(bare,'fetch','-q','--no-tags','origin','refs/heads/beads-backup')
+        if git(bare,'rev-parse','FETCH_HEAD').decode('ascii').strip()!=R:
+            raise InstallError('frozen remote task R advanced during read')
+        return git(bare,'show',R+':.beads/issues.jsonl')
+
+def legacy_hook_state(root):
+    common=Path(git(root,'rev-parse','--path-format=absolute','--git-common-dir').decode('utf-8','strict').strip()).resolve()
+    config=subprocess.run(['git','-C',str(root),'config','--local','--get','core.hooksPath'],
+                          capture_output=True,env=git_environment())
+    if config.returncode not in (0,1):raise InstallError('legacy writer hooksPath unreadable')
+    configured=config.stdout.decode('utf-8','strict').strip() if config.returncode==0 else None
+    raw_dir=Path(configured) if configured is not None else common/'hooks'
+    if not raw_dir.is_absolute():raw_dir=root/raw_dir
+    if raw_dir.is_symlink():raise InstallError('legacy writer hooksPath symlink denied')
+    directory=raw_dir.resolve()
+    if not (directory==common or common in directory.parents or directory==root or root in directory.parents):
+        raise InstallError('legacy writer hook path outside owned checkout')
+    hook=directory/'pre-push'
+    if hook.is_symlink() or (hook.exists() and not hook.is_file()):raise InstallError('legacy writer pre-push hook unsafe')
+    return {'hook_path':str(hook),'hook_sha256':digest(hook.read_bytes()) if hook.exists() else None,
+            'hook_mode':hook.stat().st_mode & 0o777 if hook.exists() else None,
+            'hooks_path_config':configured}
+
+def qualify_legacy_cli(binary):
+    path=Path(binary)
+    if not path.is_absolute() or path.is_symlink() or not path.is_file() or path.resolve()!=path:
+        raise InstallError('qualified native legacy CLI path invalid')
+    source=Path(__file__).resolve().parent.parent
+    result=subprocess.run(['node','--input-type=module','-e',
+        "import {qualifyBinary} from './scripts/lib/bd-managed-cli.mjs'; process.stdout.write(qualifyBinary(process.argv[1]))",
+        str(path)],cwd=source,capture_output=True,env=git_environment(),timeout=60)
+    if result.returncode or not re.fullmatch(rb'[0-9a-f]{64}',result.stdout):
+        raise InstallError('native legacy CLI fingerprint not qualified')
+    return result.stdout.decode('ascii')
+
+def legacy_local_export(root,binary,actor,temp):
+    beads=root/'.beads';meta=beads/'metadata.json'
+    if beads.is_symlink() or not beads.is_dir() or meta.is_symlink() or not meta.is_file():
+        raise InstallError('legacy local Beads metadata missing/unsafe')
+    value=json.loads(meta.read_bytes())
+    if value.get('backend')!='dolt' or value.get('dolt_mode')!='embedded':
+        raise InstallError('legacy DB mode not qualified for clean evidence')
+    candidates=[beads/name for name in ('dolt','embeddeddolt') if (beads/name).is_dir() and not (beads/name).is_symlink()]
+    if len(candidates)!=1:raise InstallError('legacy embedded DB path unknown/ambiguous')
+    temp.mkdir(mode=0o700);output=temp/'local.jsonl'
+    env={key:value for key,value in git_environment().items() if not key.startswith(('BEADS_','DOLT_','BD_'))}
+    env.update({'BD_DISABLE_METRICS':'1','DOLT_METRICS_DISABLED':'1','DOLT_ROOT_PATH':str(temp/'dolt-global')})
+    result=subprocess.run([str(binary),'--db',str(candidates[0]),'--actor',actor,'--readonly',
+                           'export','--all','-o',str(output)],cwd=root,env=env,capture_output=True,timeout=180)
+    if result.returncode or not output.is_file():raise InstallError('read-only legacy local export failed')
+    return output.read_bytes()
+
 def safe(root,path):
     p=PurePosixPath(path)
     if p.is_absolute() or '..' in p.parts or str(p)!=path or not p.parts:
@@ -128,28 +206,55 @@ def preservation_packet(root,inventory,packet_path):
         raise InstallError('preservation target/installed-state mismatch')
     if inventory['remote']['status']!='present' or packet.get('R')!=inventory['remote']['R']:
         raise InstallError('preservation frozen remote R mismatch')
+    if not isinstance(packet['R'],str) or not re.fullmatch(r'[0-9a-f]{40}',packet['R']):
+        raise InstallError('preservation frozen remote R invalid')
     if packet.get('origin_sha256')!=origin_sha256(root):raise InstallError('preservation origin changed')
     snapshot=Path(packet.get('snapshot_path',''))
     if not snapshot.is_absolute() or snapshot.is_symlink() or not snapshot.is_file() or root in snapshot.resolve().parents:
         raise InstallError('preservation snapshot artifact missing/unsafe')
-    if packet.get('snapshot_sha256')!=digest(snapshot.read_bytes()):raise InstallError('preservation snapshot bytes changed')
+    snapshot_bytes=snapshot.read_bytes()
+    if packet.get('snapshot_sha256')!=digest(snapshot_bytes):raise InstallError('preservation snapshot bytes changed')
+    assert_legacy_origin_heads(root,packet['target_head'],packet['R'])
+    if frozen_legacy_snapshot(root,packet['R'])!=snapshot_bytes:
+        raise InstallError('frozen remote task snapshot differs from preservation artifact')
     writers=packet.get('writers')
     if not isinstance(writers,list) or not writers or str(root) not in [item.get('root') for item in writers]:
         raise InstallError('preservation explicit writer list missing target')
     if len({item.get('root') for item in writers})!=len(writers):raise InstallError('preservation duplicate writer')
-    for item in writers:
-        writer=Path(item['root'])
-        if not writer.is_dir() or writer.resolve()!=writer or item.get('head')!=git(writer,'rev-parse','HEAD').decode().strip():
-            raise InstallError('preservation writer unavailable/advanced')
-        if origin_sha256(writer)!=packet['origin_sha256']:
-            raise InstallError('preservation writer origin changed')
-        actual=beads_inventory(writer)
-        if actual!=item.get('inventory') or actual['remote']!=inventory['remote']:
-            raise InstallError('preservation writer local/remote state drift')
-        hook=Path(item['hook_path'])
-        if hook.is_symlink() or (hook.exists() and (not hook.is_file() or digest(hook.read_bytes())!=item.get('hook_sha256'))) \
-           or (not hook.exists() and item.get('hook_sha256') is not None):
-            raise InstallError('preservation writer hook drift')
+    binary=packet.get('cli_path');actor=packet.get('actor')
+    if not isinstance(binary,str) or qualify_legacy_cli(binary)!=packet.get('cli_sha256'):
+        raise InstallError('preservation native CLI drift')
+    if not isinstance(actor,str) or not re.fullmatch(r'agent-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',actor,re.I):
+        raise InstallError('preservation actor invalid')
+    pending=False;local_equal=True;exports={}
+    with tempfile.TemporaryDirectory(prefix='overgate-legacy-recheck-') as name:
+        for index,item in enumerate(writers):
+            writer=Path(item['root'])
+            if not writer.is_dir() or writer.resolve()!=writer or item.get('head')!=git(writer,'rev-parse','HEAD').decode().strip():
+                raise InstallError('preservation writer unavailable/advanced')
+            if origin_sha256(writer)!=packet['origin_sha256']:
+                raise InstallError('preservation writer origin changed')
+            assert_legacy_origin_heads(writer,item['head'],packet['R'])
+            actual=beads_inventory(writer)
+            if actual!=item.get('inventory') or actual['remote']!=inventory['remote']:
+                raise InstallError('preservation writer local/remote state drift')
+            actual_hook=legacy_hook_state(writer)
+            if any(actual_hook.get(key)!=item.get(key)
+                   for key in ('hook_path','hook_sha256','hook_mode','hooks_path_config')):
+                raise InstallError('preservation writer hook mode/path/bytes drift')
+            pending=pending or any(key in actual['local'] for key in ('.bd-intents','git/bd-receipts','git/bd-apply.lock.d'))
+            exported=legacy_local_export(writer,binary,actor,Path(name)/str(index))
+            exports[str(writer)]=digest(exported)
+            local_equal=local_equal and exported==snapshot_bytes
+            if beads_inventory(writer)!=actual:
+                raise InstallError('legacy DB/queue changed during read-only preservation recheck')
+            assert_legacy_origin_heads(writer,item['head'],packet['R'])
+    if exports!=packet.get('local_export_sha256'):
+        raise InstallError('preservation native local export receipt changed')
+    if packet['outcome']=='verified-clean' and (pending or not local_equal):
+        raise InstallError('clean outcome contradicts pending/local task state')
+    if packet['outcome']=='pending-retained' and not pending and local_equal:
+        raise InstallError('retained pending outcome lacks divergent/pending state')
     return {'path':str(packet_path),'sha256':digest(raw),'outcome':packet['outcome'],'R':packet['R'],
             'writers':[item['root'] for item in writers]}
 
