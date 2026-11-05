@@ -425,6 +425,29 @@ class InstallTests(unittest.TestCase):
         run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
                             '--bd-bin',binary,'--prefix','big-heroes','--actor',actor,
                             '--title','Actual project task','--work-dir',work],cwd=self.target,capture_output=True,text=True,timeout=180)
+        if run.returncode and 'native issue prefix differs from project-owned prefix' in run.stderr:
+            # Disposable CI diagnostic only: expose the effective namespace, never paths,
+            # queue content, full configuration or project data.
+            spec=importlib.util.spec_from_file_location('installed_activation_diagnostic',self.target/'scripts/bd-activate.py')
+            activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+            def safe(value):
+                if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_-]{0,64}',value):return value
+                return {'type':type(value).__name__,'sha256':hashlib.sha256(repr(value).encode('utf-8')).hexdigest()}
+            for role,root in (('primary',self.target),('publisher',publisher),('peer',peer)):
+                if not (root/'.beads/metadata.json').is_file():continue
+                db=root/'.beads/dolt'
+                observed=subprocess.run([str(binary),'--db',str(db),'--readonly','config','list','--json'],
+                                        cwd=root,env=activation.native_env(root),capture_output=True,timeout=60)
+                config=json.loads(observed.stdout.decode('utf-8')) if observed.returncode==0 else {}
+                metadata=json.loads((root/'.beads/metadata.json').read_bytes())
+                print('NATIVE_PREFIX_DIAGNOSTIC '+json.dumps({
+                    'role':role,'config_exit':observed.returncode,
+                    'issue_prefix_type':type(config.get('issue_prefix')).__name__,
+                    'issue_prefix':safe(config.get('issue_prefix')),
+                    'metadata_backend':safe(metadata.get('backend')),
+                    'metadata_dolt_database':safe(metadata.get('dolt_database')),
+                    'db_path_sha256':hashlib.sha256(str(db).encode('utf-8')).hexdigest(),
+                },sort_keys=True),file=sys.stderr)
         self.assertEqual(run.returncode,0,run.stdout+run.stderr)
         result=json.loads(run.stdout)
         self.assertEqual(result['status'],'activated')
