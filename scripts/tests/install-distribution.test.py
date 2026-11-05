@@ -58,6 +58,45 @@ def crlf(data):
     return data.replace(b'\n',b'\r\n')
 
 class ActivationEncodingTests(unittest.TestCase):
+    def test_trusted_crlf_clone_refuses_and_lf_clone_ignores_remote_spoof(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            base=Path(holder).resolve();source=base/'source';init(source)
+            (source/'README.md').write_bytes(b'alpha\nbeta\n')
+            git(source,'add','README.md');git(source,'commit','-qm','fixture')
+            git(source,'branch','-M','main');git(source,'push','-q','origin','main')
+            remote=base/'source-origin.git';git(remote,'symbolic-ref','HEAD','refs/heads/main')
+            global_config=base/'fixture-global.gitconfig'
+            global_config.write_text('[core]\n\tautocrlf = true\n',encoding='utf-8')
+            checkout_env={**os.environ,'GIT_CONFIG_GLOBAL':str(global_config),'GIT_CONFIG_NOSYSTEM':'1'}
+            crlf=base/'crlf-publisher'
+            subprocess.check_call(['git','clone','-q',str(remote),str(crlf)],env=checkout_env)
+            expected=git(crlf,'rev-parse','HEAD')
+            normal=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
+                                  env=checkout_env,capture_output=True,text=True,check=True)
+            self.assertEqual(normal.stdout,'','system/global autocrlf clone must be clean under its checkout config')
+            sanitized=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
+                                     env=activation.installer.git_environment(),capture_output=True,text=True,check=True)
+            self.assertEqual(sanitized.stdout,' M README.md\n','CRLF diagnosis must identify exact tracked path')
+            with self.assertRaisesRegex(activation.ActivationError,'tracked worktree/index must be clean'):
+                activation.trusted(crlf)
+            self.assertFalse((crlf/'.beads').exists())
+            self.assertEqual(git(crlf,'ls-remote','origin','refs/heads/beads-backup'),'')
+            lf=base/'lf-publisher'
+            subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(lf)],env=checkout_env)
+            self.assertEqual(git(lf,'config','--local','--get','core.autocrlf'),'false')
+            self.assertEqual(git(lf,'status','--porcelain','--untracked-files=no'),'')
+            attacker=base/'attacker.git';subprocess.check_call(['git','init','-q','--bare',str(attacker)])
+            spoof={'GIT_CONFIG_COUNT':'2','GIT_CONFIG_KEY_0':'remote.origin.url','GIT_CONFIG_VALUE_0':str(attacker),
+                   'GIT_CONFIG_KEY_1':'remote.origin.pushurl','GIT_CONFIG_VALUE_1':str(attacker)}
+            with mock.patch.dict(os.environ,spoof):
+                self.assertEqual(activation.trusted(lf),expected)
+                self.assertEqual(activation.origin_state(lf)[0],str(remote))
+            print('CRLF_TRUST_RECEIPT '+json.dumps({'crlf_sanitized_porcelain':sanitized.stdout,
+                                                   'crlf_rejected':True,'lf_trusted_sha':expected,
+                                                   'spoofed_origin_ignored':True},sort_keys=True))
+
     def test_git_stdout_uses_utf8_when_python_default_is_cp1251(self):
         spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
         activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
@@ -261,6 +300,35 @@ class InstallTests(unittest.TestCase):
         binary_sha=hashlib.sha256(binary.read_bytes()).hexdigest()
         binary_version=subprocess.check_output([str(binary),'--version'],text=True,encoding='utf-8').strip()
         self.assertRegex(binary_version,r'\b1\.2\.2\b')
+        # Local LF config is fixed before source/target install and clone checkout;
+        # the trusted Git route deliberately ignores system/global autocrlf.
+        self.source=self.root/'lf-source';init(self.source)
+        git(self.source,'config','--local','core.autocrlf','false')
+        manifest=json.loads((ROOT/'.agents/distribution-manifest.json').read_bytes())
+        for name in {entry['source'] for entry in manifest['files']} | {'.agents/distribution-manifest.json','scripts/install-overgate.py'}:
+            path=self.source/name;path.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/name,path)
+        git(self.source,'add','.');git(self.source,'commit','-qm','LF source fixture')
+        self.sha=git(self.source,'rev-parse','HEAD')
+        self.assertEqual(git(self.source,'config','--local','--get','core.autocrlf'),'false')
+        self.assertEqual(git(self.source,'status','--porcelain','--untracked-files=no'),'')
+        git(self.source,'branch','-M','main');git(self.source,'push','-q','origin','main')
+        source_remote=self.root/'lf-source-origin.git';git(source_remote,'symbolic-ref','HEAD','refs/heads/main')
+        global_config=self.root/'crlf-global.gitconfig'
+        global_config.write_text('[core]\n\tautocrlf = true\n',encoding='utf-8')
+        crlf_env={**os.environ,'GIT_CONFIG_GLOBAL':str(global_config),'GIT_CONFIG_NOSYSTEM':'1'}
+        crlf_source=(self.root/'crlf-source').resolve()
+        subprocess.check_call(['git','clone','-q',str(source_remote),str(crlf_source)],env=crlf_env)
+        source_before=snapshot(self.target)
+        denied_source=subprocess.run([sys.executable,str(INSTALLER),'plan','--source',str(crlf_source),
+                                      '--source-sha',self.sha,'--target',str(self.target),
+                                      '--contract',str(self.contract),'--target-pr',PR_URL,
+                                      '--output',str(self.root/'crlf-source-plan.json')],
+                                     env=crlf_env,capture_output=True,text=True)
+        self.assertNotEqual(denied_source.returncode,0)
+        self.assertIn('dirty copied source surfaces',denied_source.stderr)
+        self.assertEqual(snapshot(self.target),source_before)
+        self.assertFalse((self.root/'crlf-source-plan.json').exists())
+        git(self.target,'config','--local','core.autocrlf','false')
         self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
         actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2'
         before=snapshot(self.target)
@@ -291,8 +359,37 @@ class InstallTests(unittest.TestCase):
         remote=self.root/'target-origin.git'
         git(remote,'symbolic-ref','HEAD','refs/heads/main')
         publisher=self.root/'publisher';peer=self.root/'peer'
-        subprocess.check_call(['git','clone','-q',str(remote),str(publisher)])
-        subprocess.check_call(['git','clone','-q',str(remote),str(peer)])
+        subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(publisher)])
+        subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(peer)])
+        for root in (self.target,publisher,peer):
+            self.assertEqual(git(root,'config','--local','--get','core.autocrlf'),'false')
+            self.assertEqual(git(root,'status','--porcelain','--untracked-files=no'),'')
+        crlf_primary=(self.root/'crlf-primary').resolve()
+        subprocess.check_call(['git','clone','-q',str(remote),str(crlf_primary)],env=crlf_env)
+        crlf_before=snapshot(crlf_primary)
+        crlf_head=(crlf_primary/'.git/HEAD').read_bytes()
+        crlf_index=(crlf_primary/'.git/index').read_bytes()
+        crlf_config=(crlf_primary/'.git/config').read_bytes()
+        crlf_refs=git(crlf_primary,'for-each-ref','--format=%(refname):%(objectname)')
+        crlf_work=self.root/'crlf-denied-work'
+        crlf_denied=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,
+                                    '--peer-root',peer,'--bd-bin',binary,'--prefix','big-heroes',
+                                    '--actor',actor,'--title','Actual project task','--work-dir',crlf_work],
+                                   cwd=crlf_primary,env=crlf_env,capture_output=True,text=True,timeout=180)
+        self.assertNotEqual(crlf_denied.returncode,0)
+        self.assertTrue('tracked worktree/index must be clean' in crlf_denied.stderr
+                        or ('pipefail' in crlf_denied.stderr and 'invalid option name' in crlf_denied.stderr),
+                        crlf_denied.stderr)
+        self.assertEqual(snapshot(crlf_primary),crlf_before)
+        self.assertEqual((crlf_primary/'.git/HEAD').read_bytes(),crlf_head)
+        self.assertEqual((crlf_primary/'.git/index').read_bytes(),crlf_index)
+        self.assertEqual((crlf_primary/'.git/config').read_bytes(),crlf_config)
+        self.assertEqual(git(crlf_primary,'for-each-ref','--format=%(refname):%(objectname)'),crlf_refs)
+        self.assertFalse(crlf_work.exists(),'CRLF refusal must precede queue/checkpoint creation')
+        self.assertFalse((crlf_primary/'.beads').exists())
+        self.assertFalse((crlf_primary/'.git/overgate-bd-activation').exists())
+        self.assertFalse((crlf_primary/'.git/overgate-bd-publisher-control').exists())
+        self.assertEqual(git(crlf_primary,'ls-remote','origin','refs/heads/beads-backup'),'')
         git(publisher,'config','--local','user.name','Fixture Publisher')
         git(publisher,'config','--local','user.email','fixture-publisher@example.invalid')
         work=self.root/'activation-work';head=git(self.target,'rev-parse','HEAD')
@@ -350,6 +447,8 @@ class InstallTests(unittest.TestCase):
         print('NATIVE_ACTIVATION_RECEIPT '+json.dumps({
             'checkout_head':git(ROOT,'rev-parse','HEAD'),'trusted_target_head':head,
             'platform':sys.platform,'bd_version':binary_version,'bd_sha256':binary_sha,
+            'crlf_source_plan_refused':True,'crlf_activation_prepublication_refused':True,
+            'lf_checkouts_verified':['source','target','publisher','peer'],
             'id':result['id'],'claim_confirmed':result['claim_confirmed'],
             'first_published_sha':result['published_sha'],'first_peer_sha':result['peer_sha'],
             'first_full_object_sha256':object_digest(first_task),'first_full_object_equal':first_task==first_issues[0],

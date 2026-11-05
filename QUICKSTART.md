@@ -23,6 +23,15 @@ Source OverGate — чистый Git checkout (`git clone`) на выбранн�
 его exact SHA для проверки, а опубликованный `v4.0.0-rc.4.1` — отдельный prerelease.
 Stable/Latest остаётся v3.9.0.
 
+На Windows для fresh install source OverGate и проектный target создавайте сразу как LF checkout:
+`git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'` (замените оба
+placeholder). Этот repo-local параметр задаётся **до checkout/install**; для fresh
+Beads после merge тем же способом создайте отдельные publisher и peer clone.
+Существующий CRLF checkout без Beads state не перенастраивайте и не сбрасывайте:
+сохраните работу, создайте новый LF clone и проверьте чистоту. При **любых** уже
+имеющихся Beads DB/queue/receipts сохраните старый checkout и выполните B4 reviewed
+inventory/preservation до перехода; новый clone сам по себе task state не переносит.
+
 ## Одна фраза агенту
 
 Откройте корень проекта в выбранном runtime — Codex или Claude Code — и загрузите project hooks

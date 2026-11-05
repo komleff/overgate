@@ -14,6 +14,20 @@ OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git
 Legacy `install-all.ps1`/per-skill scripts не использовать для RC. Stable Dreadnought остаётся
 прежним snapshot; RC выбирается явно по release/tag и exact commit SHA. Старые refs не двигать.
 
+Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
+а trusted installer/publisher игнорирует system/global Git config. Для установки
+создайте **оба** source OverGate и target project как новые LF clone:
+`git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'`. Локальная настройка
+записывается до checkout. После merge publisher и peer создаются такими же новыми
+LF clone; перед activation сверьте `git config --local --get core.autocrlf` = `false`
+в source/target/publisher/peer и чистый tracked status. Для fresh checkout без
+Beads state при CRLF drift сохраните работу и создайте новый LF clone; не делайте
+`reset`, `clean` или in-place смену Git config. Если **любая** Beads DB, queue,
+receipt или local-only task state уже существует, оставьте старый checkout и
+сначала выполните B4 reviewed inventory/preservation всех известных writers.
+Новый clone не заменяет и не переносит эту базу/очередь; switch только отдельным
+принятым PR после fence, неизвестное состояние — stop.
+
 Пререквизиты: Git, Bash, Python 3 (3.10+ для reference/native fixtures); jq для finalize, Node.js для Beads snapshot reader и reference
 tests, gh или авторизованный коннектор для PR evidence. `bd` 1.2.2 обязателен для post-merge
 Beads activation; `--no-beads` — для разовых проектов. Для публикации первого `beads-backup`

@@ -63,6 +63,16 @@ activation проверяет preconditions до native init. Не очищай�
 проверяется по platform/binary hash и native full-field round-trip. Unknown CLI, prefix или
 remote state — stop, без `bd init`/restore поверх существующей работы.
 
+На Windows exact source OverGate, project target, publisher и peer должны быть
+созданы как LF checkout с repo-local `core.autocrlf=false` **до** install/checkout:
+`git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'`.
+Обычный CRLF clone может выглядеть изменённым в очищенном Git окружении и
+останавливается до publication. Для fresh проекта без Beads state сохраните
+локальную работу и создайте новый LF clone, не меняя Git config и не сбрасывая
+файлы на месте. При любой уже существующей DB, queue, receipt или local-only
+задаче старый checkout сохраняют и сначала проводят B4 reviewed inventory и
+preservation; новый clone не переносит task state. Подробности — [INSTALL](INSTALL.md).
+
 После merge fresh install PR оператор запускает `bash scripts/bd-activate.sh` из
 чистого trusted `main`, указывая publisher и peer checkout, фактический project prefix,
 qualified `bd`, UUID actor, название реальной задачи и новый private `--work-dir`.
