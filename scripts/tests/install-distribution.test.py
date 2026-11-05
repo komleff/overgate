@@ -444,14 +444,16 @@ class InstallTests(unittest.TestCase):
             os.environ.get('OG_TEST_NATIVE_CONTEXT_DIAG')=='1'):
             # Disposable projection probe. Report only path relationships and command
             # stages; never print native context paths or child stderr.
-            probe=self.root/'native-context-probe';probe.mkdir()
             script=r'''import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {configureProjectPrefix} from './scripts/lib/bd-managed-contract.mjs';
 import {materializeFresh} from './scripts/lib/bd-managed-cli.mjs';
-const [root,binary,actor]=process.argv.slice(1), calls=[];
+const [binary,actor]=process.argv.slice(1), temporary=os.tmpdir(), parent=fs.realpathSync(temporary);
+const root=fs.mkdtempSync(path.join(parent,'overgate-bd-managed-')), calls=[];
+delete process.env.OG_CONTEXT_PROBE_SCRIPT;
 const hash=value=>createHash('sha256').update(String(value)).digest('hex');
 const signature=(actual,expected)=>{
   if(typeof actual!=='string')return {type:typeof actual};
@@ -490,14 +492,25 @@ catch(error){result='failure';error_sha256=hash(error.message);
     error.message.includes('fresh context must be standalone embedded')?'context_mode':
     error.message.includes('Command failed:')?'child_command':'other';}
 console.log(JSON.stringify({result,error_kind,error_sha256,calls,
+  temporary_canonical:temporary===parent,root_canonical:fs.realpathSync(root)===root,
   metadata_present:fs.existsSync(path.join(root,'tmp','store','.beads','metadata.json')),
-  embedded_present:fs.existsSync(path.join(root,'tmp','store','.beads','embeddeddolt'))}));'''
-            diagnostic=subprocess.run(['node','--input-type=module','-e',script,'--',str(probe.resolve()),str(binary),actor],
-                                      cwd=self.target,capture_output=True,text=True,timeout=180)
-            self.assertEqual(diagnostic.returncode,0,
-                             'native context probe failed; stdout/stderr sha256 '+
-                             hashlib.sha256((diagnostic.stdout+diagnostic.stderr).encode()).hexdigest())
-            print('NATIVE_CONTEXT_PROBE '+diagnostic.stdout.strip(),file=sys.stderr)
+  embedded_present:fs.existsSync(path.join(root,'tmp','store','.beads','embeddeddolt'))}));
+fs.rmSync(root,{recursive:true,force:true});'''
+            spec=importlib.util.spec_from_file_location('installed_activation_context',self.target/'scripts/bd-activate.py')
+            activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+            probe_env=activation.installer.git_environment({'BD_BIN':str(binary)})
+            probe_env['OG_CONTEXT_PROBE_SCRIPT']=script
+            for launcher,command in (
+                ('direct',['node','--input-type=module','-e',script,'--',str(binary),actor]),
+                ('git-bash',[activation.bash(),'-c','node --input-type=module -e "$OG_CONTEXT_PROBE_SCRIPT" -- "$1" "$2"',
+                             'context-probe',str(binary),actor])):
+                diagnostic=subprocess.run(command,cwd=publisher,env=probe_env,capture_output=True,text=True,timeout=180)
+                self.assertEqual(diagnostic.returncode,0,
+                                 'native context probe failed; stdout/stderr sha256 '+
+                                 hashlib.sha256((diagnostic.stdout+diagnostic.stderr).encode()).hexdigest())
+                evidence=json.loads(diagnostic.stdout)
+                evidence['launcher']=launcher
+                print('NATIVE_CONTEXT_PROBE '+json.dumps(evidence,sort_keys=True),file=sys.stderr)
         if ((run.returncode and ('native issue prefix differs from project-owned prefix' in run.stderr or
                                 'native bd init project-owned local state missing' in run.stderr)) or
             os.environ.get('OG_TEST_NATIVE_DIAG')=='1'):
