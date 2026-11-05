@@ -14,6 +14,20 @@
 BD_BACKUP_BRANCH="beads-backup"
 BD_BACKUP_REFSPEC="+refs/heads/${BD_BACKUP_BRANCH}:refs/remotes/origin/${BD_BACKUP_BRANCH}"
 
+# Legacy dispatch must classify the real repository-local origin before any bd
+# mutation/import. Remove caller Git config, URL rewrite, index and namespace
+# overrides before the first Git command; keep local credential/identity config.
+bd_env_sanitize_git() {
+  local git_name
+  for git_name in "${!GIT_@}"; do
+    case "$git_name" in GIT_AUTHOR_NAME|GIT_AUTHOR_EMAIL|GIT_AUTHOR_DATE|GIT_COMMITTER_NAME|GIT_COMMITTER_EMAIL|GIT_COMMITTER_DATE) ;;
+      *) unset "$git_name" ;;
+    esac
+  done
+  case "${OSTYPE:-}" in msys*|cygwin*|mingw*) GIT_CONFIG_GLOBAL=NUL ;; *) GIT_CONFIG_GLOBAL=/dev/null ;; esac
+  export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
+}
+
 # Возвращает 0, если текущее дерево — основной checkout (не git-worktree).
 # Критерий: в worktree --git-common-dir указывает на общий .git основного дерева,
 # а --git-dir — на отдельный .git/worktrees/<name>; в основном дереве они равны.

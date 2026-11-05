@@ -3,6 +3,11 @@
 # Это библиотека — её НЕ запускают напрямую, а source'ят. Использует переменные REMOTE и BRANCH
 # из вызывающего скрипта.
 
+# This sourced guard executes before any Git read in legacy export/restore.
+# Child Git and bd inherit the same isolated repository/config context.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/bd-env.sh"
+bd_env_sanitize_git
+
 # Валидация env-параметров + guard окружения. Возврат 0 — ок, 1 — ошибка (вызывающий делает exit).
 bd_sync_validate() {
   BD_SYNC_VALIDATED_PRESENT=0

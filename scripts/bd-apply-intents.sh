@@ -21,7 +21,7 @@ if [ "$SCRIPT_DIR" != "$repo_root/scripts" ] || [ -L "$SCRIPT_DIR/bd-apply-inten
   exit 6
 fi
 cd "$repo_root"
-for helper in scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; do
+for helper in scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-git-environment.mjs scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; do
   if [ ! -f "$helper" ] || [ -L "$helper" ] || ! git ls-files --error-unmatch -- "$helper" >/dev/null 2>&1; then
     echo "ERROR: tracked publisher tooling closure incomplete (fail-closed)." >&2
     exit 6
@@ -37,8 +37,8 @@ if [ "$branch" != main ] || [ -z "$trusted" ] || [ "$head" != "$trusted" ]; then
   echo "ERROR: managed publisher требует exact trusted origin/main HEAD (fail-closed)." >&2
   exit 6
 fi
-if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs \
-  || ! git diff --cached --quiet HEAD -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; then
+if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-git-environment.mjs scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs \
+  || ! git diff --cached --quiet HEAD -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-git-environment.mjs scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; then
   echo "ERROR: managed publisher tooling изменён в worktree." >&2
   exit 6
 fi

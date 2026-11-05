@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { preparePublisherControl, installPublisherControl } from '../bd-publisher-setup.mjs';
+import { preparePublisherControl, installPublisherControl, assertPublisherIdentityAndAuth } from '../bd-publisher-setup.mjs';
 import { ManagedGit, ZERO } from '../lib/bd-managed-git.mjs';
 import { emptyLedger } from '../lib/bd-managed-contract.mjs';
 import { cleanGitEnvironment } from '../lib/bd-git-environment.mjs';
@@ -41,6 +41,12 @@ test('setup binds generic registration to current trusted main and installed gua
     const cli = process.execPath, output = path.join(root, 'publisher-plan.json');
     const options = { primaryRoot: primary, publisherRoot: publisher, qualifiedCli: cli, output,
       qualifyCli: () => true, readIssuePrefix: () => 'big-heroes' };
+    const identityPlan = path.join(root, 'missing-identity-plan.json');
+    assert.throws(() => preparePublisherControl({ ...options, output: identityPlan }), /identity|user\.name|user\.email/,
+      'publisher needs local or explicit service Git identity before setup');
+    assert.equal(fs.existsSync(identityPlan), false);
+    git(publisher, 'config', '--local', 'user.name', 'fixture');
+    git(publisher, 'config', '--local', 'user.email', 'fixture@example.invalid');
     const trusted = git(publisher, 'rev-parse', 'HEAD');
     const spoof = path.join(root, 'spoof.git');
     git(root, 'clone', '-q', '--bare', remote, spoof);
@@ -83,10 +89,14 @@ test('setup binds generic registration to current trusted main and installed gua
     assert.equal(git(primary, 'config', '--local', '--get', 'overgate.beadsPrefix'), 'big-heroes');
     assert.equal(git(publisher, 'config', '--local', '--get', 'overgate.beadsCli'), fs.realpathSync(cli));
     assert.equal(git(publisher, 'config', '--local', '--get', 'overgate.beadsPrefix'), 'big-heroes');
+    const httpsOrigin = { push: ['https://example.invalid/project.git'] };
+    assert.throws(() => assertPublisherIdentityAndAuth(publisher, httpsOrigin), /HTTPS authentication unavailable/,
+      'isolated writer cannot rely on global/system credential helper');
     const credentialHelper = path.join(root, 'fixture-credential-helper.sh');
     const credentialLog = path.join(root, 'credential-helper.log');
     fs.writeFileSync(credentialHelper, `#!/bin/sh\nprintf '%s\\n' "$1" >> '${credentialLog}'\nif [ "$1" = get ]; then printf 'username=fixture\\npassword=synthetic\\n'; fi\n`, { mode: 0o700 });
     git(publisher, 'config', '--local', 'credential.helper', credentialHelper);
+    assert.doesNotThrow(() => assertPublisherIdentityAndAuth(publisher, httpsOrigin));
     const credentialGlobal = path.join(root, 'credential-global-spoof');
     fs.writeFileSync(credentialGlobal, '[credential]\n\thelper = !printf "username=wrong\\npassword=wrong\\n"\n');
     const credentials = execFileSync('git', ['credential', 'fill'], { cwd: publisher, encoding: 'utf8',
@@ -130,6 +140,11 @@ test('setup binds generic registration to current trusted main and installed gua
     const stagedHelper = spawnSync('bash', ['scripts/bd-apply-intents.sh', '--read-state'], { cwd: publisher, encoding: 'utf8' });
     assert.notEqual(stagedHelper.status, 0);
     assert.match(stagedHelper.stderr, /publisher tooling changed|tooling изменён/);
+    git(publisher, 'reset', '--hard', 'HEAD');
+    fs.appendFileSync(path.join(publisher, 'scripts/lib/bd-git-environment.mjs'), '\n// untrusted Git environment override\n');
+    const dirtyEnvironment = spawnSync('bash', ['scripts/bd-apply-intents.sh', '--read-state'], { cwd: publisher, encoding: 'utf8' });
+    assert.notEqual(dirtyEnvironment.status, 0, 'dirty imported Git sanitizer must stop before Node');
+    assert.match(dirtyEnvironment.stderr, /publisher tooling changed|tooling изменён/);
     git(publisher, 'reset', '--hard', 'HEAD');
     assert.throws(() => installPublisherControl(output, { qualifyCli: () => true, readIssuePrefix: () => 'wrong' }), /issue prefix changed/);
     assert.throws(() => installPublisherControl(output, { qualifyCli: () => false, readIssuePrefix: () => 'big-heroes' }), /fingerprint is not approved/);

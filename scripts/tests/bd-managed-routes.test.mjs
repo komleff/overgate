@@ -58,6 +58,38 @@ exec "$OG_TEST_REAL_GIT" "$@"
     assert.match(convertedLegacy.stderr, /remote managed protocol активен/);
     const stubLog = path.join(root, 'bd-stub.log'), stub = path.join(root, 'bd-stub.sh');
     fs.writeFileSync(stub, `#!/bin/sh\nif [ "$*" = '--readonly config list --json' ]; then printf '%s\\n' '{"issue_prefix":"big-heroes"}'; exit 0; fi\nprintf '%s\\n' "$*" >> '${stubLog}'\nexit 0\n`); fs.chmodSync(stub, 0o755);
+    const attacker = path.join(root, 'attacker.git');
+    git(root, 'clone', '-q', '--bare', remote, attacker);
+    git(root, '--git-dir', attacker, 'update-ref', '-d', 'refs/heads/beads-backup');
+    const legacyAttacker = path.join(root, 'legacy-attacker.git'), legacySeed = path.join(root, 'legacy-seed');
+    git(root, 'clone', '-q', '--bare', remote, legacyAttacker);
+    git(root, '--git-dir', legacyAttacker, 'update-ref', '-d', 'refs/heads/beads-backup');
+    git(root, 'clone', '-q', legacyAttacker, legacySeed);
+    git(legacySeed, 'config', 'user.name', 'fixture'); git(legacySeed, 'config', 'user.email', 'fixture@example.invalid');
+    fs.mkdirSync(path.join(legacySeed, '.beads'));
+    fs.writeFileSync(path.join(legacySeed, '.beads/issues.jsonl'), JSON.stringify({ _type: 'issue', id: 'legacy-A', title: 'Spoof' }) + '\n');
+    git(legacySeed, 'add', '.beads/issues.jsonl'); git(legacySeed, 'commit', '-q', '-m', 'legacy snapshot');
+    git(legacySeed, 'push', '-q', 'origin', 'HEAD:refs/heads/beads-backup');
+    const spoofBin = path.join(root, 'spoof-bin'), spoofLog = path.join(root, 'spoof-bd.log');
+    fs.mkdirSync(spoofBin);
+    fs.writeFileSync(path.join(spoofBin, 'bd'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${spoofLog}'\nexit 0\n`);
+    fs.chmodSync(path.join(spoofBin, 'bd'), 0o755);
+    const spoofCases = [
+      ['absent-rewrite', { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: `url.${attacker}.insteadOf`, GIT_CONFIG_VALUE_0: remote }],
+      ['legacy-rewrite', { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: `url.${legacyAttacker}.insteadOf`, GIT_CONFIG_VALUE_0: remote }],
+      ['absent-exact', { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'remote.origin.url', GIT_CONFIG_VALUE_0: attacker,
+        GIT_CONFIG_KEY_1: 'remote.origin.pushurl', GIT_CONFIG_VALUE_1: attacker }],
+    ];
+    for (const [caseName, override] of spoofCases) for (const script of ['bd-wt.sh', 'bd-sync-export.sh', 'bd-sync-restore.sh']) {
+      const fresh = path.join(root, `fresh-${caseName}-${script}`);
+      git(root, 'clone', '-q', '--single-branch', '--branch', 'main', remote, fresh);
+      assert.equal(git(fresh, 'branch', '-r', '--list', 'origin/beads-backup'), '');
+      const injected = { PATH: `${spoofBin}${path.delimiter}${process.env.PATH}`, BD_BIN: path.join(spoofBin, 'bd'),
+        ...override };
+      const attempt = run(fresh, script, script === 'bd-wt.sh' ? ['update', issue.id, '--claim'] : [], injected);
+      assert.notEqual(attempt.status, 0, `${caseName}/${script}: unregistered clone must stop before direct bd under spoofed remote`);
+      assert.equal(fs.existsSync(spoofLog), false, `${caseName}/${script}: no native bd call before managed-origin proof`);
+    }
     git(main, 'config', '--local', 'overgate.beadsCli', stub);
     const foreignHelper = run(main, 'bd-apply-intents.sh', ['--read-state']);
     assert.notEqual(foreignHelper.status, 0, 'PR-branch helper path cannot execute against trusted target main');
