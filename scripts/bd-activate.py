@@ -178,7 +178,7 @@ def native_init(root,binary,prefix,actor,work,prior=None,allow_published=False):
     env=native_env(root)
     db=root/'.beads/dolt'
     if prior is None:
-        call([binary,'--db',db,'--actor',actor,'init','--prefix',prefix,'--non-interactive',
+        call([binary,'--actor',actor,'init','--prefix',prefix,'--non-interactive',
               '--skip-agents','--skip-hooks','--stealth'],root,'native bd init',env,180)
     elif not (root/'.beads/metadata.json').is_file():raise ActivationError('resumed native metadata missing; preserve checkpoint')
     assert_native_local_state(root)
