@@ -14,12 +14,22 @@
 #   BD_READ_FIXTURE=path              читать из локального JSONL (для тестов)
 set -euo pipefail
 
+# Snapshot and marker must resolve through repository-local origin, never a
+# caller-injected Git config, object store or remote URL rewrite.
+for git_name in "${!GIT_@}"; do
+  case "$git_name" in GIT_AUTHOR_NAME|GIT_AUTHOR_EMAIL|GIT_AUTHOR_DATE|GIT_COMMITTER_NAME|GIT_COMMITTER_EMAIL|GIT_COMMITTER_DATE) ;;
+    *) unset "$git_name" ;;
+  esac
+done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/bd-env.sh
 . "${SCRIPT_DIR}/lib/bd-env.sh"
 
 REF="${BD_READ_REF:-origin/${BD_BACKUP_BRANCH}}"
 ENGINE="${SCRIPT_DIR}/lib/bd-read-engine.mjs"
+REF_SHA=""
 
 if [ $# -lt 1 ]; then
   echo "Usage: bd-read.sh <list|show <id>|ready> [флаги]" >&2
@@ -44,7 +54,11 @@ read_snapshot() {
       return 1
     fi
   fi
-  if ! git show "${REF}:.beads/issues.jsonl" 2>/dev/null; then
+  if ! REF_SHA="$(git rev-parse --verify "${REF}^{commit}" 2>/dev/null)"; then
+    echo "ERROR: снимок ${REF} не разрешён в commit SHA (fail-closed)." >&2
+    return 1
+  fi
+  if ! git show "${REF_SHA}:.beads/issues.jsonl" 2>/dev/null; then
     echo "ERROR: снимок ${REF}:.beads/issues.jsonl не найден." >&2
     echo "       Проверьте git-доступ к origin и наличие ветки beads-backup." >&2
     return 1
@@ -57,5 +71,8 @@ SNAP="$(mktemp "${TMPDIR:-/tmp}/overgate-bd-read.XXXXXX")"
 trap 'rm -f "$SNAP"' EXIT
 if ! read_snapshot > "$SNAP"; then
   exit 1
+fi
+if [ -z "${BD_READ_FIXTURE:-}" ]; then
+  node "${SCRIPT_DIR}/lib/bd-managed-read-check.mjs" "$REF_SHA" "$SNAP"
 fi
 node "$ENGINE" "$@" < "$SNAP"

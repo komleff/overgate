@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/bd-env.sh
 . "${SCRIPT_DIR}/lib/bd-env.sh"
+bd_env_sanitize_git
 
 BD_BIN="${BD_BIN:-bd}"
 
@@ -133,6 +134,65 @@ if [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
   echo "ERROR: bare-репозиторий не поддерживается." >&2
   exit 1
 fi
+
+# После регистрации managed publisher прямой bd из основного/linked checkout не
+# меняет task state: опубликованный snapshot читается отдельно, запись — typed queue.
+if git config --local --get overgate.beadsPublisher >/dev/null 2>&1; then
+  case "$sub" in
+    ready|show|list)
+      if [ "${1:-}" != "$sub" ]; then
+        echo "ERROR: managed read запускай без префиксных bd flags: bash scripts/bd-read.sh ${sub}." >&2
+        exit 2
+      fi
+      exec bash "${SCRIPT_DIR}/bd-read.sh" "$@" ;;
+    *)
+      echo "ERROR: managed publisher активен; прямой bd-wt write запрещён. Подготовь typed queue и публикуй из trusted main publisher." >&2
+      exit 2 ;;
+  esac
+fi
+
+# Незарегистрированный clone тоже может видеть managed remote: legacy bd-wt не должен
+# менять локальный Dolt до проверки опубликованного protocol/history.
+remote_mode() {
+  local rc=0 shallow tip markers prior
+  git ls-remote --exit-code --heads origin refs/heads/beads-backup >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    2)
+      if git show-ref --verify --quiet refs/remotes/origin/beads-backup \
+        || git show-ref --verify --quiet refs/overgate-bd-managed/last-seen; then
+        printf 'unknown'; return
+      fi
+      printf 'legacy'; return ;;
+    0) ;;
+    *) printf 'unknown'; return ;;
+  esac
+  shallow="$(git rev-parse --is-shallow-repository 2>/dev/null)" || { printf 'unknown'; return; }
+  if [ "$shallow" != false ] || ! git fetch -q origin "$BD_BACKUP_REFSPEC"; then
+    printf 'unknown'; return
+  fi
+  tip="$(git rev-parse --verify 'refs/remotes/origin/beads-backup^{commit}' 2>/dev/null)" || { printf 'unknown'; return; }
+  markers="$(git ls-tree -r --name-only "$tip" -- .beads/overgate-managed-v1.json .beads/overgate-outcomes-v1.json)" || { printf 'unknown'; return; }
+  if [ -n "$markers" ]; then printf 'managed'; return; fi
+  prior="$(git log -1 --format=%H "$tip" -- .beads/overgate-managed-v1.json .beads/overgate-outcomes-v1.json)" || { printf 'unknown'; return; }
+  if [ -n "$prior" ]; then printf 'managed'; else printf 'legacy'; fi
+}
+published_mode="$(remote_mode)"
+case "$published_mode" in
+  managed)
+    case "$sub" in
+      ready|show|list)
+        if [ "${1:-}" = "$sub" ]; then exec bash "${SCRIPT_DIR}/bd-read.sh" "$@"; fi ;;
+    esac
+    echo "ERROR: remote managed protocol активен; прямой bd-wt write запрещён. Используй trusted typed queue publisher." >&2
+    exit 2 ;;
+  unknown)
+    case "$sub" in
+      ready|show|list)
+        if [ "${1:-}" = "$sub" ]; then exec bash "${SCRIPT_DIR}/bd-read.sh" "$@"; fi ;;
+    esac
+    echo "ERROR: remote task state недоступен или неизвестен; bd-wt mutation остановлена до Dolt write." >&2
+    exit 2 ;;
+esac
 
 # Основной checkout — auto-discovery корректен, прозрачно пропускаем без --db.
 if bd_env_is_main_checkout; then

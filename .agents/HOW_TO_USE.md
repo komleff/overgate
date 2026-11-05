@@ -64,7 +64,48 @@ issue prefix. Источник prefix — только активное project-
 
 ## Beads: основной checkout, worktree и облачный агент
 
-Это документационное дополнение для планируемой v4.0.1. Оно переносит порядок работы
+### Managed v1 — кандидат rc.5 WI-A
+
+Этот route действует **только после** отдельной регистрации publisher на trusted target
+`main`; наличие файлов WI-A в PR или установленном проекте не активирует writer. Регистрацию
+готовят `scripts/bd-publisher-setup.mjs` из exact `origin/main` в отдельном publisher checkout
+после проверки сохранности прежней базы, очередей и remote `beads-backup`. Qualified `bd`
+проверяется по platform/binary hash и native full-field round-trip. Unknown CLI, prefix или
+remote state — stop, без `bd init`/restore поверх существующей работы.
+
+Агент в основном/linked checkout читает опубликованные задачи через
+`bash scripts/bd-read.sh ready|list|show` либо соответствующий read route `bd-wt.sh`.
+Reader сверяет managed protocol, ledger и hashes; stale `BD_READ_NO_FETCH=1` отмечается
+отдельно. `bd-wt.sh` в managed mode не выполняет прямой `bd update/create/close`.
+
+Из linked worktree или isolated reader агент сохраняет raw typed JSONL как **данные**
+в своей рабочей ветке/PR или вне repo. Для публикации он использует зарегистрированный
+publisher; выполняемые helper bytes берутся из его trusted `main`, не из PR ветки. В linked
+worktree путь доступен через общий local Git config; isolated reader получает путь к уже
+авторизованному publisher отдельно. Если пути или доступа нет, очередь остаётся pending:
+
+```bash
+publisher="$(git config --local --get overgate.beadsPublisher)"
+cd "$publisher"
+bash scripts/bd-apply-intents.sh --read-state
+bash scripts/bd-apply-intents.sh --prepare --base <published-R> --actor <agent-UUID> \
+  --output <private-temp>/queue.v2.jsonl <raw-intents.jsonl>
+BD_BIN="$(git config --local --get overgate.beadsCli)" \
+  bash scripts/bd-apply-intents.sh <private-temp>/queue.v2.jsonl
+```
+
+Перед первым apply в новом пустом target требуется `--bootstrap` с проверенным
+preservation manifest; install PR не делает task write. Успех фиксируется только по
+`published_sha`, фактическим ID, `claims.confirmed` и чтению того же SHA из второго
+авторизованного checkout. При недоступном publisher или conflict очередь остаётся pending
+с base/actor/queue hash и причиной; `tmp:` не выдаётся за task ID. Cloud connector может
+передать только данные очереди, не выполняя helper. Второй writer из обычного clone не
+создаётся. Это WI-A source route; installer/upgrade activation — отдельный WI-B.
+
+### Legacy v0 — до managed activation
+
+Следующий порядок относится только к проекту без зарегистрированного managed publisher.
+Он был документационным дополнением для планируемой v4.0.1 и переносит порядок работы
 из [U2 ADR-0042](https://github.com/komleff/u2/blob/cdc490e3517c8455f662f82579c45813cdbb9a76/docs/architecture/ADR-0042-Beads-Access-By-Environment.md),
 не объявляя выпуск новой версии. Product authority и project-owned правила сохраняются.
 Beads хранит состояние задач; Git/PR — изменения кода и evidence.

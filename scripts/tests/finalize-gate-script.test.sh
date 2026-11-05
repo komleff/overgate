@@ -143,6 +143,11 @@ with tempfile.TemporaryDirectory(prefix='og159-gate-') as holder:
     require(run(['git','add','data'],work),0,'git add')
     require(run(['git','commit','-qm','fixture'],work),0,'git fixture commit')
     head = subprocess.check_output(['git','rev-parse','HEAD'],cwd=work).decode().strip()
+    # Legacy bd-wt requires a reachable origin to establish that no managed
+    # beads-backup branch exists before it permits a linked worktree write.
+    remote = temp / 'remote.git'
+    require(run(['git','init','--bare','-q',remote],work),0,'git bare origin fixture')
+    require(run(['git','remote','add','origin',remote],work),0,'git origin fixture')
     driver = temp/'driver.py'
     driver.write_text(r'''import json, os, pathlib, stat, sys
 args=sys.argv[1:]

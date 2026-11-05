@@ -11,6 +11,23 @@ globs: "**/*"
 > или markdown-TODO для отслеживания работы (внутренний todo-list агента в рамках одной
 > сессии — можно, но он не заменяет `bd`).
 
+## Managed v1 после регистрации publisher (rc.5 candidate)
+
+Если в local Git config есть `overgate.beadsPublisher`, прежний прямой `bd`/`bd-wt` write и
+`bd-sync-export/restore` **не применять**. Читай published `beads-backup` через
+`bash scripts/bd-read.sh` (`bd-wt.sh` перенаправляет `ready|list|show`). Для create/claim/
+update/close оформи typed queue v2 с frozen base и actor, затем из зарегистрированного
+trusted publisher `main` запусти `bash scripts/bd-apply-intents.sh --prepare` и apply.
+Сверь реальные ID, `claims.confirmed`, `published_sha` и peer read-back. Недоступный
+publisher, CLI или конфликт сохраняет pending очередь; `tmp:` не считается результатом.
+Порядок из linked worktree/isolated reader — в `.agents/HOW_TO_USE.md`, секция Managed v1.
+Наличие helper в PR не активирует writer; до operator merge/verified activation действует
+legacy route ниже. Не читать/писать Dolt напрямую и не запускать helper из PR branch.
+
+## Legacy v0 до managed activation
+
+Нижеследующие команды `bd-sync-*` и прямой `bd` относятся только к legacy v0.
+
 ## Главное: backend — Dolt, но «через базу Dolt» работать НЕЛЬЗЯ
 
 Beads хранит задачи в локальном Dolt, **но Dolt — деталь реализации, а не интерфейс**. Агенты
