@@ -151,8 +151,18 @@ def native_env(root):
     env={key:value for key,value in installer.git_environment().items() if not key.startswith(('BEADS_','DOLT_','BD_'))}
     env.update({'GIT_CONFIG_GLOBAL':'NUL' if os.name=='nt' else '/dev/null','GIT_CONFIG_NOSYSTEM':'1',
                 'GIT_TERMINAL_PROMPT':'0','BD_DISABLE_METRICS':'1','DOLT_METRICS_DISABLED':'1',
-                'DOLT_ROOT_PATH':str(root/'.git/overgate-bd-activation/dolt-global')})
+                'DOLT_ROOT_PATH':str(root/'.git/overgate-bd-activation/dolt-global'),
+                'BEADS_DIR':str(root/'.beads')})
     return env
+
+def assert_native_local_state(root):
+    beads_dir=root/'.beads'
+    metadata=beads_dir/'metadata.json'
+    config=beads_dir/'config.yaml'
+    if (beads_dir.is_symlink() or not beads_dir.is_dir() or
+        metadata.is_symlink() or not metadata.is_file() or
+        config.is_symlink() or not config.is_file()):
+        raise ActivationError('native bd init project-owned local state missing')
 
 def native_init(root,binary,prefix,actor,work,prior=None,allow_published=False):
     if prior is None and ((root/'.beads').exists() or (root/'.beads').is_symlink()):
@@ -171,6 +181,7 @@ def native_init(root,binary,prefix,actor,work,prior=None,allow_published=False):
         call([binary,'--db',db,'--actor',actor,'init','--prefix',prefix,'--non-interactive',
               '--skip-agents','--skip-hooks','--stealth'],root,'native bd init',env,180)
     elif not (root/'.beads/metadata.json').is_file():raise ActivationError('resumed native metadata missing; preserve checkpoint')
+    assert_native_local_state(root)
     if (git(root,'rev-parse','HEAD'),index.read_bytes() if index.exists() else None)!=before:
         raise ActivationError('native bd init changed HEAD/index; stop and preserve local state')
     if git(root,'status','--porcelain','--untracked-files=no'):

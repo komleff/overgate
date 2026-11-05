@@ -58,6 +58,21 @@ def crlf(data):
     return data.replace(b'\n',b'\r\n')
 
 class ActivationEncodingTests(unittest.TestCase):
+    def test_native_env_binds_project_beads_dir_and_missing_state_stops(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            root=Path(holder).resolve();expected=str(root/'.beads')
+            with mock.patch.dict(os.environ,{'BEADS_DIR':str(root/'attacker-beads'),
+                                             'BEADS_DB':str(root/'attacker-db'),
+                                             'DOLT_ROOT_PATH':str(root/'attacker-dolt')}):
+                env=activation.native_env(root)
+            self.assertEqual(env['BEADS_DIR'],expected)
+            self.assertNotIn('BEADS_DB',env)
+            self.assertEqual(env['DOLT_ROOT_PATH'],str(root/'.git/overgate-bd-activation/dolt-global'))
+            with self.assertRaisesRegex(activation.ActivationError,'project-owned local state missing'):
+                activation.assert_native_local_state(root)
+
     def test_trusted_crlf_clone_refuses_and_lf_clone_ignores_remote_spoof(self):
         spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
         activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
