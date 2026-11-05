@@ -24,7 +24,8 @@ spec.loader.exec_module(installer)
 def sha(data):return hashlib.sha256(data).hexdigest()
 
 def call(args,cwd,label,env=None,timeout=60):
-    result=subprocess.run([str(x) for x in args],cwd=cwd,env=env or installer.git_environment(),capture_output=True,text=True,timeout=timeout)
+    result=subprocess.run([str(x) for x in args],cwd=cwd,env=env or installer.git_environment(),
+                          capture_output=True,text=True,encoding='utf-8',errors='strict',timeout=timeout)
     if result.returncode:raise ActivationError(label+' failed (exit '+str(result.returncode)+')')
     return result.stdout.strip()
 
@@ -87,6 +88,14 @@ def local_git_values(root,key):
     if result.returncode==1:return []
     if result.returncode!=0:raise ActivationError('publisher local Git config unavailable: '+key)
     return [value.decode('utf-8') for value in result.stdout.rstrip(b'\0').split(b'\0')]
+
+def optional_local_config(root,key):
+    result=subprocess.run(['git','-C',str(root),'config','--local','--get',key],
+                          capture_output=True,text=True,encoding='utf-8',errors='strict',
+                          env=installer.git_environment())
+    if result.returncode==1:return None
+    if result.returncode:raise ActivationError('peer reader registration unavailable: '+key)
+    return result.stdout.strip()
 
 def publisher_identity_auth(root,push_destinations):
     names=local_git_values(root,'user.name');emails=local_git_values(root,'user.email')
@@ -268,10 +277,10 @@ def main(args):
         fail_at('after-peer-init')
         for key,value in (('overgate.beadsPublisher',str(publisher)),('overgate.beadsCli',str(binary)),
                           ('overgate.beadsPrefix',args.prefix)):
-            current=subprocess.run(['git','-C',str(peer),'config','--local','--get',key],capture_output=True,text=True,env=installer.git_environment())
-            if current.returncode not in (0,1) or current.returncode==0 and current.stdout.strip()!=value:
+            current=optional_local_config(peer,key)
+            if current is not None and current!=value:
                 raise ActivationError('peer reader registration changed; preserve queue')
-            if current.returncode==1:git(peer,'config','--local','--replace-all',key,value)
+            if current is None:git(peer,'config','--local','--replace-all',key,value)
         setup=work/'publisher-setup.json'
         if not setup.exists():
             if stage_at(journal,'setup'):raise ActivationError('publisher setup plan missing on resume')

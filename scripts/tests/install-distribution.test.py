@@ -6,6 +6,7 @@ import errno
 from unittest import mock
 import hashlib
 import json
+import locale
 import os
 import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -55,6 +56,22 @@ def load_installer():
 
 def crlf(data):
     return data.replace(b'\n',b'\r\n')
+
+class ActivationEncodingTests(unittest.TestCase):
+    def test_git_stdout_uses_utf8_when_python_default_is_cp1251(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            checkout=Path(holder)/"Проект's (QA) space";checkout.mkdir()
+            subprocess.check_call(['git','-C',str(checkout),'init','-q'])
+            subprocess.check_call(['git','-C',str(checkout),'config','--local','overgate.beadsPublisher',str(checkout)])
+            with mock.patch.object(locale,'getencoding',return_value='cp1251'):
+                self.assertEqual(Path(activation.git(checkout,'rev-parse','--show-toplevel')).resolve(),checkout.resolve())
+                self.assertEqual(activation.call(['git','-C',checkout,'config','--local','--get','overgate.beadsPublisher'],checkout,'peer config'),str(checkout))
+                self.assertEqual(activation.optional_local_config(checkout,'overgate.beadsPublisher'),str(checkout))
+                self.assertIsNone(activation.optional_local_config(checkout,'overgate.beadsPrefix'))
+                with self.assertRaises(UnicodeDecodeError):
+                    activation.call([sys.executable,'-c','import os; os.write(1, bytes([255]))'],checkout,'invalid UTF-8')
 
 class SnapshotTests(unittest.TestCase):
     def test_snapshot_manifest_keys_preserve_bytes_on_both_path_flavors(self):
