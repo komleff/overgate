@@ -478,17 +478,6 @@ class InstallTests(unittest.TestCase):
                     'metadata_dolt_database':safe(metadata.get('dolt_database')),
                     'db_path_sha256':hashlib.sha256(str(db).encode('utf-8')).hexdigest(),
                 },sort_keys=True),file=sys.stderr)
-            probe=self.root/'native-probe'
-            subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(probe)])
-            git(probe,'config','--local','user.name','Fixture Native Probe')
-            git(probe,'config','--local','user.email','fixture-probe@example.invalid')
-            probe_db=probe/'.beads/dolt'
-            probe_env=activation.native_env(probe)
-            probe_init=subprocess.run([str(binary),'--db',str(probe_db),'--actor',actor,'init',
-                                 '--prefix','big-heroes','--non-interactive','--skip-agents',
-                                 '--skip-hooks','--stealth'],cwd=probe,env=probe_env,capture_output=True,timeout=180)
-            stdout=probe_init.stdout.decode('utf-8',errors='replace')
-            stderr=probe_init.stderr.decode('utf-8',errors='replace')
             def bounded_lines(value):
                 lines=[]
                 for line in value.splitlines():
@@ -499,33 +488,64 @@ class InstallTests(unittest.TestCase):
                     lines.append(''.join(char if char.isprintable() else '?' for char in line)[:200])
                     if len(lines)==8:break
                 return lines
-            info=subprocess.run([str(binary),'--db',str(probe_db),'--readonly','info','--json'],
-                                cwd=probe,env=probe_env,capture_output=True,timeout=60)
-            info_text=info.stdout.decode('utf-8',errors='replace')
-            info_path=re.search(r'^Database:\s*(.+)$',info_text,re.MULTILINE)
-            info_value=info_path.group(1).strip() if info_path else None
-            git_dir=Path(git(probe,'rev-parse','--path-format=absolute','--git-dir')).resolve()
-            common_dir=Path(git(probe,'rev-parse','--path-format=absolute','--git-common-dir')).resolve()
-            print('NATIVE_INIT_PROBE '+json.dumps({
-                'init_exit':probe_init.returncode,'stdout_sha256':hashlib.sha256(probe_init.stdout).hexdigest(),
-                'stderr_sha256':hashlib.sha256(probe_init.stderr).hexdigest(),
-                'stdout_initialized':'initialized' in stdout.lower(),
-                'stderr_skipping_init':'skipping init' in stderr.lower(),
-                'stderr_metadata_warning':'failed to create metadata.json' in stderr.lower(),
-                'stderr_warning_count':len(re.findall(r'(?im)^warning:',stderr)),
-                'stderr_error_count':len(re.findall(r'(?im)^error:',stderr)),
-                'stdout_markers':bounded_lines(stdout),'stderr_markers':bounded_lines(stderr),
-                'git_dir_equals_common':git_dir==common_dir,
-                'beads_dir_present':(probe/'.beads').is_dir(),
-                'metadata_present':(probe/'.beads/metadata.json').is_file(),
-                'config_present':(probe/'.beads/config.yaml').is_file(),
-                'embedded_dir_present':(probe/'.beads/embeddeddolt').is_dir(),
-                'info_exit':info.returncode,'info_database_present':info_value is not None,
-                'info_database_inside_fixture':(Path(info_value).resolve().is_relative_to(self.root.resolve())
-                                                if info_value else None),
-                'info_database_path_sha256':(hashlib.sha256(info_value.encode('utf-8')).hexdigest()
-                                             if info_value else None),
-            },sort_keys=True),file=sys.stderr)
+            for selector in ('explicit-db','default-db'):
+                probe=self.root/('native-probe-'+selector)
+                subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(probe)])
+                git(probe,'config','--local','user.name','Fixture Native Probe')
+                git(probe,'config','--local','user.email','fixture-probe@example.invalid')
+                probe_db=probe/'.beads/dolt'
+                probe_env=activation.native_env(probe)
+                init_args=[str(binary)]
+                if selector=='explicit-db':init_args+=['--db',str(probe_db)]
+                init_args+=['--actor',actor,'init','--prefix','big-heroes','--non-interactive',
+                            '--skip-agents','--skip-hooks','--stealth']
+                probe_init=subprocess.run(init_args,cwd=probe,env=probe_env,capture_output=True,timeout=180)
+                stdout=probe_init.stdout.decode('utf-8',errors='replace')
+                stderr=probe_init.stderr.decode('utf-8',errors='replace')
+                prefix_readback={}
+                for read_selector,db_args in (('explicit-db',['--db',str(probe_db)]),('default-db',[])):
+                    read=subprocess.run([str(binary),*db_args,'--readonly','config','list','--json'],
+                                        cwd=probe,env=probe_env,capture_output=True,timeout=60)
+                    read_config=json.loads(read.stdout.decode('utf-8')) if read.returncode==0 else {}
+                    read_prefix=read_config.get('issue_prefix')
+                    prefix_readback[read_selector]={'exit':read.returncode,'issue_prefix':safe(read_prefix),
+                                                    'issue_prefix_type':type(read_prefix).__name__}
+                info=subprocess.run([str(binary),'--db',str(probe_db),'--readonly','info','--json'],
+                                    cwd=probe,env=probe_env,capture_output=True,timeout=60)
+                info_text=info.stdout.decode('utf-8',errors='replace')
+                info_path=re.search(r'^Database:\s*(.+)$',info_text,re.MULTILINE)
+                info_value=info_path.group(1).strip() if info_path else None
+                info_resolved=Path(info_value).resolve() if info_value else None
+                info_inside=info_resolved.is_relative_to(self.root.resolve()) if info_resolved else None
+                info_relative=(info_resolved.relative_to(self.root.resolve()).as_posix()
+                               if info_inside else None)
+                if info_relative and not re.fullmatch(r'[A-Za-z0-9_./:-]{1,200}',info_relative):
+                    info_relative=None
+                git_dir=Path(git(probe,'rev-parse','--path-format=absolute','--git-dir')).resolve()
+                common_dir=Path(git(probe,'rev-parse','--path-format=absolute','--git-common-dir')).resolve()
+                print('NATIVE_INIT_PROBE '+json.dumps({
+                    'selector':selector,'init_exit':probe_init.returncode,
+                    'stdout_sha256':hashlib.sha256(probe_init.stdout).hexdigest(),
+                    'stderr_sha256':hashlib.sha256(probe_init.stderr).hexdigest(),
+                    'stdout_initialized':'initialized' in stdout.lower(),
+                    'stderr_skipping_init':'skipping init' in stderr.lower(),
+                    'stderr_metadata_warning':'failed to create metadata.json' in stderr.lower(),
+                    'stderr_warning_count':len(re.findall(r'(?im)^warning:',stderr)),
+                    'stderr_error_count':len(re.findall(r'(?im)^error:',stderr)),
+                    'stdout_markers':bounded_lines(stdout),'stderr_markers':bounded_lines(stderr),
+                    'prefix_readback':prefix_readback,
+                    'git_dir_equals_common':git_dir==common_dir,
+                    'beads_dir_present':(probe/'.beads').is_dir(),
+                    'metadata_present':(probe/'.beads/metadata.json').is_file(),
+                    'config_present':(probe/'.beads/config.yaml').is_file(),
+                    'embedded_dir_present':(probe/'.beads/embeddeddolt').is_dir(),
+                    'dolt_root_present':(probe/'.git/overgate-bd-activation/dolt-global').exists(),
+                    'info_exit':info.returncode,'info_database_present':info_value is not None,
+                    'info_database_inside_fixture':info_inside,
+                    'info_database_relative':info_relative,
+                    'info_database_path_sha256':(hashlib.sha256(info_value.encode('utf-8')).hexdigest()
+                                                 if info_value else None),
+                },sort_keys=True),file=sys.stderr)
         self.assertEqual(run.returncode,0,run.stdout+run.stderr)
         result=json.loads(run.stdout)
         self.assertEqual(result['status'],'activated')
