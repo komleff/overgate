@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Public Bash routes pass native module operands to Windows Node without losing complex paths.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+TEMP="$(mktemp -d)"
+trap 'rm -rf "$TEMP"' EXIT
+PROJECT="$TEMP/Проект's (QA) space/primary"
+REMOTE="$TEMP/remote.git"
+mkdir -p "$PROJECT/scripts/lib" "$TEMP/bin"
+git init -q --bare "$REMOTE"
+git -C "$PROJECT" init -q -b main
+git -C "$PROJECT" config user.name fixture
+git -C "$PROJECT" config user.email fixture@example.invalid
+git -C "$PROJECT" remote add origin "$REMOTE"
+cp "$ROOT/scripts/bd-apply-intents.sh" "$ROOT/scripts/bd-read.sh" "$PROJECT/scripts/"
+cp "$ROOT/scripts/lib/bd-env.sh" "$ROOT/scripts/lib/bd-git-environment.mjs" \
+  "$ROOT/scripts/lib/bd-snapshot.mjs" "$ROOT"/scripts/lib/bd-managed-*.mjs "$PROJECT/scripts/lib/"
+git -C "$PROJECT" add scripts
+git -C "$PROJECT" commit -qm 'trusted route fixture'
+git -C "$PROJECT" push -q origin main
+git -C "$REMOTE" symbolic-ref HEAD refs/heads/main
+git -C "$PROJECT" switch -q -c beads-backup
+mkdir -p "$PROJECT/.beads"
+: > "$PROJECT/.beads/issues.jsonl"
+git -C "$PROJECT" add .beads/issues.jsonl
+git -C "$PROJECT" commit -qm 'empty task snapshot'
+git -C "$PROJECT" push -q origin beads-backup
+git -C "$PROJECT" switch -q main
+
+cat > "$TEMP/bin/cygpath" <<'SH'
+#!/usr/bin/env bash
+[ "$1" = -m ] || exit 64
+case "$2" in
+  */bd-managed-entry.mjs) printf '%s\n' "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-managed-entry.mjs" ;;
+  */bd-managed-read-check.mjs) printf '%s\n' "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-managed-read-check.mjs" ;;
+  */bd-read-engine.mjs) printf '%s\n' "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-read-engine.mjs" ;;
+  */overgate-bd-read.*) printf '%s\n' 'D:/Temp/overgate-bd-read.fixture' ;;
+  *) exit 64 ;;
+esac
+SH
+cat > "$TEMP/bin/node" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "$OG_NODE_PATH_LOG"
+[ "$1" != "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-managed-read-check.mjs" ] || printf '%s\n' "$3" > "$OG_NODE_SNAPSHOT_ARG"
+SH
+chmod +x "$TEMP/bin/cygpath" "$TEMP/bin/node"
+export PATH="$TEMP/bin:$PATH" OG_NODE_PATH_LOG="$TEMP/node-paths.txt" OG_NODE_SNAPSHOT_ARG="$TEMP/snapshot-arg.txt"
+( cd "$PROJECT" && bash scripts/bd-apply-intents.sh --read-state )
+( cd "$PROJECT" && bash scripts/bd-read.sh ready --json )
+[ "$(wc -l < "$OG_NODE_PATH_LOG" | tr -d ' ')" -eq 3 ] || { echo 'FAIL: expected three native Node entrypoints' >&2; exit 1; }
+[ "$(sed -n '1p' "$OG_NODE_PATH_LOG")" = "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-managed-entry.mjs" ] || { echo 'FAIL: managed apply Node operand is not native' >&2; exit 1; }
+[ "$(sed -n '2p' "$OG_NODE_PATH_LOG")" = "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-managed-read-check.mjs" ] || { echo 'FAIL: managed reader check Node operand is not native' >&2; exit 1; }
+[ "$(sed -n '3p' "$OG_NODE_PATH_LOG")" = "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-read-engine.mjs" ] || { echo 'FAIL: reader engine Node operand is not native' >&2; exit 1; }
+[ "$(cat "$OG_NODE_SNAPSHOT_ARG")" = 'D:/Temp/overgate-bd-read.fixture' ] || { echo 'FAIL: reader snapshot argument is not native' >&2; exit 1; }
+cat > "$TEMP/bin/cygpath" <<'SH'
+#!/usr/bin/env bash
+exit 64
+SH
+: > "$OG_NODE_PATH_LOG"
+if ( cd "$PROJECT" && bash scripts/bd-apply-intents.sh --read-state ) >"$TEMP/apply.out" 2>"$TEMP/apply.err"; then
+  echo 'FAIL: apply accepted failed native path conversion' >&2; exit 1
+fi
+if ( cd "$PROJECT" && bash scripts/bd-read.sh ready --json ) >"$TEMP/read.out" 2>"$TEMP/read.err"; then
+  echo 'FAIL: reader accepted failed native path conversion' >&2; exit 1
+fi
+[ ! -s "$OG_NODE_PATH_LOG" ] || { echo 'FAIL: Node ran after failed path conversion' >&2; exit 1; }
+grep -q 'native Node module path unavailable' "$TEMP/apply.err"
+grep -q 'native Node reader module path unavailable' "$TEMP/read.err"
+printf '%s\n' 'PASS bd-node-path native module operands 3/3'

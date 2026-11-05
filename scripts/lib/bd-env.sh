@@ -28,6 +28,21 @@ bd_env_sanitize_git() {
   export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 }
 
+# Git Bash видит путь /d/..., но нативный Node ожидает D:/... даже при
+# пробелах, кириллице и апострофе. Преобразуем только operand модуля.
+bd_env_native_path() {
+  local original="${1:-}" converted
+  [ -n "$original" ] || return 1
+  if command -v cygpath >/dev/null 2>&1; then
+    converted="$(cygpath -m "$original")" || return 1
+    [ -n "$converted" ] || return 1
+    printf '%s\n' "$converted"
+    return 0
+  fi
+  case "${OSTYPE:-}" in msys*|cygwin*|mingw*) return 1 ;; esac
+  printf '%s\n' "$original"
+}
+
 # Возвращает 0, если текущее дерево — основной checkout (не git-worktree).
 # Критерий: в worktree --git-common-dir указывает на общий .git основного дерева,
 # а --git-dir — на отдельный .git/worktrees/<name>; в основном дереве они равны.

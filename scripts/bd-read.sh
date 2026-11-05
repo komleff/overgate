@@ -29,6 +29,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REF="${BD_READ_REF:-origin/${BD_BACKUP_BRANCH}}"
 ENGINE="${SCRIPT_DIR}/lib/bd-read-engine.mjs"
+NATIVE_ENGINE="$(bd_env_native_path "$ENGINE")" || {
+  echo "ERROR: native Node reader module path unavailable (fail-closed)." >&2
+  exit 1
+}
+NATIVE_CHECK="$(bd_env_native_path "${SCRIPT_DIR}/lib/bd-managed-read-check.mjs")" || {
+  echo "ERROR: native Node reader check path unavailable (fail-closed)." >&2
+  exit 1
+}
 REF_SHA=""
 
 if [ $# -lt 1 ]; then
@@ -73,6 +81,10 @@ if ! read_snapshot > "$SNAP"; then
   exit 1
 fi
 if [ -z "${BD_READ_FIXTURE:-}" ]; then
-  node "${SCRIPT_DIR}/lib/bd-managed-read-check.mjs" "$REF_SHA" "$SNAP"
+  NATIVE_SNAP="$(bd_env_native_path "$SNAP")" || {
+    echo "ERROR: native Node snapshot path unavailable (fail-closed)." >&2
+    exit 1
+  }
+  node "$NATIVE_CHECK" "$REF_SHA" "$NATIVE_SNAP"
 fi
-node "$ENGINE" "$@" < "$SNAP"
+node "$NATIVE_ENGINE" "$@" < "$SNAP"

@@ -25,9 +25,16 @@ def sha(data):return hashlib.sha256(data).hexdigest()
 
 def call(args,cwd,label,env=None,timeout=60):
     result=subprocess.run([str(x) for x in args],cwd=cwd,env=env or installer.git_environment(),
-                          capture_output=True,text=True,encoding='utf-8',errors='strict',timeout=timeout)
-    if result.returncode:raise ActivationError(label+' failed (exit '+str(result.returncode)+')')
-    return result.stdout.strip()
+                          capture_output=True,timeout=timeout)
+    stdout=result.stdout.decode('utf-8',errors='strict')
+    stderr=result.stderr.decode('utf-8',errors='strict')
+    if result.returncode:
+        match=re.search(r"\bcode:\s*['\"]([A-Z][A-Z0-9_]{0,47})['\"]",stderr)
+        known={'MODULE_NOT_FOUND','ERR_MODULE_NOT_FOUND','ENOENT','EACCES','EPERM'}
+        code=match.group(1) if match and match.group(1) in known else 'UNCLASSIFIED'
+        raise ActivationError(label+' failed (exit '+str(result.returncode)+
+                              '; child_code='+code+'; stderr_sha256='+sha(result.stderr)+')')
+    return stdout.strip()
 
 def git(root,*args):return call(['git','-C',root,*args],root,'Git '+str(args[0]))
 
@@ -91,11 +98,12 @@ def local_git_values(root,key):
 
 def optional_local_config(root,key):
     result=subprocess.run(['git','-C',str(root),'config','--local','--get',key],
-                          capture_output=True,text=True,encoding='utf-8',errors='strict',
-                          env=installer.git_environment())
+                          capture_output=True,env=installer.git_environment())
+    stdout=result.stdout.decode('utf-8',errors='strict')
+    result.stderr.decode('utf-8',errors='strict')
     if result.returncode==1:return None
     if result.returncode:raise ActivationError('peer reader registration unavailable: '+key)
-    return result.stdout.strip()
+    return stdout.strip()
 
 def publisher_identity_auth(root,push_destinations):
     names=local_git_values(root,'user.name');emails=local_git_values(root,'user.email')

@@ -73,6 +73,27 @@ class ActivationEncodingTests(unittest.TestCase):
                 with self.assertRaises(UnicodeDecodeError):
                     activation.call([sys.executable,'-c','import os; os.write(1, bytes([255]))'],checkout,'invalid UTF-8')
 
+    def test_failed_child_reports_bounded_diagnostic_without_stderr_secret(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            payload="import sys; sys.stderr.write(\"Error: https://user:secret@example.invalid/\\n  code: 'MODULE_NOT_FOUND'\\n\"); sys.exit(1)"
+            with self.assertRaises(activation.ActivationError) as result:
+                activation.call([sys.executable,'-c',payload],Path(holder),'trusted managed apply')
+            message=str(result.exception)
+            self.assertIn('MODULE_NOT_FOUND',message)
+            self.assertRegex(message,r'stderr_sha256=[0-9a-f]{64}')
+            self.assertNotIn('secret',message)
+            self.assertNotIn('example.invalid',message)
+
+    def test_optional_git_config_rejects_invalid_utf8_synchronously(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        invalid=subprocess.CompletedProcess(['git','config'],0,b'\xff',b'')
+        with mock.patch.object(activation.subprocess,'run',return_value=invalid):
+            with self.assertRaises(UnicodeDecodeError):
+                activation.optional_local_config(Path('.'),'overgate.beadsPublisher')
+
 class SnapshotTests(unittest.TestCase):
     def test_snapshot_manifest_keys_preserve_bytes_on_both_path_flavors(self):
         # Ключи snapshot сверяются с POSIX-путями manifest даже на Windows;
