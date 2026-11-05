@@ -3,10 +3,36 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
-## [Unreleased] — v4.0.0-rc.4 candidate, WI-1
+## [Unreleased] — v4.0.0-rc.5 candidate
 
-Выпуск после приёмки WI-1 и merge оператором; WI-2 og-7sr перенесён в rc.5 по решению
-оператора 2026-11-03. Stable/Latest не меняется.
+Выпуск требует приёмки WI-A/WI-B/WI-C и merge оператором; Stable/Latest остаётся
+v3.9.0. Source в PR не равен опубликованному release.
+
+### Added
+- Managed Beads v1: typed queue, registered trusted-main publisher, non-force
+  `beads-backup` publication и peer read-back на qualified native `bd` 1.2.2.
+- Fresh install PR ставит полный managed closure без Beads DB/task write. После merge
+  отдельный `bd-activate.sh` создаёт реальную задачу, подтверждает claim и peer state.
+- Legacy `legacy-v0` preservation packet, fence всех известных old-writer clones и
+  отдельный принятый `--switch-managed`; pending не переносится автоматически.
+- Восстановление из подкаталога проверенного checkout через одну shell-safe команду
+  `cd` к root, включая пробелы, кириллицу, скобки и апостроф.
+
+### Changed
+- `--no-beads` и upgrade прежнего `beads:false` сохраняют `none`; неизвестное
+  local/remote/pending состояние останавливает upgrade до записи.
+- Reader, wrappers и правила установки различают managed и legacy route.
+
+## [v4.0.0-rc.4.1] — consumer bootstrap hotfix, 2026-11-04
+
+Prerelease; fresh-clone legacy restore требует подтверждённый project prefix и
+сохраняет существующее task состояние. `bd init` при staged index останавливается;
+Windows Git Bash restore читает frozen snapshot по SHA.
+
+## [v4.0.0-rc.4] — WI-1, 2026-11-04
+
+Prerelease; WI-2 og-7sr перенесён в rc.5 по решению оператора 2026-11-03.
+Stable/Latest не меняется.
 
 ### Added
 - QUICKSTART для неспециалиста; helpers Memory Bank (шесть файлов), bd1.2.2 bootstrap и

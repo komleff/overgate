@@ -24,7 +24,9 @@ queue v2 и применять только trusted publisher из exact target 
 `bash scripts/bd-wt.sh` с основной базой (embedded или dolt-сервер), cloud agent — снимок
 и pending-заявки `.bd-intents/` в PR. Порядок и граница поставки:
 `.agents/HOW_TO_USE.md`, секция Beads; project owner — `.claude/rules/beads.md`.
-Авторизованный GitHub-коннектор не требует отдельного login Git CLI. Не создавать
-cloud writer и не менять снимок вручную. Managed activation происходит отдельно после
-merge кода; до неё очередь применяет оператор trusted tooling.
+Авторизованный GitHub-коннектор для PR не требует отдельного login Git CLI; managed
+publisher после merge требует авторизованный Git transport. Не создавать cloud writer
+и не менять снимок вручную. Fresh managed activation происходит отдельно после merge
+install PR из trusted `main`; существующие заявки до неё pending, real task ID не подтверждён.
+Legacy DB требует preservation, fence известных old writers и отдельный принятый switch.
 <!-- /overgate:beads -->

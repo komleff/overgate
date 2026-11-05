@@ -27,36 +27,26 @@ capability, без автоматического login/setup/модельног
 Unfinished handoff использует `.agents/skills/handoff/SKILL.md`; завершённой работе отдельный
 handoff не нужен. Установка/upgrade/rollback: `.agents/INSTALL.md`.
 
-## Начало работы после установки rc.4
+## Начало работы после установки rc.5
 
-Пошаговое поручение — [QUICKSTART rc.4](https://github.com/komleff/overgate/blob/8680c8b468ee6322f35470b4a2ac01cd988ddae7/QUICKSTART.md), подробности — INSTALL.md.
+Пошаговое поручение — `QUICKSTART.md` в exact source checkout OverGate;
+детали для установленного проекта — [INSTALL](INSTALL.md).
 Агент заполняет project verify.sh реальными проверками (создаёт минимальные тесты при отсутствии).
-После apply порядок: `bash scripts/og-init-memory-bank.sh` → `bash scripts/bd-bootstrap.sh` →
-`bash scripts/og-protect-main.sh`; --no-beads пропускает только второй helper. Memory Bank всегда
-содержит шесть шаблонов при новом каркасе; existing context остаётся. Коды защиты2/3/4/5
-фиксируются как R8 в target PR и Memory Bank; 6 останавливает. Beads требует bd1.2.2/main checkout.
-`bd init` делает собственный Git commit и включает весь предварительно staged index. Поэтому
-`bd-bootstrap.sh` останавливается при staged файлах; агент сохраняет их в запланированном
-коммите отдельно и запускает bootstrap с пустым index. При чистой fresh установке Beads
-commit ожидаем и проверяется перед публикацией PR. Helper после подтверждённо пустого
-fresh init записывает активный `issue-prefix` в tracked `.beads/config.yaml` из фактического
-`bd config list --json`. **До завершения install PR** агент проверяет effective prefix,
-читает task snapshot и включает изменённый config.yaml в project commit; незакоммиченный
-pin не доступен свежему clone. Existing DB/config helper этим путём не переписывает.
+После apply в install branch он запускает `bash scripts/og-init-memory-bank.sh`, затем
+`bash scripts/og-protect-main.sh`; существующий Memory Bank сохраняется. Коды защиты
+2/3/4/5 фиксируются как R8 в target PR и Memory Bank; 6 останавливает. В install PR нет
+`bd init`, Beads DB/task ID и записи `beads-backup`. `--no-beads` не ставит Beads closure;
+upgrade старого `beads:false` сохраняет режим `none`.
 
-В свежем clone tracked `.beads/metadata.json` может существовать без ignored локальной
-`embeddeddolt` DB. Сначала подтвердите неизменный `origin/beads-backup` SHA и точный project
-issue prefix. Источник prefix — только активное project-owned tracked `issue-prefix` в
-`.beads/config.yaml`. Исходный primary подтверждает его через `bd --readonly config list --json`,
-после чего проект сохраняет pin в своей Git-ветке, сверяет effective prefix после правки и
-читает прежние задачи/зависимости из исходной DB и опубликованного SHA без изменений. Внешний caller receipt
-и его SHA не доказывают происхождение и больше не принимаются. Если pin отсутствует или
-`BD_BOOTSTRAP_PREFIX` противоречит ему, `bash scripts/bd-bootstrap.sh` откажет до `bd init`.
-При необходимости `BD_BOOTSTRAP_EXPECTED_R` закрепляет ожидаемый SHA ветки. Helper создаёт только
-пустую локальную DB, восстанавливает frozen snapshot через `bd-sync-restore.sh` и сверяет
-полный read-back. Нулевой snapshot допустим до создания первой задачи, если файл в frozen SHA
-действительно пуст и read-back тоже пуст. Не подставляйте имя clone или `metadata.dolt_database`: они могут отличаться
-от issue prefix. При local/pending/unknown state — остановитесь, не запускайте `bd init --force`.
+После проверок и operator merge fresh managed install запускают только из чистого
+trusted target `main`: `bash scripts/bd-activate.sh` с явным project prefix, реальной
+задачей, qualified `bd` 1.2.2, publisher и peer checkout. Успех требует подтверждённых
+ID/claim, published SHA и peer read-back.
+Без принятой задачи activation останавливается до создания очереди и ID; если writer
+недоступен после создания checkpoint, очередь сохраняется pending для `--resume`.
+Legacy DB не активируют этим fresh route: preservation, fence известных old writers и
+отдельный принятый switch описаны ниже. `bd init` может включить staged index в свой commit;
+activation проверяет preconditions до native init. Не очищайте `.beads` при частичном отказе.
 Запуск Claude из root: `claude --permission-mode auto`, approved fallback при недоступности auto —
 `claude --permission-mode bypassPermissions` вместе с installer --mode bypass; hooks/deny сохраняются.
 Режим файлов не доказывает effective runtime; actual Windows/Claude/Codex evidence отдельно.
@@ -64,7 +54,7 @@ issue prefix. Источник prefix — только активное project-
 
 ## Beads: основной checkout, worktree и облачный агент
 
-### Managed v1 — кандидат rc.5 WI-A
+### Managed v1 — кандидат rc.5
 
 Этот route действует **только после** отдельной регистрации publisher на trusted target
 `main`; наличие файлов WI-A в PR или установленном проекте не активирует writer. Регистрацию
@@ -74,7 +64,7 @@ issue prefix. Источник prefix — только активное project-
 remote state — stop, без `bd init`/restore поверх существующей работы.
 
 После merge fresh install PR оператор запускает `bash scripts/bd-activate.sh` из
-чистого trusted `main`, указывая три авторизованных checkout, фактический project prefix,
+чистого trusted `main`, указывая publisher и peer checkout, фактический project prefix,
 qualified `bd`, UUID actor, название реальной задачи и новый private `--work-dir`.
 До запуска в publisher repo-local Git config должны быть `user.name` и `user.email`
 (либо явно заданные service author/committer). Для HTTPS нужен доверенный repo-local
@@ -82,12 +72,13 @@ qualified `bd`, UUID actor, название реальной задачи и н
 Git config и `GIT_CONFIG_*` не используются для идентичности remote и публикации.
 Секреты не записывайте в project config, очередь или PR evidence.
 
-При остановке до первой публикации сохраните native DB, очередь и
-`activation-checkpoint.json` в private work directory. После устранения причины
-повторите ту же команду с теми же аргументами и `--resume`; helper сверит exact
-source/queue/CLI/local DB и remote state. При частичном `bd init`, порче checkpoint
-или неизвестном remote сохраните состояние для reviewed recovery, без удаления `.beads`
-и без слепого повторного init. После публикации успех подтверждает только peer
+Если preflight остановился до checkpoint, устраните причину и начните новый запуск:
+очередь/DB могли ещё не создаться. Если checkpoint уже создан, сохраните его и
+очередь в private work directory, а также native DB, если она появилась.
+После устранения причины повторите ту же команду с теми же аргументами и `--resume`;
+helper сверит exact source/queue/CLI/local DB и remote state. При частичном `bd init`,
+порче checkpoint или неизвестном remote сохраните состояние для reviewed recovery,
+без удаления `.beads` и слепого повторного init. После публикации успех подтверждает только peer
 read-back того же SHA и реального ID.
 
 Агент в основном/linked checkout читает опубликованные задачи через
@@ -134,9 +125,8 @@ replay не выполняется. Точные команды и rollback гр
 ### Legacy v0 — до managed activation
 
 Следующий порядок относится только к проекту без зарегистрированного managed publisher.
-Он был документационным дополнением для планируемой v4.0.1 и переносит порядок работы
-из [U2 ADR-0042](https://github.com/komleff/u2/blob/cdc490e3517c8455f662f82579c45813cdbb9a76/docs/architecture/ADR-0042-Beads-Access-By-Environment.md),
-не объявляя выпуск новой версии. Product authority и project-owned правила сохраняются.
+Он сохраняет прежний доступ до принятого managed switch; после fence old-writer
+helpers откажут до task mutation. Product authority и project-owned правила сохраняются.
 Beads хранит состояние задач; Git/PR — изменения кода и evidence.
 
 ### Сначала определить доступ к базе
@@ -155,11 +145,10 @@ Beads хранит состояние задач; Git/PR — изменения 
 считает оболочкой, которая читает команды со стандартного ввода. Это задокументированное
 поведение гейта.
 
-**Граница поставки:** OverGate содержит `bd-wt.sh`, `bd-read.sh` и sync helpers.
-`bd-apply-intents.sh`, `lib/bd-apply-engine.mjs` и очередь пока не входят в distribution
-inventory. Облачный режим с применением заявок требует отдельно установленного и
-проверенного project tooling. Эта инструкция не выдаёт отсутствующий applier за готовый.
-В U2 он уже есть; новому проекту нужно подготовить его до первого apply.
+**Граница legacy route:** прямую запись выполняют только известные авторизованные
+old-writer clones до fence. После switch действует managed typed queue и trusted publisher
+из установленной closure; старую очередь не переносят автоматически. Cloud agent
+передаёт данные заявок через PR, но не получает самостоятельный writer.
 
 Single-writer означает одну физическую базу/сервер основного checkout. Несколько клиентов
 через `bd-wt.sh` допустимы; отдельная облачная база и самостоятельная публикация снимка — нет.
@@ -236,62 +225,22 @@ blocked children create q update close reopen dep comment comments note label`. 
    неизвестное состояние, а не отсутствие задач. Явное `BD_READ_NO_FETCH=1` даёт только
    кэшированное чтение; stale-снимок обозначить в evidence.
 3. Добавлять заявки в `.bd-intents/<branch-slug>.jsonl` своей рабочей ветки; коммит и PR
-   можно опубликовать через коннектор. Заявка — **pending**, пока оператор не применил её.
+   можно опубликовать через коннектор. Заявка — **pending**, пока trusted publisher
+   (либо авторизованный legacy writer до fence) не применил её.
    Не объявлять `claim` или закрытие выполненным только по наличию строки в PR.
 4. Не ставить `bd` ради создания отдельной облачной базы, не импортировать снимок для
    собственного writer, не править Dolt и не пушить изменённый снимок в `beads-backup`.
-5. Недоступность снимка или applier указать как ограничение task state и передать очередь
+5. Недоступность снимка или writer указать как ограничение task state и передать очередь
    оператору; независимую работу над разрешённым кодом/документами продолжать.
 
-### Формат очереди и применение оператором
+### Очередь и применение
 
-Project owner формата — установленный `.bd-intents/README.md` и trusted applier.
-Совместимый с U2 формат: одна JSON-заявка на строку, уникальные стабильные `intent_id`,
-`op`, необязательные `created_at`/`actor`. Очередь append-only; повтор не получает новый ID.
-
-| `op` | Обязательные поля | Дополнительные поля U2 |
-|---|---|---|
-| `create` | `title` | `handle`, `type`, `priority`, `description`, `assignee`, `acceptance`, `labels`, `notes` |
-| `close` | `ref`, `close_reason` | — |
-| `update` | `ref` | `status`, `priority`, `assignee`, `type` |
-| `dep_add` | `ref`, `blocked_by` | `dep_type` |
-| `note` / `comment` | `ref`, `text` | — |
-
-`ref`/`blocked_by` — существующий ID текущего проекта или `tmp:<slug>` из `handle`
-предшествующего `create` в том же файле. Не выдумывать будущий Beads ID; forward refs
-не разрешены. Пример (ID намерений глобально уникальны; фактические значения создаёт агент):
-
-```jsonl
-{"intent_id":"8b109450-6c18-49d1-9c16-9702c66f1a76","op":"create","handle":"tmp:beads-docs","title":"Уточнить доступ к Beads по окружениям","type":"task"}
-{"intent_id":"cce16115-672d-48e9-b2f2-dc3c0bb26e08","op":"note","ref":"tmp:beads-docs","text":"Изменения и проверки представлены в PR; применение ожидается"}
-```
-
-До включения apply в новом проекте перенести **весь** проверенный набор из frozen U2 source:
-`scripts/bd-apply-intents.sh`, `scripts/lib/bd-apply-engine.mjs`, его imports, совместимые
-`bd-env.sh`/sync helpers, `.bd-intents/README.md` и соответствующие tests. Проверить closure,
-project prefix/receipt paths, совместимость `bd --help`, защиту от stale snapshot, повтора
-и частичного исполнения; добавить пути в inventory проекта. Один shell wrapper без движка
-не работает. Не копировать базу, runtime receipts, credentials или очереди чужого проекта.
-Tooling проходит обычный review/merge до исполнения оператором. Это отдельное изменение,
-а не скрытая часть установки документационного дополнения.
-
-При установленном applier оператор из основного checkout использует **доверенную merged
-версию скрипта и libraries**; из PR извлекает только данные очереди, во временный файл:
-
-```bash
-bash scripts/bd-apply-intents.sh --dry-run /tmp/reviewed-beads-queue.jsonl
-bash scripts/bd-apply-intents.sh /tmp/reviewed-beads-queue.jsonl
-```
-
-Предварительно сверить содержимое очереди с reviewed PR и свежесть основной базы. Не
-переключать checkout на недоверенное tooling ради apply. Валидация всей очереди предшествует
-мутациям; ошибка валидации даёт ноль мутаций, ошибка исполнения может оставить часть.
-Повторять ту же очередь с теми же ID: маркеры в базе обеспечивают идемпотентность, receipt
-лишь локальный кэш вне worktree. После успеха проверить реальные ID и опубликованный снимок;
-если export не прошёл, отдельно завершить публикацию, даже если повтор apply уже не меняет базу.
-В PR записать результат и соответствие `tmp:` реальным ID, удалить применённую очередь
-landing-коммитом и выполнить affected checks на новом HEAD. Не удалять очередь до подтверждения.
-Merge выполняет оператор. `--no-export` и skip/trust overrides не входят в обычный workflow.
+Для managed v1 формат и preconditions задаёт установленный `.bd-intents/README.md`;
+применяет только зарегистрированный trusted publisher из exact target `main`.
+Облачный агент передаёт данные очереди через PR и не объявляет `tmp:` реальным task ID.
+В legacy v0 существующие project-owned заявки остаются pending до reviewed применения
+авторизованным old writer. Не переносите U2-specific формат или runtime receipts в
+новый проект. После принятого switch старая очередь не replay автоматически.
 
 ### Ограничение ожидания инструментов
 

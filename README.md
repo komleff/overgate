@@ -7,8 +7,9 @@ Delivery First связывает принятую спецификацию, р�
 
 Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
 
-**Текущий candidate: v4.0.0-rc.4 (WI-1; WI-2 перенесён в rc.5).** Stable Dreadnought сохраняет прежний snapshot `466ad20`;
-RC выбирается отдельно и не заменяет Latest. Здесь живёт generic reference из
+**Текущий candidate: v4.0.0-rc.5 (managed Beads, установка и восстановление пути).**
+Опубликованный `v4.0.0-rc.4.1` остаётся отдельным prerelease; Stable Dreadnought
+сохраняет прежний snapshot `466ad20` и статус Latest. Здесь живёт generic reference из
 [U2](https://github.com/komleff/u2), без его product/game data.
 
 ```text
@@ -35,18 +36,24 @@ External review доступен по named risk или прямому запр�
 мою product authority, команды тестов и custom hooks; подготовь target Draft PR».
 Source нужен как чистый **Git checkout**, полученный через `git clone` с выбранным RC tag
 и exact commit SHA; распакованный release ZIP без `.git` installer не принимает.
-Нужны Git, Bash (на Windows — Git Bash), Python 3; gh для PR, Node.js для Beads reader,
-jq для finalize. `bd` нужен основному checkout для живой базы Beads; облачный агент
-читает снимок и публикует заявки через Git/PR, в том числе авторизованный GitHub-коннектор.
-Отдельный login Git CLI для этого канала не нужен. [Порядок доступа к Beads](.agents/HOW_TO_USE.md#beads-основной-checkout-worktree-и-облачный-агент)
-различает три окружения и описывает подключение applier, пока отсутствующего в inventory OverGate.
+Нужны Git, Bash (на Windows — Git Bash), Python 3; `gh` или коннектор для PR, Node.js для Beads reader,
+jq для finalize. Квалифицированный `bd` 1.2.2 нужен для Beads activation; облачный
+агент читает опубликованный снимок и передаёт typed заявки через Git/PR, в том
+числе через авторизованный GitHub-коннектор. Для PR через коннектор отдельный
+login Git CLI не нужен; post-merge publisher требует авторизованный Git push.
+[Порядок доступа к Beads](.agents/HOW_TO_USE.md#beads-основной-checkout-worktree-и-облачный-агент)
+различает основной checkout, linked worktree и isolated reader.
 
 Начните с [инструкции работы](.agents/HOW_TO_USE.md) или [установки](.agents/INSTALL.md).
 Установщик сначала создаёт plan/inventory на frozen source SHA. Target Draft PR, Verification
 Contract и независимый PLAN_READY предшествуют копированию. Project owner, tests, context и
 runtime overrides сохраняются; conflict останавливает upgrade. Backup позволяет вернуть исходные
 managed bytes. Агент заполняет project tests (при отсутствии создаёт минимальные); шаблон до этого намеренно не проходит.
-После apply он создаёт Memory Bank, затем Beads (кроме --no-beads), затем защиту main helper-ами.
+После apply агент создаёт Memory Bank, настраивает и проверяет защиту main. Fresh install PR не
+создаёт Beads DB, task ID или `beads-backup`: после operator merge отдельный
+`bd-activate.sh` из доверенного target `main` публикует реальную задачу с peer
+read-back. Для существующего `legacy-v0` нужен preservation packet, fence всех
+известных старых writers и отдельный принятый switch; `--no-beads` оставляет режим `none`.
 Режим --mode auto/bypass сопровождается явным запуском Claude --permission-mode; file settings
 не доказывают эффективный режим. Код helper защиты 2/3/4/5 требует записи R8 в PR и Memory Bank;
 6 — stop. Живые Windows/Claude/Codex receipts остаются отдельной границей.
