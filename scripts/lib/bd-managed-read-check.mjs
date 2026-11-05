@@ -6,10 +6,11 @@ import { createHash } from 'node:crypto';
 import { canonical, configureProjectPrefix, parseLedger } from './bd-managed-contract.mjs';
 import { normalizeSnapshot } from './bd-snapshot.mjs';
 import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
+import { cleanGitEnvironment } from './bd-git-environment.mjs';
 
 const [ref, snapshotFile] = process.argv.slice(2);
 const git = args => execFileSync('git', args, { encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024,
-  stdio: ['ignore', 'pipe', 'pipe'] });
+  env: cleanGitEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
 const optional = (oid, name) => git(['ls-tree', '-r', '--name-only', oid, '--', name]).trim() === name
   ? git(['show', `${oid}:${name}`]) : null;
 const sha = value => createHash('sha256').update(value).digest('hex');

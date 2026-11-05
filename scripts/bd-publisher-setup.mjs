@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { canonical } from './lib/bd-managed-contract.mjs';
 import { qualifyBinary } from './lib/bd-managed-cli.mjs';
+import { cleanGitEnvironment, cleanBeadsEnvironment } from './lib/bd-git-environment.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 function fileSha256(name) {
@@ -16,23 +17,18 @@ function fileSha256(name) {
   return hash.digest('hex');
 }
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
-const GIT_ENVIRONMENT = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_NAMESPACE'];
 const SOURCE_FILES = Object.freeze([
   'scripts/bd-apply-intents.sh', 'scripts/bd-publisher-setup.mjs', 'scripts/bd-sync-export.sh', 'scripts/bd-wt.sh', 'scripts/lib/bd-env.sh',
   'scripts/lib/bd-publisher-push-guard.mjs', 'scripts/lib/bd-managed-entry.mjs', 'scripts/lib/bd-managed-cli.mjs',
   'scripts/lib/bd-managed-contract.mjs', 'scripts/lib/bd-managed-journal.mjs', 'scripts/lib/bd-managed-transaction.mjs',
   'scripts/lib/bd-managed-git.mjs', 'scripts/lib/bd-managed-project.mjs', 'scripts/lib/bd-snapshot.mjs',
+  'scripts/lib/bd-git-environment.mjs',
 ]);
 const RUNTIME_FILES = ['bd-publisher-push-guard.mjs', 'bd-managed-cli.mjs', 'bd-managed-git.mjs', 'bd-managed-contract.mjs',
-  'bd-managed-journal.mjs', 'bd-managed-project.mjs', 'bd-snapshot.mjs'];
+  'bd-managed-journal.mjs', 'bd-managed-project.mjs', 'bd-snapshot.mjs', 'bd-git-environment.mjs'];
 const REGISTRATION_KEYS = ['overgate.beadsPublisher', 'overgate.beadsCli', 'overgate.beadsPrefix'];
 const CONTROL_CONFIG_KEYS = [...REGISTRATION_KEYS, 'core.hooksPath'];
 
-function cleanGitEnvironment() {
-  const environment = { ...process.env, MSYS2_ARG_CONV_EXCL: '*' };
-  for (const name of GIT_ENVIRONMENT) delete environment[name];
-  return environment;
-}
 function git(cwd, args, { encoding = 'utf8', input } = {}) {
   return execFileSync('git', args, { cwd, encoding, input, timeout: 15000, maxBuffer: 32 * 1024 * 1024,
     env: cleanGitEnvironment(), stdio: ['pipe', 'pipe', 'pipe'] });
@@ -62,6 +58,28 @@ function localConfigValues(root, key) {
     if (raw.at(-1) === '') raw.pop();
     return raw;
   } catch (error) { if (error.status === 1) return []; throw error; }
+}
+export function assertPublisherIdentityAndAuth(root, origin) {
+  const localName = localConfigValues(root, 'user.name'), localEmail = localConfigValues(root, 'user.email');
+  const localIdentity = localName.length === 1 && localName[0].trim() && localEmail.length === 1 && localEmail[0].trim();
+  const serviceIdentity = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']
+    .every(name => typeof process.env[name] === 'string' && process.env[name].trim());
+  requireThat(localIdentity || serviceIdentity,
+    'publisher Git identity unavailable under isolated config; set repo-local user.name/user.email or explicit service author/committer identity');
+  for (const identity of ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT']) {
+    try { requireThat(git(root, ['var', identity]).trim(), `publisher ${identity} unavailable`); }
+    catch { throw new Error('publisher Git identity unavailable under isolated config; set repo-local user.name/user.email or explicit service author/committer identity'); }
+  }
+  const helpers = localConfigValues(root, 'credential.helper').filter(Boolean);
+  for (const destination of origin.push) {
+    if (/^https:\/\//i.test(destination)) {
+      requireThat(helpers.length > 0, 'publisher HTTPS authentication unavailable under isolated config; configure a trusted repo-local credential.helper or use SSH agent origin');
+    } else if (/^(ssh:\/\/|[^/\s]+@[^/:\s]+:)/i.test(destination)) {
+      requireThat(typeof process.env.SSH_AUTH_SOCK === 'string' && process.env.SSH_AUTH_SOCK.length > 0,
+        'publisher SSH authentication unavailable; start SSH agent or configure trusted repo-local HTTPS credential.helper');
+    } else requireThat(path.isAbsolute(destination) || destination.startsWith('file://'),
+      'publisher push origin transport unsupported under isolated config');
+  }
 }
 function hookLayout(info, configuredHooksPath) {
   const sourceCandidate = configuredHooksPath === null ? path.join(info.gitDir, 'hooks')
@@ -166,7 +184,7 @@ function assertQualified(cli, qualifyCli) {
 function issuePrefix(primary, cli, readIssuePrefix) {
   const prefix = readIssuePrefix ? readIssuePrefix(primary.root, cli)
     : JSON.parse(execFileSync(cli, ['--readonly', 'config', 'list', '--json'], { cwd: primary.root, encoding: 'utf8', timeout: 30000,
-      maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })).issue_prefix;
+      maxBuffer: 1024 * 1024, env: cleanBeadsEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] })).issue_prefix;
   requireThat(typeof prefix === 'string' && /^[A-Za-z][A-Za-z0-9-]*$/.test(prefix), 'qualified CLI issue prefix invalid');
   return prefix;
 }
@@ -207,6 +225,7 @@ export function preparePublisherControl({ primaryRoot, publisherRoot, qualifiedC
   const primary = repo(primaryRoot, 'primary'), publisher = repo(publisherRoot, 'publisher');
   requireThat(primary.root !== publisher.root && primary.gitDir !== publisher.gitDir && sameOrigin(primary.origin, publisher.origin),
     'primary and publisher must be distinct standalone roots with the same fetch/push origin destinations');
+  assertPublisherIdentityAndAuth(publisher.root, publisher.origin);
   trustedMain(primary); trustedMain(publisher);
   requireThat(git(publisher.root, ['status', '--porcelain=v1', '-z'], { encoding: 'buffer' }).length === 0, 'publisher must be clean');
   const cli = fs.realpathSync(path.resolve(qualifiedCli)), cliHash = assertQualified(cli, qualifyCli);
@@ -278,6 +297,7 @@ function validatePreparedPlan(plan, manifest, primary, publisher) {
   requireThat(plan.nodeExec === fs.realpathSync(process.execPath), 'Node executable changed since prepare');
   requireThat(canonical(plan.sourcePins) === canonical(sourcePins(publisher)), 'publisher source pins changed in plan');
   requireThat(primary.gitDir !== publisher.gitDir && primary.root !== publisher.root, 'primary and publisher Gitdirs must be distinct');
+  assertPublisherIdentityAndAuth(publisher.root, publisher.origin);
   assertTargetBinding(plan.targets.primary, primary); assertTargetBinding(plan.targets.publisher, publisher);
   requireThat(plan.targets.primary.mode === 'retired' && plan.targets.publisher.mode === 'managed', 'publisher target modes are invalid');
   requireThat(plan.registration.publisher === publisher.root && plan.registration.cli === plan.qualifiedCli

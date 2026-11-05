@@ -8,6 +8,7 @@ import { normalizeSnapshot } from './bd-snapshot.mjs';
 import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
 import { validateManagedHistory } from './bd-managed-journal.mjs';
 import { loadProjectPrefix } from './bd-managed-project.mjs';
+import { cleanGitEnvironment } from './bd-git-environment.mjs';
 
 export const ZERO = '0'.repeat(40);
 const branch = 'beads-backup';
@@ -29,8 +30,7 @@ export class ManagedGit {
     this.prefix = loadProjectPrefix(this.cwd, { readIssuePrefix });
   }
   call(args, { input, index } = {}) {
-    const env = { ...process.env, MSYS2_ARG_CONV_EXCL: '*' };
-    delete env.GIT_INDEX_FILE;
+    const env = cleanGitEnvironment();
     if (index) env.GIT_INDEX_FILE = index;
     return execFileSync(this.git, args, { cwd: this.cwd, env, input, encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
   }

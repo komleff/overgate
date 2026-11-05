@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/bd-env.sh
 . "${SCRIPT_DIR}/lib/bd-env.sh"
+bd_env_sanitize_git
 
 BD_BIN="${BD_BIN:-bd}"
 

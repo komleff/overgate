@@ -14,6 +14,15 @@
 #   BD_READ_FIXTURE=path              читать из локального JSONL (для тестов)
 set -euo pipefail
 
+# Snapshot and marker must resolve through repository-local origin, never a
+# caller-injected Git config, object store or remote URL rewrite.
+for git_name in "${!GIT_@}"; do
+  case "$git_name" in GIT_AUTHOR_NAME|GIT_AUTHOR_EMAIL|GIT_AUTHOR_DATE|GIT_COMMITTER_NAME|GIT_COMMITTER_EMAIL|GIT_COMMITTER_DATE) ;;
+    *) unset "$git_name" ;;
+  esac
+done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/bd-env.sh
 . "${SCRIPT_DIR}/lib/bd-env.sh"

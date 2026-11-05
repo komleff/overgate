@@ -5,6 +5,14 @@
 #        bash scripts/bd-apply-intents.sh --bootstrap <known preservation.json>
 #        bash scripts/bd-apply-intents.sh --resolve <old queue hash> <new prepared queue>
 set -euo pipefail
+# Do not let caller Git configuration or repository-context variables redefine
+# the trusted main, origin, hooks or object store during shell preflight.
+for git_name in "${!GIT_@}"; do
+  case "$git_name" in GIT_AUTHOR_NAME|GIT_AUTHOR_EMAIL|GIT_AUTHOR_DATE|GIT_COMMITTER_NAME|GIT_COMMITTER_EMAIL|GIT_COMMITTER_DATE) ;;
+    *) unset "$git_name" ;;
+  esac
+done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(git rev-parse --show-toplevel)"
 repo_root="$(cd "$repo_root" && pwd -P)"
@@ -13,7 +21,7 @@ if [ "$SCRIPT_DIR" != "$repo_root/scripts" ] || [ -L "$SCRIPT_DIR/bd-apply-inten
   exit 6
 fi
 cd "$repo_root"
-for helper in scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; do
+for helper in scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-git-environment.mjs scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; do
   if [ ! -f "$helper" ] || [ -L "$helper" ] || ! git ls-files --error-unmatch -- "$helper" >/dev/null 2>&1; then
     echo "ERROR: tracked publisher tooling closure incomplete (fail-closed)." >&2
     exit 6
@@ -29,8 +37,8 @@ if [ "$branch" != main ] || [ -z "$trusted" ] || [ "$head" != "$trusted" ]; then
   echo "ERROR: managed publisher требует exact trusted origin/main HEAD (fail-closed)." >&2
   exit 6
 fi
-if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs \
-  || ! git diff --cached --quiet HEAD -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; then
+if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-git-environment.mjs scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs \
+  || ! git diff --cached --quiet HEAD -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scripts/lib/bd-git-environment.mjs scripts/lib/bd-managed-*.mjs scripts/lib/bd-snapshot.mjs; then
   echo "ERROR: managed publisher tooling изменён в worktree." >&2
   exit 6
 fi

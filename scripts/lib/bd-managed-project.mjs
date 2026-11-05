@@ -3,22 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { configureProjectPrefix } from './bd-managed-contract.mjs';
+import { cleanGitEnvironment, cleanBeadsEnvironment } from './bd-git-environment.mjs';
 
 function readIssuePrefix(root) {
   let binary;
-  try { binary = execFileSync('git', ['config', '--local', '--get', 'overgate.beadsCli'], { cwd: root, encoding: 'utf8' }).trim(); }
+  try { binary = execFileSync('git', ['config', '--local', '--get', 'overgate.beadsCli'], { cwd: root, encoding: 'utf8', env: cleanGitEnvironment() }).trim(); }
   catch { throw new Error('qualified Beads CLI registration missing'); }
   if (!path.isAbsolute(binary)) throw new Error('qualified Beads CLI path must be absolute');
   const stat = fs.lstatSync(binary);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('qualified Beads CLI must be a regular file');
   const raw = execFileSync(binary, ['--readonly', 'config', 'list', '--json'], { cwd: root, encoding: 'utf8', timeout: 30000,
-    maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    maxBuffer: 1024 * 1024, env: cleanBeadsEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
   return JSON.parse(raw).issue_prefix;
 }
 
 export function loadProjectPrefix(root, { readIssuePrefix: readPrefix = readIssuePrefix } = {}) {
   let pinned;
-  try { pinned = execFileSync('git', ['config', '--local', '--get', 'overgate.beadsPrefix'], { cwd: root, encoding: 'utf8' }).trim(); }
+  try { pinned = execFileSync('git', ['config', '--local', '--get', 'overgate.beadsPrefix'], { cwd: root, encoding: 'utf8', env: cleanGitEnvironment() }).trim(); }
   catch { throw new Error('publisher prefix registration missing'); }
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(pinned)) throw new Error('publisher prefix registration invalid');
   const control = path.join(root, '.git', 'overgate-bd-publisher-control');
