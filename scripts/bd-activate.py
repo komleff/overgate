@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import uuid
 
 class ActivationError(Exception): pass
@@ -49,7 +50,29 @@ def trusted(root):
     head=git(root,'rev-parse','HEAD')
     remote=git(root,'ls-remote','--heads','origin','refs/heads/main').split()
     if remote!=[head,'refs/heads/main']:raise ActivationError('trusted exact origin/main required')
-    if git(root,'status','--porcelain','--untracked-files=no'):
+    # Git status refreshes index stat data even when it rejects a CRLF checkout.
+    # A copied index checks staged entries; a fresh HEAD index forces a working
+    # tree comparison even when the original index has racy stat data.
+    index=root/'.git/index'
+    if not index.is_file() or index.is_symlink():raise ActivationError('trusted canonical Git index unavailable')
+    index_bytes=index.read_bytes()
+    if Path(tempfile.gettempdir()).resolve().is_relative_to(root):
+        raise ActivationError('private Git index temp directory must be outside trusted checkout')
+    with tempfile.TemporaryDirectory(prefix='overgate-activation-index-') as holder:
+        private_index=Path(holder)/'staged-index'
+        private_index.write_bytes(index_bytes)
+        status_env=installer.git_environment()
+        status_env['GIT_INDEX_FILE']=str(private_index)
+        staged_diff=subprocess.run(['git','-C',str(root),'diff','--cached','--quiet','HEAD','--'],
+                                   cwd=root,env=status_env,capture_output=True,timeout=60)
+        if staged_diff.returncode not in (0,1):raise ActivationError('Git staged diff failed')
+        staged_status=call(['git','-C',root,'status','--porcelain','--untracked-files=no'],root,'Git staged status',env=status_env)
+        fresh_index=Path(holder)/'head-index'
+        status_env['GIT_INDEX_FILE']=str(fresh_index)
+        call(['git','-C',root,'read-tree','HEAD'],root,'Git trusted HEAD index',env=status_env)
+        worktree_status=call(['git','-C',root,'status','--porcelain','--untracked-files=no'],root,'Git worktree status',env=status_env)
+    if index.read_bytes()!=index_bytes:raise ActivationError('trusted canonical Git index changed during preflight')
+    if staged_diff.returncode or staged_status or worktree_status:
         raise ActivationError('trusted main tracked worktree/index must be clean')
     return head
 

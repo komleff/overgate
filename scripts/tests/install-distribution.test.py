@@ -76,11 +76,23 @@ class ActivationEncodingTests(unittest.TestCase):
             normal=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
                                   env=checkout_env,capture_output=True,text=True,check=True)
             self.assertEqual(normal.stdout,'','system/global autocrlf clone must be clean under its checkout config')
-            sanitized=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
-                                     env=activation.installer.git_environment(),capture_output=True,text=True,check=True)
+            self.assertEqual((crlf/'README.md').read_bytes(),b'alpha\r\nbeta\r\n')
+            readonly_env=activation.installer.git_environment()
+            with tempfile.TemporaryDirectory(prefix='overgate-test-index-') as private:
+                private_index=Path(private)/'index'
+                readonly_env['GIT_INDEX_FILE']=str(private_index)
+                subprocess.run(['git','-C',str(crlf),'read-tree','HEAD'],env=readonly_env,check=True,capture_output=True)
+                sanitized=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
+                                         env=readonly_env,capture_output=True,text=True,check=True)
             self.assertEqual(sanitized.stdout,' M README.md\n','CRLF diagnosis must identify exact tracked path')
+            index_before=(crlf/'.git/index').read_bytes()
+            stage_before=git(crlf,'ls-files','--stage')
+            self.assertEqual(git(crlf,'diff','--cached','--name-status'),'')
             with self.assertRaisesRegex(activation.ActivationError,'tracked worktree/index must be clean'):
                 activation.trusted(crlf)
+            self.assertEqual((crlf/'.git/index').read_bytes(),index_before,'refusal must preserve Git index bytes')
+            self.assertEqual(git(crlf,'ls-files','--stage'),stage_before)
+            self.assertEqual(git(crlf,'diff','--cached','--name-status'),'')
             self.assertFalse((crlf/'.beads').exists())
             self.assertEqual(git(crlf,'ls-remote','origin','refs/heads/beads-backup'),'')
             lf=base/'lf-publisher'
@@ -93,6 +105,14 @@ class ActivationEncodingTests(unittest.TestCase):
             with mock.patch.dict(os.environ,spoof):
                 self.assertEqual(activation.trusted(lf),expected)
                 self.assertEqual(activation.origin_state(lf)[0],str(remote))
+            (lf/'README.md').write_bytes(b'staged only\n')
+            git(lf,'add','README.md')
+            (lf/'README.md').write_bytes(b'alpha\nbeta\n')
+            staged_index=(lf/'.git/index').read_bytes()
+            with self.assertRaisesRegex(activation.ActivationError,'tracked worktree/index must be clean'):
+                activation.trusted(lf)
+            self.assertEqual((lf/'.git/index').read_bytes(),staged_index)
+            self.assertEqual(git(lf,'diff','--cached','--name-status'),'M\tREADME.md')
             print('CRLF_TRUST_RECEIPT '+json.dumps({'crlf_sanitized_porcelain':sanitized.stdout,
                                                    'crlf_rejected':True,'lf_trusted_sha':expected,
                                                    'spoofed_origin_ignored':True},sort_keys=True))
