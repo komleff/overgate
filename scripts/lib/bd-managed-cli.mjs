@@ -60,25 +60,56 @@ export function materializeFresh({ directory, binary, actor, snapshot, run = def
     for (const flag of flags) requireThat(help.includes(flag), `qualified CLI lacks ${command} ${flag}`);
   }
   run(git, ['-c', 'init.defaultBranch=managed-projection', '-c', `core.hooksPath=${path.join(root, 'empty-hooks')}`, 'init', '--template=' + path.join(root, 'empty-template'), '-q', '.'], { cwd, env, timeout: 30000 });
+  const ownedPath = (observed, expected) => {
+    if (typeof observed !== 'string' || !path.isAbsolute(observed)) return false;
+    try { return fs.realpathSync.native(observed) === fs.realpathSync.native(expected); } catch { return false; }
+  };
+  const noRedirect = () => {
+    const beads = path.join(cwd, '.beads');
+    const stat = fs.lstatSync(beads);
+    requireThat(stat.isDirectory() && !stat.isSymbolicLink() &&
+      !fs.lstatSync(path.join(beads, 'redirect'), { throwIfNoEntry: false }) &&
+      !fs.lstatSync(path.join(beads, '.git'), { throwIfNoEntry: false }), 'fresh context redirect/nested repository denied');
+  };
   const context = () => {
+    noRedirect();
     const info = JSON.parse(invoke(['--readonly', 'context', '--json']));
-    requireThat(!info.error && info.beads_dir === path.join(cwd, '.beads') && info.repo_root === cwd && info.cwd_repo_root === cwd,
+    requireThat(!info.error && ownedPath(info.beads_dir, path.join(cwd, '.beads')) &&
+      ownedPath(info.repo_root, cwd) && ownedPath(info.cwd_repo_root, cwd),
       'fresh context paths do not match owned root');
-    requireThat(info.is_redirected === false && info.is_worktree === false && info.backend === 'dolt' && info.dolt_mode === 'embedded', 'fresh context must be standalone embedded');
+    // Beads v1.2.2 can flag a Windows temp repo as redirected when Git's
+    // common-dir strings differ in spelling; canonical owned paths plus the
+    // direct redirect check above distinguish that from an actual redirect.
+    requireThat(typeof info.is_redirected === 'boolean' && info.is_worktree === false &&
+      info.backend === 'dolt' && info.dolt_mode === 'embedded', 'fresh context must be standalone embedded');
     requireThat(!info.server_host && !info.server_port && !info.proxied_dir && !info.sync_remote && !info.sync_git_remote, 'fresh context has unexpected endpoint/remote');
     if (info.data_dir) {
-      const data = path.resolve(info.beads_dir, info.data_dir);
-      requireThat(data.startsWith(info.beads_dir + path.sep), 'fresh context data_dir outside owned beads root');
+      const observedBeads = path.resolve(info.beads_dir);
+      const ownedBeads = fs.realpathSync.native(path.join(cwd, '.beads'));
+      const data = path.resolve(observedBeads, info.data_dir);
+      requireThat(data.startsWith(observedBeads + path.sep), 'fresh context data_dir outside owned beads root');
       let ancestor = data;
-      while (!fs.existsSync(ancestor)) ancestor = path.dirname(ancestor);
-      const canonical = path.resolve(fs.realpathSync(ancestor), path.relative(ancestor, data));
-      requireThat(canonical.startsWith(info.beads_dir + path.sep), 'fresh context data_dir symlink outside owned root');
+      while (!fs.lstatSync(ancestor, { throwIfNoEntry: false })) ancestor = path.dirname(ancestor);
+      const canonical = path.resolve(fs.realpathSync.native(ancestor), path.relative(ancestor, data));
+      requireThat(canonical.startsWith(ownedBeads + path.sep), 'fresh context data_dir symlink outside owned root');
     }
     return info;
   };
   context();
   run(executable, ['--actor', actor, 'init', '--prefix', getProjectPrefix(), '--non-interactive', '--skip-agents', '--skip-hooks'], { cwd, env, timeout: 180000 });
   context();
+  const beads = path.join(cwd, '.beads');
+  for (const file of [path.join(beads, 'metadata.json'), path.join(beads, 'config.yaml')]) {
+    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+    requireThat(stat?.isFile() && !stat.isSymbolicLink(), 'fresh local state missing after native init');
+  }
+  const embedded = fs.lstatSync(path.join(beads, 'embeddeddolt'), { throwIfNoEntry: false });
+  requireThat(embedded?.isDirectory() && !embedded.isSymbolicLink(), 'fresh local state missing after native init');
+  const metadata = JSON.parse(fs.readFileSync(path.join(beads, 'metadata.json'), 'utf8'));
+  requireThat(metadata.backend === 'dolt' && metadata.dolt_mode === 'embedded' &&
+    typeof metadata.project_id === 'string' && metadata.project_id.length > 0, 'fresh local state invalid after native init');
+  const config = JSON.parse(invoke(['--readonly', 'config', 'list', '--json']));
+  requireThat(config.issue_prefix === getProjectPrefix(), 'fresh local prefix differs after native init');
   const frozenFile = path.join(evidence, 'frozen.jsonl'); fs.writeFileSync(frozenFile, snapshot, { flag: 'wx', mode: 0o600 });
   invoke(['import', frozenFile, '--json']);
   let exportIndex = 0;
