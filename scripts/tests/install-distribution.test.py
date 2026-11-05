@@ -247,10 +247,43 @@ class InstallTests(unittest.TestCase):
         self.assertFalse((self.target/'.overgate-backups').is_symlink())
 
     def test_wib_native_postmerge_activation_peer_and_lifecycle(self):
-        binary=Path('/opt/homebrew/bin/bd').resolve()
-        if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
-            self.skipTest('native qualified macOS bd 1.2.2 unavailable; platform QA required')
+        override=os.environ.get('OG_BD_NATIVE_BIN')
+        if override:
+            self.assertEqual(sys.platform,'win32','OG_BD_NATIVE_BIN is reserved for native Windows qualification')
+            binary=Path(override).resolve()
+            expected='b1f3609fea1d9f0f19b2ed49098b3628acfa6ca115aa28b01a1ee178c3a214de'
+            self.assertTrue(binary.is_file(),'qualified native Windows bd.exe unavailable')
+            self.assertEqual(hashlib.sha256(binary.read_bytes()).hexdigest(),expected,'native Windows bd.exe hash mismatch')
+        else:
+            binary=Path('/opt/homebrew/bin/bd').resolve()
+            if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
+                self.skipTest('native qualified macOS bd 1.2.2 unavailable; Windows requires OG_BD_NATIVE_BIN')
+        binary_sha=hashlib.sha256(binary.read_bytes()).hexdigest()
+        binary_version=subprocess.check_output([str(binary),'--version'],text=True,encoding='utf-8').strip()
+        self.assertRegex(binary_version,r'\b1\.2\.2\b')
         self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2'
+        before=snapshot(self.target)
+        premerge_head=(self.target/'.git/HEAD').read_bytes()  # unborn install branch has no commit SHA
+        premerge_index=(self.target/'.git/index').read_bytes() if (self.target/'.git/index').exists() else None
+        premerge_config=(self.target/'.git/config').read_bytes()
+        premerge_refs=git(self.target,'for-each-ref','--format=%(refname):%(objectname)')
+        premerge=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',self.root/'premerge-publisher',
+                                 '--peer-root',self.root/'premerge-peer','--bd-bin',binary,
+                                 '--prefix','big-heroes','--actor',actor,'--title','Actual project task',
+                                 '--work-dir',self.root/'premerge-work'],cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(premerge.returncode,0)
+        self.assertIn('trusted',premerge.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertEqual((self.target/'.git/HEAD').read_bytes(),premerge_head)
+        self.assertEqual((self.target/'.git/index').read_bytes() if (self.target/'.git/index').exists() else None,premerge_index)
+        self.assertEqual((self.target/'.git/config').read_bytes(),premerge_config)
+        self.assertEqual(git(self.target,'for-each-ref','--format=%(refname):%(objectname)'),premerge_refs)
+        self.assertFalse((self.root/'premerge-work').exists(),'pre-merge activation must not create private queue/checkpoint')
+        self.assertFalse((self.target/'.git/overgate-bd-activation').exists())
+        self.assertFalse((self.target/'.git/overgate-bd-publisher-control').exists())
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertEqual(git(self.target,'ls-remote','origin','refs/heads/beads-backup'),'')
         git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
         git(self.target,'commit','-qm','merged install fixture')
         git(self.target,'branch','-M','main')
@@ -262,7 +295,6 @@ class InstallTests(unittest.TestCase):
         subprocess.check_call(['git','clone','-q',str(remote),str(peer)])
         git(publisher,'config','--local','user.name','Fixture Publisher')
         git(publisher,'config','--local','user.email','fixture-publisher@example.invalid')
-        actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2'
         work=self.root/'activation-work';head=git(self.target,'rev-parse','HEAD')
         index_before=(self.target/'.git/index').read_bytes()
         wrong=self.root/'wrong-binary';wrong.write_bytes(b'#!/bin/sh\nexit 0\n');wrong.chmod(0o755)
@@ -286,6 +318,13 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.target/'.git/index').read_bytes(),index_before)
         self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),result['published_sha'])
         self.assertTrue((work/'raw-intents.jsonl').is_file())
+        first_read=subprocess.run([BASH,'scripts/bd-read.sh','show',result['id'],'--json'],cwd=peer,capture_output=True,text=True)
+        self.assertEqual(first_read.returncode,0,first_read.stdout+first_read.stderr)
+        first_snapshot=subprocess.check_output(['git','-C',str(peer),'show',result['published_sha']+':.beads/issues.jsonl']).decode('utf-8')
+        first_issues=[json.loads(line) for line in first_snapshot.splitlines() if line]
+        self.assertEqual(len(first_issues),1)
+        first_task=json.loads(first_read.stdout)
+        self.assertEqual(first_task,first_issues[0])
         work=work.resolve()
         lifecycle_raw=work/'lifecycle-raw.jsonl';lifecycle_prepared=work/'lifecycle.v2.jsonl'
         lifecycle_raw.write_text(''.join(json.dumps(item)+'\n' for item in (
@@ -303,6 +342,21 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(task['status'],'closed')
         self.assertEqual(task['description'],'Verified project update')
         self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),closed['published_sha'])
+        final_snapshot=subprocess.check_output(['git','-C',str(peer),'show',closed['published_sha']+':.beads/issues.jsonl']).decode('utf-8')
+        final_issues=[json.loads(line) for line in final_snapshot.splitlines() if line]
+        self.assertEqual(len(final_issues),1)
+        self.assertEqual(task,final_issues[0])
+        object_digest=lambda value:hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+        print('NATIVE_ACTIVATION_RECEIPT '+json.dumps({
+            'checkout_head':git(ROOT,'rev-parse','HEAD'),'trusted_target_head':head,
+            'platform':sys.platform,'bd_version':binary_version,'bd_sha256':binary_sha,
+            'id':result['id'],'claim_confirmed':result['claim_confirmed'],
+            'first_published_sha':result['published_sha'],'first_peer_sha':result['peer_sha'],
+            'first_full_object_sha256':object_digest(first_task),'first_full_object_equal':first_task==first_issues[0],
+            'final_published_sha':closed['published_sha'],
+            'final_peer_sha':git(peer,'rev-parse','refs/remotes/origin/beads-backup'),
+            'final_full_object_sha256':object_digest(task),'final_full_object_equal':task==final_issues[0]
+        },sort_keys=True))
 
     def test_wib_activation_ignores_inherited_git_origin_spoof(self):
         binary=Path('/opt/homebrew/bin/bd').resolve()

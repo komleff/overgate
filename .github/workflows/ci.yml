@@ -113,3 +113,46 @@ jobs:
           node --version
           & 'C:/Program Files/Git/bin/bash.exe' scripts/tests/bd-wt.test.sh
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  windows-beads-activation:
+    name: windows-beads-activation
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Qualified native Windows Beads 1.2.2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'beads_1.2.2_windows_amd64.zip'
+          $expanded = Join-Path $env:RUNNER_TEMP 'beads-1.2.2-windows'
+          Invoke-WebRequest -Uri 'https://github.com/gastownhall/beads/releases/download/v1.2.2/beads_1.2.2_windows_amd64.zip' -OutFile $archive
+          if ((Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant() -ne '1f00c29cd9599e182a4a4e829f5210daca2da14155920aee2836d8bc613b2feb') { throw 'official Windows Beads archive hash mismatch' }
+          Write-Output 'Verified official Windows Beads archive SHA256=1f00c29cd9599e182a4a4e829f5210daca2da14155920aee2836d8bc613b2feb'
+          Expand-Archive -Path $archive -DestinationPath $expanded
+          $binaries = @(Get-ChildItem -Path $expanded -Recurse -File -Filter bd.exe)
+          if ($binaries.Count -ne 1) { throw 'expected exactly one native bd.exe' }
+          if ((Get-FileHash -Algorithm SHA256 $binaries[0].FullName).Hash.ToLowerInvariant() -ne 'b1f3609fea1d9f0f19b2ed49098b3628acfa6ca115aa28b01a1ee178c3a214de') { throw 'native Windows bd.exe hash mismatch' }
+          Write-Output 'Verified native Windows bd.exe SHA256=b1f3609fea1d9f0f19b2ed49098b3628acfa6ca115aa28b01a1ee178c3a214de'
+          Add-Content -Path $env:GITHUB_ENV -Value "OG_BD_NATIVE_BIN=$($binaries[0].FullName)" -Encoding utf8
+      - name: Installed post-merge native activation and peer lifecycle
+        shell: pwsh
+        run: |
+          python --version
+          node --version
+          & 'C:/Program Files/Git/bin/bash.exe' --version
+          if (-not $env:OG_BD_NATIVE_BIN) { throw 'qualified native bd.exe not exported' }
+          python scripts/tests/install-distribution.test.py InstallTests.test_wib_native_postmerge_activation_peer_and_lifecycle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
