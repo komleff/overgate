@@ -1,8 +1,8 @@
 ---
 title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
-version: "4.0.0-rc.4"
-date: 2026-10-03
+version: "4.0.0-rc.5"
+date: 2026-11-05
 tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
@@ -14,34 +14,101 @@ OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git
 Legacy `install-all.ps1`/per-skill scripts не использовать для RC. Stable Dreadnought остаётся
 прежним snapshot; RC выбирается явно по release/tag и exact commit SHA. Старые refs не двигать.
 
+Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
+а trusted installer/publisher игнорирует system/global Git config. Для установки
+создайте **оба** source OverGate и target project как новые LF clone:
+`git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'`. Локальная настройка
+записывается до checkout. После merge publisher и peer создаются такими же новыми
+LF clone; перед activation сверьте `git config --local --get core.autocrlf` = `false`
+в source/target/publisher/peer и чистый tracked status. Для fresh checkout без
+Beads state при CRLF drift сохраните работу и создайте новый LF clone; не делайте
+`reset`, `clean` или in-place смену Git config. Если **любая** Beads DB, queue,
+receipt или local-only task state уже существует, оставьте старый checkout и
+сначала выполните B4 reviewed inventory/preservation всех известных writers.
+Новый clone не заменяет и не переносит эту базу/очередь; switch только отдельным
+принятым PR после fence, неизвестное состояние — stop.
+
 Пререквизиты: Git, Bash, Python 3 (3.10+ для reference/native fixtures); jq для finalize, Node.js для Beads snapshot reader и reference
-tests, gh для PR evidence. `bd` 1.2.2 обязателен для автономного продукта; `--no-beads` — для разовых проектов.
-Нужен Git push из shell для первого beads-backup; helper не скачивает bd, его ставит агент по ОС. Проверяйте
+tests, gh или авторизованный коннектор для PR evidence. `bd` 1.2.2 обязателен для post-merge
+Beads activation; `--no-beads` — для разовых проектов. Для публикации первого `beads-backup`
+нужен отдельный авторизованный Git push; helper не скачивает bd, его ставит агент по ОС. Проверяйте
 текущий `bd --help`. macOS/Linux deterministic fixtures — граница reference evidence;
 На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
 не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
 
 ### Beads и облачный агент
 
-Описанный ниже installer и его manifest по-прежнему поставляют legacy v0. Source rc.5
-WI-A добавляет managed helpers и инструкции, но не включает их через install/upgrade;
-выбор protocol, preservation и activation — отдельный WI-B. Не применять managed publisher
-из install PR или поверх существующей базы без этого перехода.
+Fresh Beads install ставит полный managed closure и `beads_protocol: managed-v1` без
+создания DB или задачи в install PR. Существующий rc.4 Beads target остаётся
+`legacy-v0` до отдельного reviewed перехода; `--no-beads` ставит `none`.
+Не применять managed publisher из install PR или поверх существующей базы без этого перехода.
 
-Для fresh Beads target `bd-bootstrap.sh` после пустого init закрепляет фактический issue
-prefix активной строкой в tracked `.beads/config.yaml`. Перед завершением project install PR
-проверьте `bd --readonly config list --json`, прочтите опубликованный snapshot и включите
-этот pin в commit: clone без него намеренно остановится до восстановления локальной DB.
-Существующую DB/config helper автоматически не переписывает.
+Fresh `managed-v1` install PR ставит только source bytes. После merge activation из
+trusted target `main` требует repo-local Git `user.name`/`user.email` publisher
+(или явную service identity) и авторизованный transport: доверенный repo-local
+`credential.helper` для HTTPS либо SSH remote с `SSH_AUTH_SOCK`. Global/system
+Git config и `GIT_CONFIG_*` очищаются в trusted writer route; обычный пользовательский
+HTTPS helper из global config здесь недоступен. Отсутствующая identity/auth останавливает
+setup до task write. Не сохраняйте credentials в репозитории или отчёте.
+Если activation остановилась после native init/setup, сохраните DB, private work
+directory и очередь; тот же вызов `bd-activate.sh --resume` сверяет checkpoint и
+продолжает. Частично созданная DB без полного checkpoint требует reviewed recovery,
+а не удаления `.beads` или автоматического rollback.
+
+Для существующего `legacy-v0` target fresh `bd-activate.sh` не применяют. Сначала
+перечислите все известные авторизованные standalone old-writer clones и создайте
+read-only packet на их точных bytes:
+
+```bash
+python3 /trusted/overgate/scripts/bd-upgrade-preserve.py --target /project \
+  --writer-root /project --writer-root /other-known-clone \
+  --bd-bin /qualified/bd --actor <agent-UUID> \
+  --outcome verified-clean --output /private/legacy-packet.json
+```
+
+Packet и snapshot остаются вне репозитория. `pending-retained` сохраняет очередь
+и владельца, но блокирует switch до отдельного разрешения. Сверьте frozen `R`,
+native export каждого clone, DB/queue/receipt/config/hooks, fetch и все push URL
+origin. Каждый push destination должен показывать те же `main` и task `R`, что
+fetch; plan/apply заново сверяют frozen Git snapshot и native local export,
+включая pending и executable mode hook. Unknown/unupgraded writer, drift либо
+неполный список — stop. Сначала
+установите проверенную legacy helper closure во всех перечисленных клонах через
+отдельный project PR, выполните operator merge и обновите клоны до одного trusted
+`main`. Повторно создайте packet и включите fence до первой managed publication:
+
+```bash
+python3 /project/scripts/bd-upgrade-fence.py --packet /private/legacy-packet.json
+```
+
+Fence блокирует штатные old-writer helpers в этих клонах до task mutation и
+публикации, включая период после switch. После fence создайте **новый** private
+packet тем же read-only вызовом; он связывает исходный packet SHA с неизменным
+task state и установленными fence receipts. Отдельный reviewed target PR с
+`install-overgate.py plan --preservation /private/post-fence-packet.json
+--switch-managed` меняет installed protocol/closure только после принятого packet;
+`--preservation` без `--switch-managed` оставляет `legacy-v0`. После operator merge
+используйте trusted-main WI-A `bd-publisher-setup.mjs` и
+`bd-apply-intents.sh --bootstrap` с frozen legacy `R` и verified-clean manifest,
+затем реальную typed очередь и peer readback того же published SHA/полного task
+state. До первой publication installer rollback возможен при точном checkpoint;
+после неё откат protocol запрещён. DB и pending intents не удаляются.
+
+Fresh `bd-activate.sh` принимает явный project prefix только после merge install PR,
+сверяет его с фактическим native `bd` после подтверждённо пустой инициализации.
+Перед последующей работой проверьте effective prefix, опубликованный snapshot и
+peer read-back. Existing DB/config этим fresh route не переписывается; при
+неизвестном состоянии — stop.
 
 Порядок для трёх окружений — [`HOW_TO_USE.md`, секция Beads](HOW_TO_USE.md#beads-основной-checkout-worktree-и-облачный-агент).
 `bd`/Dolt нужны основному checkout оператора; облачному агенту достаточно снимка задач и
 канала публикации PR, включая уже авторизованный GitHub-коннектор. Авторизация shell
 Git/gh не является обязательным шагом для этого канала.
-Inventory содержит reader/worktree/sync helpers, но пока не содержит applier/engine/queue.
-Для автоматического применения cloud-заявок подключить reviewed project tooling отдельным
-изменением по инструкции; до этого заявки pending. Не инициализировать облачную базу.
-Локальная worktree и агент основного checkout работают через `bash scripts/bd-wt.sh`: база
+Managed install содержит reader, typed queue и applier, но writer запускается только через
+зарегистрированный trusted publisher после отдельной post-merge activation. До регистрации
+заявки pending. Не инициализировать облачную базу.
+В `legacy-v0` локальная worktree и агент основного checkout работают через
+`bash scripts/bd-wt.sh`: база
 выбирается по `dolt_mode` из `.beads/metadata.json` (embedded или dolt-сервер), проходит
 только allowlist подкоманд, флаги смены базы/каталога и чтения файла отклоняются; чтение
 `metadata.json` идёт через `.claude/tools/run-python.sh`. Скрипты `scripts/bd-*.sh`
@@ -93,8 +160,9 @@ Claude dispatcher evidence не является Codex actual activation PASS.
 
 ## До копирования
 
-1. До plan проверь `gh auth status` и Git push из shell. Если gh auth нет, target Draft PR
-   допускается через коннектор с `--no-beads`; helper вернёт код 3, это записывается в PR.
+1. До plan проверь доступ для target Draft PR: `gh auth status` при shell `gh` либо
+   авторизованный GitHub-коннектор. Отдельно подготовь post-merge Git transport,
+   если выбран Beads; отсутствие shell `gh` не принуждает к `--no-beads`.
    Если репозитория нет, создай его с первым README-коммитом в main при создании репозитория
    (без agent push в main), затем создай рабочую ветку target проекта. Прочитай project authority/context и legacy overrides.
 2. Открой **один target Draft PR** с plan и Verification Contract до записи managed payload.
@@ -204,7 +272,7 @@ Reference `/verify` запускает `scripts/verify-reference.sh`, consumer �
 Одинаковые роли, helper/checker/finalize executable и Verification Contract применяются в обоих;
 реальная activation фиксируется отдельно, static fixtures её не заменяют.
 
-## Режимы rc.4 и helpers
+## Режимы rc.5 и helpers
 
 `plan --mode auto` / `--mode bypass` выбирает source вариант; bypass отличается ровно значением
 `defaultMode`. Без флага fresh выбирает auto. Канонические строгие JSON fingerprints manifest
@@ -222,32 +290,27 @@ Codex артефакт пустого permissions.deny снимается; пр�
 R6: если доступный auto блокирует штатный pipeline, записать FAIL в PR и передать оператору,
 не скрывать отказ bypass-перезапуском. [Primary runtime docs](https://code.claude.com/docs/en/permission-modes).
 
-`plan --no-beads` исключает девять component=beads entries и Beads-блок AGENTS template.
-Memory Bank создаётся всегда. При upgrade режим берётся из state, смена Beads режима запрещена;
-старый/отсутствующий/нечитаемый state checker/finalize трактуют как beads:true. Unreadable state
+`plan --no-beads` исключает всю Beads closure и Beads-блок AGENTS template.
+Memory Bank создаётся всегда. При upgrade прежний `beads:false` остаётся `none`,
+`legacy-v0` остаётся legacy до отдельного preservation/fence/accepted `--switch-managed`;
+смена `none` на Beads не выполняется. Старый/отсутствующий/нечитаемый state checker/finalize трактуют как beads:true. Unreadable state
 самого installer требует устранения ошибки, не разрешает новую установку поверх неизвестной.
 Triage без Beads принимает только открытый существующий GitHub issue этого PR repo (#N или URL),
 проверенный gh issue view; PR/foreign/closed/malformed/missing gh — stop.
 
-После apply, при fresh и upgrade, строго выполняются:
+После apply в install branch выполняются:
 
 ```bash
 bash scripts/og-init-memory-bank.sh
-bash scripts/bd-bootstrap.sh
 bash scripts/og-protect-main.sh
 ```
 
-При --no-beads второй шаг пропускается. Memory helper создаёт шесть файлов из templates только
-при отсутствующем каталоге; существующий даже частичный — no-op со списком недостающих файлов.
-Beads helper требует основной checkout, bd 1.2.2 (другие версии stop), embedded init --skip-agents
---skip-hooks --non-interactive --remote ''. --skip-hooks исключает только generated Beads hooks,
-не OverGate guards. CLI config отключает export.auto и backup.git-push, снимает sync.remote и
-Dolt remotes. Existing DB не перезаписывается: проверяется postcondition/ready. Existing server допускается
-только живой по канонической OS-пробе; helper второй сервер не запускает. Наличие snapshot
-проверяется через git ls-remote --heads origin beads-backup; нет ветки — штатный первый export.
-Все preconditions до atomic complete snapshot; failure/readback после export означает возможную
-уже состоявшуюся публикацию, stop без автоматического удаления/отката remote. Helper/installer
-ничего не скачивает; установку bd выполняет агент по инструкции ОС.
+Memory helper создаёт шесть файлов из templates только при отсутствующем каталоге;
+существующий даже частичный — no-op со списком недостающих файлов. Install PR не
+инициализирует Beads DB, не создаёт task ID и не публикует `beads-backup`. Fresh
+managed activation — только после operator merge из trusted target `main`, по секции
+«Beads и облачный агент». Для legacy нужен отдельный accepted switch; `bd-bootstrap.sh`
+остаётся legacy recovery helper, не install step.
 
 Protection helper запускается после появления main на GitHub. Поручение на установку подтверждает
 эту удалённую запись (§3.33): PR required (0 approvals), enforce_admins:true, force/delete:false.
@@ -261,10 +324,9 @@ paths/hashes; legacy state rc.1–rc.3 читается. Абсолютный ba
 apply печатает его, rollback принимает --backup явно. Approval привязывается к plan modes тоже:
 apply пересобирает exact plan и останавливает drift.
 Агент заполняет verify.sh реальными project tests, при их отсутствии создаёт минимальные.
-Windows final-candidate checklist §5.4 плана WI-1 выполняет оператор после Code Review;
-реальные auto/bypass/Claude/Codex и Windows receipts отдельно, до них NOT RUN.
-WI-1 trusted gate/source/validators/tools: main@fa0681a6e3b842959143a22e66b93d2161c0f13c;
-FINAL указывает trusted SHA, SKILL blob и final PR HEAD; mismatch stop, self-certification запрещена.
+Реальные Windows/Claude/Codex и native activation receipts проверяются отдельно;
+reference unit-тесты не заменяют их. FINAL указывает trusted SHA, SKILL blob и final PR
+HEAD; mismatch stop, self-certification запрещена.
 
 ## Проверка и завершение
 
@@ -296,6 +358,5 @@ journal и тот же обратный порядок. Project overrides, Beads
 release/tag в отдельной рабочей ветке. Не передвигай опубликованные теги. RC не становится Latest;
 promotion в stable — отдельное решение.
 
-Fresh Beads prefix берётся из basename проекта: dots/underscore/spaces/non-ASCII → дефис,
-leading digit/односимвольное имя → p-, пустой ASCII → project-<SHA256(basename UTF8)[:8]>.
-Это совместимо с bd и triage; существующие база и task ID не меняются.
+Fresh managed Beads prefix задаётся явно при post-merge activation и сверяется с
+native CLI/project-owned pin. Существующие база и task ID не меняются.

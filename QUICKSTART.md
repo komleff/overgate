@@ -7,19 +7,30 @@ merge — кнопку принятия изменений. Программир
 ## Что понадобится
 
 Агент проверяет `git --version`, `bash --version`, `python3 --version` (Windows: `py -3 --version`),
-`gh --version`, `jq --version`, `node --version`, `bd --version`.
+`jq --version`, `node --version`; `gh --version` — при shell PR route, `bd --version` —
+перед post-merge Beads activation.
 Git хранит историю; GitHub размещает проект; gh — программа доступа к GitHub; Python/Bash/Node/jq
 запускают инструменты. Версию выбранного Codex/Claude Code агент фиксирует из его интерфейса;
 `claude --version` нужен только при выборе Claude Code. Beads (`bd`) хранит задачи между сессиями, Memory Bank — принятые решения.
 Для Beads проверена только версия **1.2.2**. Если её нет, агент выбирает именно v1.2.2 (не latest), подходящий архив Windows/macOS/Linux по
 [инструкции для ОС](https://github.com/gastownhall/beads/releases/tag/v1.2.2), затем проверяет версию.
-Helper и установщик сами bd не скачивают. Нужны настроенный GitHub и `git push` из shell:
-это публикация рабочей ветки и первого снимка задач. Агент проверяет `gh auth status` до плана.
+Helper и установщик сами bd не скачивают. Для PR нужен доступ к GitHub через `gh`
+или авторизованный коннектор; `gh auth status` проверяют при использовании shell `gh`.
+Для Beads после merge нужен отдельный авторизованный `git push` из publisher checkout.
 
 Source OverGate — чистый Git checkout (`git clone`) на выбранном RC и точном SHA (номере версии
-исходного кода). ZIP без `.git` не подходит. Для rc.4 это пока candidate WI-1; выпуск следует
-после его полной приёмки и merge оператором. Сложный Bash recovery — отдельный WI-2 в rc.5.
+исходного кода). ZIP без `.git` не подходит. `v4.0.0-rc.5` пока candidate: выбирайте
+его exact SHA для проверки, а опубликованный `v4.0.0-rc.4.1` — отдельный prerelease.
 Stable/Latest остаётся v3.9.0.
+
+На Windows для fresh install source OverGate и проектный target создавайте сразу как LF checkout:
+`git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'` (замените оба
+placeholder). Этот repo-local параметр задаётся **до checkout/install**; для fresh
+Beads после merge тем же способом создайте отдельные publisher и peer clone.
+Существующий CRLF checkout без Beads state не перенастраивайте и не сбрасывайте:
+сохраните работу, создайте новый LF clone и проверьте чистоту. При **любых** уже
+имеющихся Beads DB/queue/receipts сохраните старый checkout и выполните B4 reviewed
+inventory/preservation до перехода; новый clone сам по себе task state не переносит.
 
 ## Одна фраза агенту
 
@@ -38,19 +49,40 @@ Draft PR — предложение изменений, пока не готов
 Если проекта ещё нет на GitHub, агент создаёт репозиторий с первым README-коммитом в main через
 создание репозитория, затем работает в отдельной ветке; агент не пушит в main.
 
-Дальше агент сам открывает Draft PR, описывает проверки, создаёт план без записи файлов,
-получает независимый PLAN_READY, выполняет `apply` и строго по очереди:
+Дальше агент открывает Draft PR, описывает проверки, создаёт план без записи файлов,
+получает независимый PLAN_READY, выполняет `apply` и запускает на install branch:
 
 ```bash
 bash scripts/og-init-memory-bank.sh
-bash scripts/bd-bootstrap.sh
 bash scripts/og-protect-main.sh
 ```
 
-Первый helper создаёт шесть файлов Memory Bank, второй — базу и ветку `beads-backup` со снимком
-задач, третий — защиту главной ветки. Существующие данные проекта сохраняются. Агент заполняет
-`verify.sh` реальными тестами проекта; если тестов нет, создаёт минимальные и запускает их.
-Незаполненный шаблон проверки намеренно возвращает ошибку.
+Первый helper создаёт шесть файлов Memory Bank, второй настраивает и проверяет защиту главной ветки
+на GitHub. Существующие данные проекта сохраняются. Агент заполняет `verify.sh`
+реальными тестами проекта; если тестов нет, создаёт минимальные и запускает их.
+Незаполненный шаблон проверки намеренно возвращает ошибку. **В install PR нет**
+`bd init`, локальной Beads DB, task ID и публикации `beads-backup`.
+
+После проверок и вашего merge install PR агент переходит на чистый доверенный `main`
+проекта. Для нового Beads проекта он получает от вас фактическую задачу и явный
+project prefix, готовит отдельные publisher и peer checkout, затем запускает:
+
+```bash
+bash scripts/bd-activate.sh --publisher-root '<absolute-publisher-checkout>' \
+  --peer-root '<absolute-peer-checkout>' --bd-bin '<absolute-qualified-bd-1.2.2>' \
+  --prefix '<project-prefix>' --actor '<agent-UUID>' \
+  --title 'Название принятой задачи' --work-dir '<absolute-private-work-dir>'
+```
+
+Замените placeholders на абсолютные пути вашей ОС; private work directory находится
+вне проекта и обоих checkout. На Windows используйте пути, которые принимает Git Bash.
+Activation требует repo-local Git identity и авторизованный HTTPS credential helper
+либо SSH agent/remote. Успех — реальный ID, confirmed claim, published SHA и чтение
+того же task state из peer. Если отказ произошёл **после создания checkpoint**, сохраните
+очередь/private work directory для `--resume` или reviewed recovery. Отказ preflight
+до checkpoint требует устранить причину и повторить новый запуск; без принятой
+задачи очередь не создаётся. При недоступном writer после checkpoint очередь pending;
+`tmp:` не является готовым ID. Подробности — [INSTALL](.agents/INSTALL.md#beads-и-облачный-агент).
 
 ## Режимы Claude Code
 
@@ -64,15 +96,19 @@ auto/bypass в project settings. Поэтому используйте явны�
 bypass не используется для скрытия такого отказа. [Правила Claude Code](https://code.claude.com/docs/en/permission-modes).
 Settings с правками вашего проекта сохраняют permissions и mode; явный --mode на них остановится.
 
-Для разовой задачи добавьте к поручению «используй `--no-beads`»: второй helper пропускается,
-Memory Bank всё равно создаётся. Режим Beads нельзя менять при обновлении установленного проекта.
-Без gh auth PR можно открыть через подключённый GitHub-коннектор; такой installation route
-работает только с `--no-beads`, иначе публикация `beads-backup` требует Git push из shell.
+Для разовой задачи добавьте к поручению «используй `--no-beads`»: Beads closure не
+устанавливается, режим остаётся `none`, Memory Bank создаётся. При upgrade прежний
+`beads:false` тоже остаётся `none`; `legacy-v0` не меняется молча. Переход существующего
+Beads проекта на `managed-v1` требует отдельного preservation packet, fence всех
+известных старых writers, принятого target PR и merge. Pending работа сохраняется
+и блокирует switch до разрешения. PR через коннектор не требует shell `gh` login,
+но для post-merge Beads publication всё равно нужен авторизованный Git transport.
 
 ## Что появится
 
 `.agents` объясняет агентам роли и порядок работы; `.claude` и `.codex` подключают защитные хуки
-(проверки перед действиями). `.memory-bank` хранит контекст, `.beads` и `beads-backup` — задачи.
+(проверки перед действиями). `.memory-bank` хранит контекст; при Beads activation
+локальная `.beads` и опубликованный `beads-backup` хранят задачи.
 `.overgate/install-state.json` хранит версию и режимы без абсолютных путей вашей машины.
 Существующий Memory Bank даже с недостающими файлами не перезаписывается: агент сообщает пробелы.
 
@@ -93,15 +129,15 @@ Memory Bank всё равно создаётся. Режим Beads нельзя 
 Локальные хуки не защищают remote-коннекторы; прямое снятие protection API остаётся риском R7.
 
 Сразу после `apply`, до helpers и изменений, агент может выполнить `rollback --target ...
---backup <путь из apply>` по INSTALL: вернутся все исходные managed-файлы и install-state;
-любой изменённый файл из журнала остановит откат. После helpers/правок — revert install PR
-(обратное изменение через PR). База задач, Memory Bank и защита GitHub этим не снимаются.
+--backup <путь из apply>` по INSTALL: вернутся исходные managed-файлы и install-state;
+любой изменённый файл из журнала остановит откат. После project правок — revert install PR
+(обратное изменение через PR). После первой managed публикации откат protocol запрещён;
+База задач, Memory Bank и защита GitHub installer rollback не снимает.
 
-Запускайте сессию в корне проекта. Восстановление из подкаталога с пробелами/кириллицей пока
-ограничено: откройте новую сессию из root; исправление относится к WI-2 og-7sr.
-Windows и живые auto/bypass/Claude/Codex проверки не подтверждаются unit-тестами или CI.
-Оператор проверяет final candidate в простом и сложном Windows-пути по
-[чек-листу §5.4](docs/plans/2026-10-24-v4.0.0-rc.4.md#54-чек-лист-живой-проверки-на-windows-оператор-og-9ic4),
-с версиями, фактическими шагами и логами в PR. До таких receipts это NOT RUN.
-
-Для нового Beads агент автоматически выбирает совместимый префикс задач; существующие ID сохраняются.
+Запускайте сессию в корне проекта. Из подкаталога своего checkout dispatcher показывает
+одну копируемую shell-safe команду `cd` к проверенному root, включая пути с пробелами,
+кириллицей, скобками и апострофом. Вне проверенного Git root для сложного пути начните
+новую сессию из root: неизвестный каталог не превращается в разрешённый `cd`.
+Windows и живые Claude/Codex проверки требуют отдельных receipts в candidate PR;
+unit-тесты и CI не заменяют их. Prefix новой Beads базы задаётся явно при activation
+и сверяется с native CLI; существующие ID не переписываются.

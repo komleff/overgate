@@ -6,6 +6,7 @@ import errno
 from unittest import mock
 import hashlib
 import json
+import locale
 import os
 import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -40,6 +41,9 @@ def init(root):
     git(root,'init','-q','-b','fixture')
     git(root,'config','user.email','fixture@example.invalid')
     git(root,'config','user.name','Fixture')
+    remote=root.parent/(root.name+'-origin.git')
+    subprocess.check_call(['git','init','-q','--bare',str(remote)])
+    git(root,'remote','add','origin',str(remote))
 
 def snapshot(root):
     return {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*')
@@ -52,6 +56,117 @@ def load_installer():
 
 def crlf(data):
     return data.replace(b'\n',b'\r\n')
+
+class ActivationEncodingTests(unittest.TestCase):
+    def test_native_env_binds_project_beads_dir_and_missing_state_stops(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            root=Path(holder).resolve();expected=str(root/'.beads')
+            with mock.patch.dict(os.environ,{'BEADS_DIR':str(root/'attacker-beads'),
+                                             'BEADS_DB':str(root/'attacker-db'),
+                                             'DOLT_ROOT_PATH':str(root/'attacker-dolt')}):
+                env=activation.native_env(root)
+            self.assertEqual(env['BEADS_DIR'],expected)
+            self.assertNotIn('BEADS_DB',env)
+            self.assertEqual(env['DOLT_ROOT_PATH'],str(root/'.git/overgate-bd-activation/dolt-global'))
+            with self.assertRaisesRegex(activation.ActivationError,'project-owned local state missing'):
+                activation.assert_native_local_state(root)
+
+    def test_trusted_crlf_clone_refuses_and_lf_clone_ignores_remote_spoof(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            base=Path(holder).resolve();source=base/'source';init(source)
+            (source/'README.md').write_bytes(b'alpha\nbeta\n')
+            git(source,'add','README.md');git(source,'commit','-qm','fixture')
+            git(source,'branch','-M','main');git(source,'push','-q','origin','main')
+            remote=base/'source-origin.git';git(remote,'symbolic-ref','HEAD','refs/heads/main')
+            global_config=base/'fixture-global.gitconfig'
+            global_config.write_text('[core]\n\tautocrlf = true\n',encoding='utf-8')
+            checkout_env={**os.environ,'GIT_CONFIG_GLOBAL':str(global_config),'GIT_CONFIG_NOSYSTEM':'1'}
+            crlf=base/'crlf-publisher'
+            subprocess.check_call(['git','clone','-q',str(remote),str(crlf)],env=checkout_env)
+            expected=git(crlf,'rev-parse','HEAD')
+            normal=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
+                                  env=checkout_env,capture_output=True,text=True,check=True)
+            self.assertEqual(normal.stdout,'','system/global autocrlf clone must be clean under its checkout config')
+            self.assertEqual((crlf/'README.md').read_bytes(),b'alpha\r\nbeta\r\n')
+            readonly_env=activation.installer.git_environment()
+            with tempfile.TemporaryDirectory(prefix='overgate-test-index-') as private:
+                private_index=Path(private)/'index'
+                readonly_env['GIT_INDEX_FILE']=str(private_index)
+                subprocess.run(['git','-C',str(crlf),'read-tree','HEAD'],env=readonly_env,check=True,capture_output=True)
+                sanitized=subprocess.run(['git','-C',str(crlf),'status','--porcelain','--untracked-files=no'],
+                                         env=readonly_env,capture_output=True,text=True,check=True)
+            self.assertEqual(sanitized.stdout,' M README.md\n','CRLF diagnosis must identify exact tracked path')
+            index_before=(crlf/'.git/index').read_bytes()
+            stage_before=git(crlf,'ls-files','--stage')
+            self.assertEqual(git(crlf,'diff','--cached','--name-status'),'')
+            with self.assertRaisesRegex(activation.ActivationError,'tracked worktree/index must be clean'):
+                activation.trusted(crlf)
+            self.assertEqual((crlf/'.git/index').read_bytes(),index_before,'refusal must preserve Git index bytes')
+            self.assertEqual(git(crlf,'ls-files','--stage'),stage_before)
+            self.assertEqual(git(crlf,'diff','--cached','--name-status'),'')
+            self.assertFalse((crlf/'.beads').exists())
+            self.assertEqual(git(crlf,'ls-remote','origin','refs/heads/beads-backup'),'')
+            lf=base/'lf-publisher'
+            subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(lf)],env=checkout_env)
+            self.assertEqual(git(lf,'config','--local','--get','core.autocrlf'),'false')
+            self.assertEqual(git(lf,'status','--porcelain','--untracked-files=no'),'')
+            attacker=base/'attacker.git';subprocess.check_call(['git','init','-q','--bare',str(attacker)])
+            spoof={'GIT_CONFIG_COUNT':'2','GIT_CONFIG_KEY_0':'remote.origin.url','GIT_CONFIG_VALUE_0':str(attacker),
+                   'GIT_CONFIG_KEY_1':'remote.origin.pushurl','GIT_CONFIG_VALUE_1':str(attacker)}
+            with mock.patch.dict(os.environ,spoof):
+                self.assertEqual(activation.trusted(lf),expected)
+                self.assertEqual(activation.origin_state(lf)[0],str(remote))
+            (lf/'README.md').write_bytes(b'staged only\n')
+            git(lf,'add','README.md')
+            (lf/'README.md').write_bytes(b'alpha\nbeta\n')
+            staged_index=(lf/'.git/index').read_bytes()
+            with self.assertRaisesRegex(activation.ActivationError,'tracked worktree/index must be clean'):
+                activation.trusted(lf)
+            self.assertEqual((lf/'.git/index').read_bytes(),staged_index)
+            self.assertEqual(git(lf,'diff','--cached','--name-status'),'M\tREADME.md')
+            print('CRLF_TRUST_RECEIPT '+json.dumps({'crlf_sanitized_porcelain':sanitized.stdout,
+                                                   'crlf_rejected':True,'lf_trusted_sha':expected,
+                                                   'spoofed_origin_ignored':True},sort_keys=True))
+
+    def test_git_stdout_uses_utf8_when_python_default_is_cp1251(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            checkout=Path(holder)/"Проект's (QA) space";checkout.mkdir()
+            subprocess.check_call(['git','-C',str(checkout),'init','-q'])
+            subprocess.check_call(['git','-C',str(checkout),'config','--local','overgate.beadsPublisher',str(checkout)])
+            with mock.patch.object(locale,'getencoding',return_value='cp1251'):
+                self.assertEqual(Path(activation.git(checkout,'rev-parse','--show-toplevel')).resolve(),checkout.resolve())
+                self.assertEqual(activation.call(['git','-C',checkout,'config','--local','--get','overgate.beadsPublisher'],checkout,'peer config'),str(checkout))
+                self.assertEqual(activation.optional_local_config(checkout,'overgate.beadsPublisher'),str(checkout))
+                self.assertIsNone(activation.optional_local_config(checkout,'overgate.beadsPrefix'))
+                with self.assertRaises(UnicodeDecodeError):
+                    activation.call([sys.executable,'-c','import os; os.write(1, bytes([255]))'],checkout,'invalid UTF-8')
+
+    def test_failed_child_reports_bounded_diagnostic_without_stderr_secret(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        with tempfile.TemporaryDirectory() as holder:
+            payload="import sys; sys.stderr.write(\"Error: https://user:secret@example.invalid/\\n  code: 'MODULE_NOT_FOUND'\\n\"); sys.exit(1)"
+            with self.assertRaises(activation.ActivationError) as result:
+                activation.call([sys.executable,'-c',payload],Path(holder),'trusted managed apply')
+            message=str(result.exception)
+            self.assertIn('MODULE_NOT_FOUND',message)
+            self.assertRegex(message,r'stderr_sha256=[0-9a-f]{64}')
+            self.assertNotIn('secret',message)
+            self.assertNotIn('example.invalid',message)
+
+    def test_optional_git_config_rejects_invalid_utf8_synchronously(self):
+        spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
+        activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+        invalid=subprocess.CompletedProcess(['git','config'],0,b'\xff',b'')
+        with mock.patch.object(activation.subprocess,'run',return_value=invalid):
+            with self.assertRaises(UnicodeDecodeError):
+                activation.optional_local_config(Path('.'),'overgate.beadsPublisher')
 
 class SnapshotTests(unittest.TestCase):
     def test_snapshot_manifest_keys_preserve_bytes_on_both_path_flavors(self):
@@ -99,6 +214,604 @@ class InstallTests(unittest.TestCase):
         return self.call('plan','--source',self.source,'--source-sha',self.sha,'--target',self.target,
                          '--contract',self.contract,'--target-pr','https://github.com/example/project/pull/1','--output',self.plan,*extra)
 
+    def test_wib_fresh_protocol_is_managed_without_beads_mutation(self):
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_protocol'],'managed-v1')
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'verified-absent')
+        self.approve();self.apply()
+        state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
+        self.assertEqual(state['beads_protocol'],'managed-v1')
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertFalse((self.target/'.bd-intents').exists())
+        self.assertNotIn('refs/heads/beads-backup',git(self.target,'ls-remote','--heads','origin'))
+
+    def test_wib_unknown_local_or_remote_state_stops_before_target_write(self):
+        existing=self.target/'.beads/metadata.json';existing.parent.mkdir();existing.write_text('{"backend":"dolt"}')
+        before=snapshot(self.target)
+        result=self.make_plan()
+        plan=json.loads(self.plan.read_bytes())
+        self.assertTrue(plan['beads_inventory']['blocked'])
+        self.approve();self.assertIn('preservation',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+        existing.unlink();existing.parent.rmdir()
+        self.make_plan();self.approve()
+        (self.target/'.bd-intents').mkdir();(self.target/'.bd-intents/pending.jsonl').write_text('{}\n')
+        before=snapshot(self.target)
+        self.assertIn('drift',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+
+    def test_wib_remote_unavailable_and_remote_advance_are_not_absent(self):
+        git(self.target,'remote','remove','origin')
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'unknown')
+        self.approve();before=snapshot(self.target)
+        self.assertIn('preservation',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+        remote=self.root/'target-origin.git';git(self.target,'remote','add','origin',str(remote))
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'verified-absent')
+        self.approve();git(self.target,'commit','--allow-empty','-qm','remote fixture')
+        git(self.target,'push','-q','origin','HEAD:refs/heads/beads-backup')
+        before=snapshot(self.target)
+        self.assertIn('drift',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_inventory']['remote']['status'],'present')
+        self.assertRegex(plan['beads_inventory']['remote']['R'],r'^[0-9a-f]{40}$')
+        self.approve();self.assertIn('preservation',self.apply(ok=False).stderr)
+
+    def test_wib_symlinked_local_beads_stops_without_writes(self):
+        outside=self.root/'outside';outside.mkdir()
+        try:(self.target/'.beads').symlink_to(outside,target_is_directory=True)
+        except OSError as error:
+            if sys.platform=='win32' and getattr(error,'winerror',None)==1314:self.skipTest('Windows symlink privilege 1314')
+            raise
+        before=snapshot(self.target)
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertTrue(plan['beads_inventory']['blocked'])
+        self.assertTrue(any('symlink' in reason for reason in plan['beads_inventory']['reasons']))
+        self.approve();self.assertIn('preservation',self.apply(ok=False).stderr)
+        self.assertEqual(snapshot(self.target),before)
+
+    def test_wib_rc4_beads_false_maps_to_none_without_beads_closure(self):
+        state=self.target/'.overgate/install-state.json';state.parent.mkdir()
+        state.write_text(json.dumps({'format':2,'source_sha':'0'*40,'manifest_version':'4.0.0-rc.4',
+                                     'mode':'auto','beads':False,'installed':{}}),encoding='utf-8')
+        self.make_plan();plan=json.loads(self.plan.read_bytes())
+        self.assertEqual(plan['beads_protocol'],'none')
+        self.assertFalse(plan['beads'])
+        self.approve();self.apply()
+        installed=json.loads(state.read_bytes())
+        self.assertEqual(installed['beads_protocol'],'none')
+        for entry in self.source_manifest()['files']:
+            if entry.get('component')=='beads':self.assertFalse((self.target/entry['target']).exists(),entry['target'])
+        self.assertNotIn('overgate:beads',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
+
+    def test_wib_managed_imports_and_helpers_are_required(self):
+        self.make_plan();self.approve();self.apply()
+        checker=self.target/'scripts/check-reference.py'
+        managed=[e['target'] for e in self.source_manifest()['files'] if e.get('component')=='beads'
+                 and ('bd-managed-' in e['target'] or 'bd-publisher-' in e['target']
+                      or e['target'] in ('scripts/lib/bd-snapshot.mjs','scripts/bd-apply-intents.sh',
+                                         'scripts/lib/bd-git-environment.mjs'))]
+        self.assertIn('scripts/lib/bd-git-environment.mjs',managed)
+        self.assertGreaterEqual(len(managed),12)
+        for name in managed:
+            with self.subTest(name=name):
+                path=self.target/name;bytes_before=path.read_bytes();path.unlink()
+                run=subprocess.run([sys.executable,str(checker),'--root',str(self.target)],capture_output=True,text=True)
+                self.assertNotEqual(run.returncode,0,name)
+                self.assertIn('CLOSURE-',run.stdout)
+                path.write_bytes(bytes_before)
+
+    def test_wib_activation_refuses_unmerged_install_and_keeps_queue(self):
+        self.make_plan();self.approve();self.apply()
+        command=self.target/'scripts/bd-activate.sh'
+        self.assertTrue(command.is_file(),'managed activation helper must be installed')
+        work=self.root/'activation-work'
+        before=snapshot(self.target)
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',self.root/'publisher',
+                            '--peer-root',self.root/'peer','--bd-bin','/not/a/real/bd',
+                            '--prefix','big-heroes','--actor','agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2',
+                            '--title','Project task','--work-dir',work],cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('trusted',run.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertFalse((self.target/'.overgate-backups').is_symlink())
+
+    def test_wib_native_postmerge_activation_peer_and_lifecycle(self):
+        override=os.environ.get('OG_BD_NATIVE_BIN')
+        if override:
+            self.assertEqual(sys.platform,'win32','OG_BD_NATIVE_BIN is reserved for native Windows qualification')
+            binary=Path(override).resolve()
+            expected='b1f3609fea1d9f0f19b2ed49098b3628acfa6ca115aa28b01a1ee178c3a214de'
+            self.assertTrue(binary.is_file(),'qualified native Windows bd.exe unavailable')
+            self.assertEqual(hashlib.sha256(binary.read_bytes()).hexdigest(),expected,'native Windows bd.exe hash mismatch')
+        else:
+            binary=Path('/opt/homebrew/bin/bd').resolve()
+            if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
+                self.skipTest('native qualified macOS bd 1.2.2 unavailable; Windows requires OG_BD_NATIVE_BIN')
+        binary_sha=hashlib.sha256(binary.read_bytes()).hexdigest()
+        binary_version=subprocess.check_output([str(binary),'--version'],text=True,encoding='utf-8').strip()
+        self.assertRegex(binary_version,r'\b1\.2\.2\b')
+        # Local LF config is fixed before source/target install and clone checkout;
+        # the trusted Git route deliberately ignores system/global autocrlf.
+        self.source=self.root/'lf-source';init(self.source)
+        git(self.source,'config','--local','core.autocrlf','false')
+        manifest=json.loads((ROOT/'.agents/distribution-manifest.json').read_bytes())
+        for name in {entry['source'] for entry in manifest['files']} | {'.agents/distribution-manifest.json','scripts/install-overgate.py'}:
+            path=self.source/name;path.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/name,path)
+        git(self.source,'add','.');git(self.source,'commit','-qm','LF source fixture')
+        self.sha=git(self.source,'rev-parse','HEAD')
+        self.assertEqual(git(self.source,'config','--local','--get','core.autocrlf'),'false')
+        self.assertEqual(git(self.source,'status','--porcelain','--untracked-files=no'),'')
+        git(self.source,'branch','-M','main');git(self.source,'push','-q','origin','main')
+        source_remote=self.root/'lf-source-origin.git';git(source_remote,'symbolic-ref','HEAD','refs/heads/main')
+        global_config=self.root/'crlf-global.gitconfig'
+        global_config.write_text('[core]\n\tautocrlf = true\n',encoding='utf-8')
+        crlf_env={**os.environ,'GIT_CONFIG_GLOBAL':str(global_config),'GIT_CONFIG_NOSYSTEM':'1'}
+        crlf_source=(self.root/'crlf-source').resolve()
+        subprocess.check_call(['git','clone','-q',str(source_remote),str(crlf_source)],env=crlf_env)
+        source_before=snapshot(self.target)
+        denied_source=subprocess.run([sys.executable,str(INSTALLER),'plan','--source',str(crlf_source),
+                                      '--source-sha',self.sha,'--target',str(self.target),
+                                      '--contract',str(self.contract),'--target-pr',PR_URL,
+                                      '--output',str(self.root/'crlf-source-plan.json')],
+                                     env=crlf_env,capture_output=True,text=True)
+        self.assertNotEqual(denied_source.returncode,0)
+        self.assertIn('dirty copied source surfaces',denied_source.stderr)
+        self.assertEqual(snapshot(self.target),source_before)
+        self.assertFalse((self.root/'crlf-source-plan.json').exists())
+        git(self.target,'config','--local','core.autocrlf','false')
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2'
+        before=snapshot(self.target)
+        premerge_head=(self.target/'.git/HEAD').read_bytes()  # unborn install branch has no commit SHA
+        premerge_index=(self.target/'.git/index').read_bytes() if (self.target/'.git/index').exists() else None
+        premerge_config=(self.target/'.git/config').read_bytes()
+        premerge_refs=git(self.target,'for-each-ref','--format=%(refname):%(objectname)')
+        premerge=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',self.root/'premerge-publisher',
+                                 '--peer-root',self.root/'premerge-peer','--bd-bin',binary,
+                                 '--prefix','big-heroes','--actor',actor,'--title','Actual project task',
+                                 '--work-dir',self.root/'premerge-work'],cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(premerge.returncode,0)
+        self.assertIn('trusted',premerge.stderr)
+        self.assertEqual(snapshot(self.target),before)
+        self.assertEqual((self.target/'.git/HEAD').read_bytes(),premerge_head)
+        self.assertEqual((self.target/'.git/index').read_bytes() if (self.target/'.git/index').exists() else None,premerge_index)
+        self.assertEqual((self.target/'.git/config').read_bytes(),premerge_config)
+        self.assertEqual(git(self.target,'for-each-ref','--format=%(refname):%(objectname)'),premerge_refs)
+        self.assertFalse((self.root/'premerge-work').exists(),'pre-merge activation must not create private queue/checkpoint')
+        self.assertFalse((self.target/'.git/overgate-bd-activation').exists())
+        self.assertFalse((self.target/'.git/overgate-bd-publisher-control').exists())
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertEqual(git(self.target,'ls-remote','origin','refs/heads/beads-backup'),'')
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main')
+        git(self.target,'push','-q','origin','main')
+        remote=self.root/'target-origin.git'
+        git(remote,'symbolic-ref','HEAD','refs/heads/main')
+        publisher=self.root/'publisher';peer=self.root/'peer'
+        subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(publisher)])
+        subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(peer)])
+        for root in (self.target,publisher,peer):
+            self.assertEqual(git(root,'config','--local','--get','core.autocrlf'),'false')
+            self.assertEqual(git(root,'status','--porcelain','--untracked-files=no'),'')
+        crlf_primary=(self.root/'crlf-primary').resolve()
+        subprocess.check_call(['git','clone','-q',str(remote),str(crlf_primary)],env=crlf_env)
+        crlf_before=snapshot(crlf_primary)
+        crlf_head=(crlf_primary/'.git/HEAD').read_bytes()
+        crlf_index=(crlf_primary/'.git/index').read_bytes()
+        crlf_config=(crlf_primary/'.git/config').read_bytes()
+        crlf_refs=git(crlf_primary,'for-each-ref','--format=%(refname):%(objectname)')
+        crlf_work=self.root/'crlf-denied-work'
+        crlf_denied=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,
+                                    '--peer-root',peer,'--bd-bin',binary,'--prefix','big-heroes',
+                                    '--actor',actor,'--title','Actual project task','--work-dir',crlf_work],
+                                   cwd=crlf_primary,env=crlf_env,capture_output=True,text=True,timeout=180)
+        self.assertNotEqual(crlf_denied.returncode,0)
+        self.assertTrue('tracked worktree/index must be clean' in crlf_denied.stderr
+                        or ('pipefail' in crlf_denied.stderr and 'invalid option name' in crlf_denied.stderr),
+                        crlf_denied.stderr)
+        self.assertEqual(snapshot(crlf_primary),crlf_before)
+        self.assertEqual((crlf_primary/'.git/HEAD').read_bytes(),crlf_head)
+        self.assertEqual((crlf_primary/'.git/index').read_bytes(),crlf_index)
+        self.assertEqual((crlf_primary/'.git/config').read_bytes(),crlf_config)
+        self.assertEqual(git(crlf_primary,'for-each-ref','--format=%(refname):%(objectname)'),crlf_refs)
+        self.assertFalse(crlf_work.exists(),'CRLF refusal must precede queue/checkpoint creation')
+        self.assertFalse((crlf_primary/'.beads').exists())
+        self.assertFalse((crlf_primary/'.git/overgate-bd-activation').exists())
+        self.assertFalse((crlf_primary/'.git/overgate-bd-publisher-control').exists())
+        self.assertEqual(git(crlf_primary,'ls-remote','origin','refs/heads/beads-backup'),'')
+        git(publisher,'config','--local','user.name','Fixture Publisher')
+        git(publisher,'config','--local','user.email','fixture-publisher@example.invalid')
+        work=self.root/'activation-work';head=git(self.target,'rev-parse','HEAD')
+        index_before=(self.target/'.git/index').read_bytes()
+        wrong=self.root/'wrong-binary';wrong.write_bytes(b'#!/bin/sh\nexit 0\n');wrong.chmod(0o755)
+        denied=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
+                               '--bd-bin',wrong,'--prefix','big-heroes','--actor',actor,
+                               '--title','Actual project task','--work-dir',self.root/'denied-work'],
+                              cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(denied.returncode,0)
+        self.assertIn('native CLI qualification failed',denied.stderr)
+        self.assertFalse((self.target/'.beads').exists())
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
+                            '--bd-bin',binary,'--prefix','big-heroes','--actor',actor,
+                            '--title','Actual project task','--work-dir',work],cwd=self.target,capture_output=True,text=True,timeout=180)
+        if (run.returncode and 'trusted managed apply failed (exit 3;' in run.stderr or
+            os.environ.get('OG_TEST_NATIVE_CONTEXT_DIAG')=='1'):
+            # Disposable projection probe. Report only path relationships and command
+            # stages; never print native context paths or child stderr.
+            script=r'''import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {configureProjectPrefix} from './scripts/lib/bd-managed-contract.mjs';
+import {materializeFresh} from './scripts/lib/bd-managed-cli.mjs';
+const [binary,actor]=process.argv.slice(1), temporary=os.tmpdir(), parent=fs.realpathSync(temporary);
+const root=fs.mkdtempSync(path.join(parent,'overgate-bd-managed-')), calls=[];
+delete process.env.OG_CONTEXT_PROBE_SCRIPT;
+const hash=value=>createHash('sha256').update(String(value)).digest('hex');
+const signature=(actual,expected)=>{
+  if(typeof actual!=='string')return {type:typeof actual};
+  let canonical=false;
+  try {canonical=fs.realpathSync.native(actual)===fs.realpathSync.native(expected)} catch {}
+  const relative=path.relative(root,actual).replaceAll('\\','/');
+  return {exact:actual===expected,resolved:path.resolve(actual)===path.resolve(expected),canonical,
+    drive:/^[A-Za-z]:/.test(actual),msys:/^\/[A-Za-z]\//.test(actual),
+    backslash:actual.includes('\\'),slash:actual.includes('/'),
+    relative:/^(?!\.\.)(?:[A-Za-z0-9_.\/-]{1,100})$/.test(relative)?relative:null};
+};
+const run=(program,args,options)=>{
+  const command=program==='git'?'git':args.includes('--version')?'version':
+    args.includes('--help')?'help':args.includes('context')?'context':
+    args.includes('init')?'init':args.includes('import')?'import':
+    args.includes('export')?'export':'other';
+  const receipt={command,explicit_db:args.includes('--db')};
+  try {
+    const output=execFileSync(program,args,{...options,encoding:'utf8',maxBuffer:2*1024*1024});
+    receipt.exit=0;
+    if(command==='context'){
+      const value=JSON.parse(output),cwd=path.join(root,'tmp','store');
+      receipt.paths={beads_dir:signature(value.beads_dir,path.join(cwd,'.beads')),
+        repo_root:signature(value.repo_root,cwd),cwd_repo_root:signature(value.cwd_repo_root,cwd)};
+      receipt.backend=value.backend;receipt.dolt_mode=value.dolt_mode;
+      receipt.is_worktree=value.is_worktree;receipt.is_redirected=value.is_redirected;
+    }
+    calls.push(receipt);return output;
+  } catch(error){receipt.exit=error.status??null;receipt.stderr_sha256=hash(error.stderr??'');calls.push(receipt);throw error}
+};
+configureProjectPrefix('big-heroes');
+let result='success',error_kind=null,error_sha256=null;
+try {materializeFresh({directory:root,binary,actor,snapshot:'',run})}
+catch(error){result='failure';error_sha256=hash(error.message);
+  error_kind=error.message.includes('fresh context paths do not match owned root')?'context_paths':
+    error.message.includes('fresh context must be standalone embedded')?'context_mode':
+    error.message.includes('Command failed:')?'child_command':'other';}
+console.log(JSON.stringify({result,error_kind,error_sha256,calls,
+  temporary_canonical:temporary===parent,root_canonical:fs.realpathSync(root)===root,
+  metadata_present:fs.existsSync(path.join(root,'tmp','store','.beads','metadata.json')),
+  embedded_present:fs.existsSync(path.join(root,'tmp','store','.beads','embeddeddolt'))}));
+fs.rmSync(root,{recursive:true,force:true});'''
+            spec=importlib.util.spec_from_file_location('installed_activation_context',self.target/'scripts/bd-activate.py')
+            activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+            probe_env=activation.installer.git_environment({'BD_BIN':str(binary)})
+            probe_env['OG_CONTEXT_PROBE_SCRIPT']=script
+            for launcher,command in (
+                ('direct',['node','--input-type=module','-e',script,'--',str(binary),actor]),
+                ('git-bash',[activation.bash(),'-c','node --input-type=module -e "$OG_CONTEXT_PROBE_SCRIPT" -- "$1" "$2"',
+                             'context-probe',str(binary),actor])):
+                diagnostic=subprocess.run(command,cwd=publisher,env=probe_env,capture_output=True,text=True,timeout=180)
+                self.assertEqual(diagnostic.returncode,0,
+                                 'native context probe failed; stdout/stderr sha256 '+
+                                 hashlib.sha256((diagnostic.stdout+diagnostic.stderr).encode()).hexdigest())
+                evidence=json.loads(diagnostic.stdout)
+                evidence['launcher']=launcher
+                print('NATIVE_CONTEXT_PROBE '+json.dumps(evidence,sort_keys=True),file=sys.stderr)
+        if ((run.returncode and ('native issue prefix differs from project-owned prefix' in run.stderr or
+                                'native bd init project-owned local state missing' in run.stderr)) or
+            os.environ.get('OG_TEST_NATIVE_DIAG')=='1'):
+            # Disposable CI diagnostic only: expose the effective namespace, never paths,
+            # queue content, full configuration or project data.
+            spec=importlib.util.spec_from_file_location('installed_activation_diagnostic',self.target/'scripts/bd-activate.py')
+            activation=importlib.util.module_from_spec(spec);spec.loader.exec_module(activation)
+            def safe(value):
+                if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_-]{0,64}',value):return value
+                return {'type':type(value).__name__,'sha256':hashlib.sha256(repr(value).encode('utf-8')).hexdigest()}
+            locations=[]
+            for path in self.root.rglob('metadata.json'):
+                relative=path.relative_to(self.root).as_posix()
+                if len(locations)<10 and len(relative)<=200 and re.fullmatch(r'[A-Za-z0-9_./:-]+',relative):
+                    locations.append(relative)
+            checkpoint_path=work/'activation-checkpoint.json'
+            checkpoint=json.loads(checkpoint_path.read_bytes()) if checkpoint_path.is_file() else {}
+            print('NATIVE_PREFIX_DIAGNOSTIC_STATE '+json.dumps({
+                'metadata_locations':locations,'checkpoint_present':checkpoint_path.is_file(),
+                'checkpoint_stage':safe(checkpoint.get('stage')),'raw_queue_present':(work/'raw-intents.jsonl').is_file(),
+            },sort_keys=True),file=sys.stderr)
+            for role,root in (('primary',self.target),('publisher',publisher),('peer',peer)):
+                db=root/'.beads/dolt'
+                observed=subprocess.run([str(binary),'--db',str(db),'--readonly','config','list','--json'],
+                                        cwd=root,env=activation.native_env(root),capture_output=True,timeout=60)
+                config=json.loads(observed.stdout.decode('utf-8')) if observed.returncode==0 else {}
+                metadata_path=root/'.beads/metadata.json'
+                metadata=json.loads(metadata_path.read_bytes()) if metadata_path.is_file() else {}
+                print('NATIVE_PREFIX_DIAGNOSTIC '+json.dumps({
+                    'role':role,'beads_dir_present':(root/'.beads').is_dir(),
+                    'db_dir_present':db.is_dir(),'embedded_dir_present':(root/'.beads/embeddeddolt').is_dir(),
+                    'metadata_present':metadata_path.is_file(),'config_exit':observed.returncode,
+                    'issue_prefix_type':type(config.get('issue_prefix')).__name__,
+                    'issue_prefix':safe(config.get('issue_prefix')),
+                    'metadata_backend':safe(metadata.get('backend')),
+                    'metadata_dolt_database':safe(metadata.get('dolt_database')),
+                    'db_path_sha256':hashlib.sha256(str(db).encode('utf-8')).hexdigest(),
+                },sort_keys=True),file=sys.stderr)
+            def bounded_lines(value):
+                lines=[]
+                for line in value.splitlines():
+                    if not re.search(r'(?i)initializ|skipping init|warning|error|backend|mode|database|prefix',line):
+                        continue
+                    line=re.sub(r'https?://\S+','<url>',line)
+                    line=re.sub(r'[A-Za-z]:[\\/][^\s,;]*|/(?:[^/\s]+/)+[^\s,;]*','<path>',line)
+                    lines.append(''.join(char if char.isprintable() else '?' for char in line)[:200])
+                    if len(lines)==8:break
+                return lines
+            for selector in ('explicit-db','default-db'):
+                probe=self.root/('native-probe-'+selector)
+                subprocess.check_call(['git','clone','-c','core.autocrlf=false','-q',str(remote),str(probe)])
+                git(probe,'config','--local','user.name','Fixture Native Probe')
+                git(probe,'config','--local','user.email','fixture-probe@example.invalid')
+                probe_db=probe/'.beads/dolt'
+                probe_env=activation.native_env(probe)
+                init_args=[str(binary)]
+                if selector=='explicit-db':init_args+=['--db',str(probe_db)]
+                init_args+=['--actor',actor,'init','--prefix','big-heroes','--non-interactive',
+                            '--skip-agents','--skip-hooks','--stealth']
+                probe_init=subprocess.run(init_args,cwd=probe,env=probe_env,capture_output=True,timeout=180)
+                stdout=probe_init.stdout.decode('utf-8',errors='replace')
+                stderr=probe_init.stderr.decode('utf-8',errors='replace')
+                prefix_readback={}
+                for read_selector,db_args in (('explicit-db',['--db',str(probe_db)]),('default-db',[])):
+                    read=subprocess.run([str(binary),*db_args,'--readonly','config','list','--json'],
+                                        cwd=probe,env=probe_env,capture_output=True,timeout=60)
+                    read_config=json.loads(read.stdout.decode('utf-8')) if read.returncode==0 else {}
+                    read_prefix=read_config.get('issue_prefix')
+                    prefix_readback[read_selector]={'exit':read.returncode,'issue_prefix':safe(read_prefix),
+                                                    'issue_prefix_type':type(read_prefix).__name__}
+                info=subprocess.run([str(binary),'--db',str(probe_db),'--readonly','info','--json'],
+                                    cwd=probe,env=probe_env,capture_output=True,timeout=60)
+                info_text=info.stdout.decode('utf-8',errors='replace')
+                info_path=re.search(r'^Database:\s*(.+)$',info_text,re.MULTILINE)
+                info_value=info_path.group(1).strip() if info_path else None
+                info_resolved=Path(info_value).resolve() if info_value else None
+                info_inside=info_resolved.is_relative_to(self.root.resolve()) if info_resolved else None
+                info_relative=(info_resolved.relative_to(self.root.resolve()).as_posix()
+                               if info_inside else None)
+                if info_relative and not re.fullmatch(r'[A-Za-z0-9_./:-]{1,200}',info_relative):
+                    info_relative=None
+                git_dir=Path(git(probe,'rev-parse','--path-format=absolute','--git-dir')).resolve()
+                common_dir=Path(git(probe,'rev-parse','--path-format=absolute','--git-common-dir')).resolve()
+                print('NATIVE_INIT_PROBE '+json.dumps({
+                    'selector':selector,'init_exit':probe_init.returncode,
+                    'stdout_sha256':hashlib.sha256(probe_init.stdout).hexdigest(),
+                    'stderr_sha256':hashlib.sha256(probe_init.stderr).hexdigest(),
+                    'stdout_initialized':'initialized' in stdout.lower(),
+                    'stderr_skipping_init':'skipping init' in stderr.lower(),
+                    'stderr_metadata_warning':'failed to create metadata.json' in stderr.lower(),
+                    'stderr_warning_count':len(re.findall(r'(?im)^warning:',stderr)),
+                    'stderr_error_count':len(re.findall(r'(?im)^error:',stderr)),
+                    'stdout_markers':bounded_lines(stdout),'stderr_markers':bounded_lines(stderr),
+                    'prefix_readback':prefix_readback,
+                    'git_dir_equals_common':git_dir==common_dir,
+                    'beads_dir_present':(probe/'.beads').is_dir(),
+                    'metadata_present':(probe/'.beads/metadata.json').is_file(),
+                    'config_present':(probe/'.beads/config.yaml').is_file(),
+                    'embedded_dir_present':(probe/'.beads/embeddeddolt').is_dir(),
+                    'dolt_root_present':(probe/'.git/overgate-bd-activation/dolt-global').exists(),
+                    'info_exit':info.returncode,'info_database_present':info_value is not None,
+                    'info_database_inside_fixture':info_inside,
+                    'info_database_relative':info_relative,
+                    'info_database_path_sha256':(hashlib.sha256(info_value.encode('utf-8')).hexdigest()
+                                                 if info_value else None),
+                },sort_keys=True),file=sys.stderr)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+        result=json.loads(run.stdout)
+        self.assertEqual(result['status'],'activated')
+        self.assertRegex(result['id'],r'^big-heroes-[A-Za-z0-9.]+$')
+        self.assertTrue(result['claim_confirmed'])
+        self.assertEqual(result['published_sha'],result['peer_sha'])
+        self.assertEqual(git(self.target,'rev-parse','HEAD'),head)
+        self.assertEqual((self.target/'.git/index').read_bytes(),index_before)
+        self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),result['published_sha'])
+        self.assertTrue((work/'raw-intents.jsonl').is_file())
+        first_read=subprocess.run([BASH,'scripts/bd-read.sh','show',result['id'],'--json'],cwd=peer,capture_output=True,text=True)
+        self.assertEqual(first_read.returncode,0,first_read.stdout+first_read.stderr)
+        first_snapshot=subprocess.check_output(['git','-C',str(peer),'show',result['published_sha']+':.beads/issues.jsonl']).decode('utf-8')
+        first_issues=[json.loads(line) for line in first_snapshot.splitlines() if line]
+        self.assertEqual(len(first_issues),1)
+        first_task=json.loads(first_read.stdout)
+        self.assertEqual(first_task,first_issues[0])
+        work=work.resolve()
+        lifecycle_raw=work/'lifecycle-raw.jsonl';lifecycle_prepared=work/'lifecycle.v2.jsonl'
+        lifecycle_raw.write_text(''.join(json.dumps(item)+'\n' for item in (
+            {'intent_id':'activation-update','op':'update','ref':result['id'],'description':'Verified project update'},
+            {'intent_id':'activation-close','op':'close','ref':result['id'],'close_reason':'Verified complete'})),encoding='utf-8')
+        env={**os.environ,'BD_BIN':str(binary)}
+        for commands in (['--prepare','--base',result['published_sha'],'--actor',actor,'--output',str(lifecycle_prepared),str(lifecycle_raw)],
+                         [str(lifecycle_prepared)]):
+            call=subprocess.run([BASH,'scripts/bd-apply-intents.sh',*commands],cwd=publisher,env=env,capture_output=True,text=True,timeout=120)
+            self.assertEqual(call.returncode,0,call.stdout+call.stderr)
+        closed=json.loads(call.stdout);self.assertEqual(closed['status'],'published')
+        read=subprocess.run([BASH,'scripts/bd-read.sh','show',result['id'],'--json'],cwd=peer,capture_output=True,text=True)
+        self.assertEqual(read.returncode,0,read.stdout+read.stderr)
+        task=json.loads(read.stdout)
+        self.assertEqual(task['status'],'closed')
+        self.assertEqual(task['description'],'Verified project update')
+        self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),closed['published_sha'])
+        final_snapshot=subprocess.check_output(['git','-C',str(peer),'show',closed['published_sha']+':.beads/issues.jsonl']).decode('utf-8')
+        final_issues=[json.loads(line) for line in final_snapshot.splitlines() if line]
+        self.assertEqual(len(final_issues),1)
+        self.assertEqual(task,final_issues[0])
+        object_digest=lambda value:hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+        print('NATIVE_ACTIVATION_RECEIPT '+json.dumps({
+            'checkout_head':git(ROOT,'rev-parse','HEAD'),'trusted_target_head':head,
+            'platform':sys.platform,'bd_version':binary_version,'bd_sha256':binary_sha,
+            'crlf_source_plan_refused':True,'crlf_activation_prepublication_refused':True,
+            'lf_checkouts_verified':['source','target','publisher','peer'],
+            'id':result['id'],'claim_confirmed':result['claim_confirmed'],
+            'first_published_sha':result['published_sha'],'first_peer_sha':result['peer_sha'],
+            'first_full_object_sha256':object_digest(first_task),'first_full_object_equal':first_task==first_issues[0],
+            'final_published_sha':closed['published_sha'],
+            'final_peer_sha':git(peer,'rev-parse','refs/remotes/origin/beads-backup'),
+            'final_full_object_sha256':object_digest(task),'final_full_object_equal':task==final_issues[0]
+        },sort_keys=True))
+
+    def test_wib_activation_ignores_inherited_git_origin_spoof(self):
+        binary=Path('/opt/homebrew/bin/bd').resolve()
+        if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
+            self.skipTest('native qualified macOS bd 1.2.2 unavailable; platform QA required')
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main');git(self.target,'push','-q','origin','main')
+        remote=self.root/'target-origin.git';git(remote,'symbolic-ref','HEAD','refs/heads/main')
+        publisher=self.root/'publisher';peer=self.root/'peer';attacker=self.root/'attacker.git'
+        for clone in (publisher,peer):subprocess.check_call(['git','clone','-q',str(remote),str(clone)])
+        subprocess.check_call(['git','clone','-q','--bare',str(remote),str(attacker)])
+        git(publisher,'config','--local','user.name','Fixture Publisher')
+        git(publisher,'config','--local','user.email','fixture-publisher@example.invalid')
+        actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2'
+        spoof={**os.environ,'GIT_CONFIG_COUNT':'2','GIT_CONFIG_KEY_0':'remote.origin.url','GIT_CONFIG_VALUE_0':str(attacker),
+               'GIT_CONFIG_KEY_1':'remote.origin.pushurl','GIT_CONFIG_VALUE_1':str(attacker)}
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
+                            '--bd-bin',binary,'--prefix','big-heroes','--actor',actor,'--title','Actual project task',
+                            '--work-dir',self.root/'spoof-work'],cwd=self.target,env=spoof,capture_output=True,text=True,timeout=180)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+        result=json.loads(run.stdout)
+        self.assertEqual(git(self.target,'ls-remote','origin','refs/heads/beads-backup').split()[0],result['published_sha'])
+        self.assertEqual(git(attacker,'branch','--list','beads-backup'),'')
+        self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),result['published_sha'])
+
+    def test_wib_activation_requires_publisher_identity_before_native_init(self):
+        binary=Path('/opt/homebrew/bin/bd').resolve()
+        if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
+            self.skipTest('native qualified macOS bd 1.2.2 unavailable; platform QA required')
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main');git(self.target,'push','-q','origin','main')
+        remote=self.root/'target-origin.git';git(remote,'symbolic-ref','HEAD','refs/heads/main')
+        publisher=self.root/'publisher';peer=self.root/'peer'
+        for clone in (publisher,peer):subprocess.check_call(['git','clone','-q',str(remote),str(clone)])
+        # Git clone has no repo-local identity; global identity must not silently qualify it.
+        command=[BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,'--bd-bin',binary,
+                 '--prefix','big-heroes','--actor','agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2',
+                 '--title','Actual project task','--work-dir',self.root/'identity-work']
+        env={key:value for key,value in os.environ.items() if not key.startswith(('GIT_AUTHOR_','GIT_COMMITTER_'))}
+        run=subprocess.run(command,cwd=self.target,env=env,capture_output=True,text=True,timeout=90)
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('publisher Git identity unavailable',run.stderr)
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertFalse((peer/'.beads').exists())
+        self.assertEqual(git(self.target,'ls-remote','--heads','origin','refs/heads/beads-backup'),'')
+
+    def test_wib_activation_resumes_exact_prepublication_steps(self):
+        binary=Path('/opt/homebrew/bin/bd').resolve()
+        if sys.platform!='darwin' or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest()!='cd6827a3b3ec5b212131337201df1e623e028bce15065903fb70291e0ac4a355':
+            self.skipTest('native qualified macOS bd 1.2.2 unavailable; platform QA required')
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main');git(self.target,'push','-q','origin','main')
+        remote=self.root/'target-origin.git';git(remote,'symbolic-ref','HEAD','refs/heads/main')
+        publisher=self.root/'publisher';peer=self.root/'peer'
+        for clone in (publisher,peer):subprocess.check_call(['git','clone','-q',str(remote),str(clone)])
+        git(publisher,'config','--local','user.name','Fixture Publisher')
+        git(publisher,'config','--local','user.email','fixture-publisher@example.invalid')
+        actor='agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2';work=self.root/'resume-work'
+        command=[BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,'--bd-bin',binary,
+                 '--prefix','big-heroes','--actor',actor,'--title','Actual project task','--work-dir',work]
+        head=git(self.target,'rev-parse','HEAD');index=(self.target/'.git/index').read_bytes()
+        raw_hash=None;native_metadata=None
+        for point in ('after-peer-init','after-setup','after-bootstrap','after-push'):
+            env={**os.environ,'OVERGATE_BD_ACTIVATE_TEST_FAIL_AT':point}
+            result=subprocess.run([*command,*(['--resume'] if work.exists() else [])],cwd=self.target,env=env,
+                                  capture_output=True,text=True,timeout=180)
+            self.assertNotEqual(result.returncode,0,point)
+            self.assertIn('queue/base/actor retained',result.stderr)
+            self.assertIn('injected activation stop after '+point,result.stderr)
+            expected_stage={'after-peer-init':'peer-init','after-setup':'setup',
+                            'after-bootstrap':'bootstrapped','after-push':'published'}[point]
+            checkpoint_bytes=(work/'activation-checkpoint.json').read_bytes()
+            checkpoint_value=json.loads(checkpoint_bytes)
+            self.assertEqual(checkpoint_value['stage'],expected_stage)
+            self.assertRegex(checkpoint_value['bound']['origin_sha256'],r'^[0-9a-f]{64}$')
+            self.assertNotIn(str(remote).encode(),checkpoint_bytes,'origin URL must not enter private checkpoint')
+            raw=(work/'raw-intents.jsonl').read_bytes()
+            if raw_hash is None:raw_hash=hashlib.sha256(raw).hexdigest()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(),raw_hash)
+            current_metadata=tuple((root/'.beads/metadata.json').read_bytes() for root in (self.target,peer))
+            if native_metadata is None:native_metadata=current_metadata
+            self.assertEqual(current_metadata,native_metadata,'native DB metadata must survive recovery')
+            self.assertEqual(git(self.target,'rev-parse','HEAD'),head)
+            self.assertEqual((self.target/'.git/index').read_bytes(),index)
+            if point!='after-push':self.assertEqual(git(self.target,'ls-remote','--heads','origin','refs/heads/beads-backup'),'')
+            if point=='after-peer-init':
+                changed=subprocess.run([*command,'--resume','--title','Different task'],cwd=self.target,
+                                       capture_output=True,text=True,timeout=60)
+                self.assertNotEqual(changed.returncode,0)
+                self.assertIn('checkpoint/queue binding changed',changed.stderr)
+                self.assertEqual((work/'raw-intents.jsonl').read_bytes(),raw)
+                attacker=self.root/'resume-attacker.git'
+                subprocess.check_call(['git','clone','-q','--bare',str(remote),str(attacker)])
+                for clone in (self.target,publisher,peer):
+                    git(clone,'remote','set-url','origin',str(attacker))
+                    git(clone,'remote','set-url','--push','origin',str(attacker))
+                redirected=subprocess.run([*command,'--resume'],cwd=self.target,
+                                          capture_output=True,text=True,timeout=90)
+                self.assertNotEqual(redirected.returncode,0)
+                self.assertIn('activation checkpoint origin changed',redirected.stderr)
+                self.assertEqual((work/'raw-intents.jsonl').read_bytes(),raw)
+                self.assertEqual(tuple((root/'.beads/metadata.json').read_bytes() for root in (self.target,peer)),native_metadata)
+                self.assertEqual(git(attacker,'branch','--list','beads-backup'),'')
+                for clone in (self.target,publisher,peer):
+                    git(clone,'remote','set-url','origin',str(remote))
+                    git(clone,'config','--local','--unset-all','remote.origin.pushurl')
+        completed=subprocess.run([*command,'--resume'],cwd=self.target,capture_output=True,text=True,timeout=180)
+        self.assertEqual(completed.returncode,0,completed.stdout+completed.stderr)
+        result=json.loads(completed.stdout)
+        self.assertEqual(result['published_sha'],result['peer_sha'])
+        self.assertEqual(git(self.target,'ls-remote','--heads','origin','refs/heads/beads-backup').split()[0],result['published_sha'])
+        self.assertEqual(git(peer,'rev-parse','refs/remotes/origin/beads-backup'),result['published_sha'])
+        self.assertEqual(json.loads((work/'activation-checkpoint.json').read_bytes())['stage'],'complete')
+
+    def test_wib_unavailable_publisher_retains_queue_before_native_init(self):
+        self.make_plan();plan=json.loads(self.plan.read_bytes());self.approve();self.apply()
+        git(self.target,'add','--',*[op['target'] for op in plan['operations']],'.overgate/install-state.json')
+        git(self.target,'commit','-qm','merged install fixture')
+        git(self.target,'branch','-M','main');git(self.target,'push','-q','origin','main')
+        work=self.root/'queue-retained'
+        run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',self.root/'missing-publisher',
+                            '--peer-root',self.root/'missing-peer','--bd-bin','/not/a/real/bd',
+                            '--prefix','big-heroes','--actor','agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2',
+                            '--title','Actual project task','--work-dir',work],cwd=self.target,capture_output=True,text=True)
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('queue/base/actor retained',run.stderr)
+        self.assertTrue((work/'raw-intents.jsonl').is_file())
+        self.assertFalse((self.target/'.beads').exists())
+        self.assertNotIn('refs/heads/beads-backup',git(self.target,'ls-remote','--heads','origin'))
+
+    def test_wib_rollback_stops_after_remote_task_publication(self):
+        self.make_plan();self.approve();self.apply();before=snapshot(self.target)
+        git(self.target,'commit','--allow-empty','-qm','published task branch fixture')
+        git(self.target,'push','-q','origin','HEAD:refs/heads/beads-backup')
+        result=self.call('rollback','--target',self.target,'--backup',self.backup(),ok=False)
+        self.assertIn('published',result.stderr)
+        self.assertEqual(snapshot(self.target),before)
+
     def backup(self):
         return max((self.target/'.overgate-backups').glob('*/rollback.json'),key=lambda p:p.stat().st_mtime_ns)
 
@@ -109,7 +822,7 @@ class InstallTests(unittest.TestCase):
         self.assertNotIn(b'docker-compose.prod.yml',source)
         self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
         state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
-        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.4'))
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.5'))
         self.assertNotIn('source',state);self.assertNotIn('backup',state)
         def no_absolute(value):
             if isinstance(value,dict):
@@ -163,7 +876,7 @@ class InstallTests(unittest.TestCase):
         self.make_plan('--no-beads');plan=json.loads(self.plan.read_bytes());self.assertIs(plan['beads'],False)
         self.approve();self.apply();state=(self.target/'.overgate/install-state.json').read_bytes()
         manifest=self.source_manifest();beads=[e['target'] for e in manifest['files'] if e.get('component')=='beads']
-        self.assertEqual(len(beads),9)
+        self.assertGreater(len(beads),9)
         for path in beads:self.assertFalse((self.target/path).exists(),path)
         self.assertNotIn('overgate:beads',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
         self.assertNotIn('Beads:',(self.target/'AGENTS.md').read_text(encoding='utf-8'))

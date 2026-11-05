@@ -13,6 +13,10 @@ bd_env_sanitize_git
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 . "$ROOT/scripts/lib/bd-env.sh"
+if bd_env_legacy_fenced; then
+  echo 'STOP: legacy writer fenced for reviewed managed cutover; bd-bootstrap disabled.' >&2
+  exit 1
+fi
 bd_env_assert_main_checkout bd-bootstrap || exit 1
 # bd init вызывает git commit и захватывает весь уже staged index, включая файлы проекта.
 # До любой Beads-команды сохраняем границу коммита: staged файлы разбирает агент в PR.

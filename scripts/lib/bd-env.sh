@@ -28,6 +28,37 @@ bd_env_sanitize_git() {
   export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 }
 
+# Git Bash видит путь /d/..., но нативный Node ожидает D:/... даже при
+# пробелах, кириллице и апострофе. Преобразуем только operand модуля.
+bd_env_native_path() {
+  local original="${1:-}" converted
+  [ -n "$original" ] || return 1
+  if command -v cygpath >/dev/null 2>&1; then
+    converted="$(cygpath -m "$original")" || return 1
+    [ -n "$converted" ] || return 1
+    printf '%s\n' "$converted"
+    return 0
+  fi
+  case "${OSTYPE:-}" in msys*|cygwin*|mingw*) return 1 ;; esac
+  printf '%s\n' "$original"
+}
+
+# Local legacy cutover fence is checked by every old OverGate writer entry
+# before native bd or a task-branch publication. Either control artifact keeps
+# the fence closed if one half of an interrupted install is present.
+bd_env_legacy_fenced() {
+  local config_rc=0 common marker
+  git config --local --get overgate.beadsLegacyFence >/dev/null 2>&1 || config_rc=$?
+  [ "$config_rc" = 0 ] && return 0
+  [ "$config_rc" = 1 ] || return 0
+  # --git-path resolves inside .git/worktrees/<linked> for linked worktrees,
+  # while the reviewed marker lives in the shared main Git directory.
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  [ -n "$common" ] || return 0
+  marker="${common%/}/overgate-bd-legacy-fence.json"
+  [ -e "$marker" ] || [ -L "$marker" ]
+}
+
 # Возвращает 0, если текущее дерево — основной checkout (не git-worktree).
 # Критерий: в worktree --git-common-dir указывает на общий .git основного дерева,
 # а --git-dir — на отдельный .git/worktrees/<name>; в основном дереве они равны.

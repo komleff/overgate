@@ -42,4 +42,8 @@ if ! git diff --quiet -- scripts/bd-apply-intents.sh scripts/lib/bd-env.sh scrip
   echo "ERROR: managed publisher tooling изменён в worktree." >&2
   exit 6
 fi
-exec node "${SCRIPT_DIR}/lib/bd-managed-entry.mjs" "$@"
+native_entry="$(bd_env_native_path "${SCRIPT_DIR}/lib/bd-managed-entry.mjs")" || {
+  echo "ERROR: native Node module path unavailable (fail-closed)." >&2
+  exit 6
+}
+exec node "$native_entry" "$@"

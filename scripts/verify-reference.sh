@@ -34,7 +34,7 @@ run classifier bash scripts/tests/commit-command-classifier.test.sh
 run commit-gate "$PYTHON" scripts/tests/commit-gate.test.py
 run readiness "$PYTHON" .claude/hooks/test_check_merge_ready.py
 run publisher "$PYTHON" scripts/tests/publish-pr-comment.test.py
-for test_name in python-launcher with-timeout with-timeout-transparency merge-gate-script-run-parity merge-gate-parse-completeness merge-gate-parse-budget gate-arithmetic-expansion gate-heredoc-delimiter gate-line-continuation-parity shell-grammar-single-source module-resolution-closure finalize-triage-parse finalize-gate-script bd-read bd-wt; do
+for test_name in python-launcher with-timeout with-timeout-transparency merge-gate-script-run-parity merge-gate-parse-completeness merge-gate-parse-budget gate-arithmetic-expansion gate-heredoc-delimiter gate-line-continuation-parity shell-grammar-single-source module-resolution-closure finalize-triage-parse finalize-gate-script bd-node-path bd-read bd-wt; do
   run "$test_name" bash "scripts/tests/$test_name.test.sh"
 done
 for test_name in merge-gate-parse-complexity readiness-declaration-corpus readiness-policy-complexity shell-nonascii-expansion; do
@@ -45,6 +45,8 @@ run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate
 run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.test.py
 run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
 run bd-bootstrap-native "$PYTHON" scripts/tests/bd-bootstrap-native.test.py
+run bd-upgrade-preserve "$PYTHON" scripts/tests/bd-upgrade-preserve.test.py
+run bd-legacy-fence "$PYTHON" scripts/tests/bd-legacy-fence.test.py
 run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
 run bd-managed-prefix node scripts/tests/bd-managed-prefix.test.mjs

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "4.0.0-rc.4",
+  "version": "4.0.0-rc.5",
   "legacy_source": "466ad2020b8c46e6c14b4bbe67b5335017726542",
   "files": [
     {
@@ -289,6 +289,108 @@
     {
       "source": "scripts/lib/bd-read-engine.mjs",
       "target": "scripts/lib/bd-read-engine.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-apply-intents.sh",
+      "target": "scripts/bd-apply-intents.sh",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-activate.sh",
+      "target": "scripts/bd-activate.sh",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-activate.py",
+      "target": "scripts/bd-activate.py",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-upgrade-preserve.py",
+      "target": "scripts/bd-upgrade-preserve.py",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-upgrade-fence.py",
+      "target": "scripts/bd-upgrade-fence.py",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-publisher-setup.mjs",
+      "target": "scripts/bd-publisher-setup.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-publisher-push-guard.mjs",
+      "target": "scripts/lib/bd-publisher-push-guard.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-cli.mjs",
+      "target": "scripts/lib/bd-managed-cli.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-contract.mjs",
+      "target": "scripts/lib/bd-managed-contract.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-entry.mjs",
+      "target": "scripts/lib/bd-managed-entry.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-git-environment.mjs",
+      "target": "scripts/lib/bd-git-environment.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-git.mjs",
+      "target": "scripts/lib/bd-managed-git.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-journal.mjs",
+      "target": "scripts/lib/bd-managed-journal.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-project.mjs",
+      "target": "scripts/lib/bd-managed-project.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-read-check.mjs",
+      "target": "scripts/lib/bd-managed-read-check.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-managed-transaction.mjs",
+      "target": "scripts/lib/bd-managed-transaction.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/lib/bd-snapshot.mjs",
+      "target": "scripts/lib/bd-snapshot.mjs",
       "policy": "managed",
       "component": "beads"
     },

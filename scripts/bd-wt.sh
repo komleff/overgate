@@ -151,6 +151,15 @@ if git config --local --get overgate.beadsPublisher >/dev/null 2>&1; then
   esac
 fi
 
+case "$sub" in
+  ready|show|list|search|blocked|children) ;;
+  *)
+    if bd_env_legacy_fenced; then
+      echo 'STOP: legacy writer fenced for reviewed managed cutover; direct bd-wt mutation disabled.' >&2
+      exit 2
+    fi ;;
+esac
+
 # Незарегистрированный clone тоже может видеть managed remote: legacy bd-wt не должен
 # менять локальный Dolt до проверки опубликованного protocol/history.
 remote_mode() {

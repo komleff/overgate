@@ -74,7 +74,13 @@ def check(root):
 
 
 BEADS_RUNTIME={'scripts/bd-read.sh','scripts/bd-wt.sh','scripts/lib/bd-env.sh','scripts/lib/bd-read-engine.mjs',
-    'scripts/bd-sync-common.sh','scripts/bd-sync-export.sh','scripts/bd-sync-restore.sh','scripts/bd-bootstrap.sh','.claude/rules/beads.md'}
+    'scripts/bd-sync-common.sh','scripts/bd-sync-export.sh','scripts/bd-sync-restore.sh','scripts/bd-bootstrap.sh','.claude/rules/beads.md',
+    'scripts/bd-apply-intents.sh','scripts/bd-activate.sh','scripts/bd-activate.py','scripts/bd-upgrade-preserve.py',
+    'scripts/bd-upgrade-fence.py',
+    'scripts/bd-publisher-setup.mjs','scripts/lib/bd-publisher-push-guard.mjs',
+    'scripts/lib/bd-managed-cli.mjs','scripts/lib/bd-managed-contract.mjs','scripts/lib/bd-managed-entry.mjs',
+    'scripts/lib/bd-managed-git.mjs','scripts/lib/bd-managed-journal.mjs','scripts/lib/bd-managed-project.mjs',
+    'scripts/lib/bd-managed-read-check.mjs','scripts/lib/bd-managed-transaction.mjs','scripts/lib/bd-snapshot.mjs'}
 TEMPLATE_RUNTIME={'.agents/templates/memory-bank/'+name+'.md' for name in
     ('projectbrief','productContext','systemPatterns','techContext','activeContext','progress')}
 INSTALL_RUNTIME={'scripts/og-init-memory-bank.sh','scripts/og-protect-main.sh'}
@@ -84,6 +90,7 @@ def beads_enabled(root):
     except (OSError,ValueError,AttributeError):return True
 
 def closure(root,beads=None):
+    root=root.resolve()
     errors = []
     try:
         manifest = json.loads((root / '.agents/distribution-manifest.json').read_text(encoding='utf-8'))
@@ -110,6 +117,13 @@ def closure(root,beads=None):
                     if result.returncode:errors.append('CLOSURE-003: helper unavailable to native Git Bash: '+entry['target'])
                 elif not path.stat().st_mode & 0o111:
                     errors.append('CLOSURE-003: helper is not executable: ' + entry['target'])
+            if beads and path.is_file() and entry['target'].endswith('.mjs') and entry.get('component')=='beads':
+                for imported in re.findall(r'\bfrom\s+[\'"](\.[^\'"]+)[\'"]',path.read_text(encoding='utf-8')):
+                    dependency=(path.parent/imported).resolve()
+                    try:name=dependency.relative_to(root).as_posix()
+                    except ValueError:name='outside installed root'
+                    if name not in targets or not dependency.is_file():
+                        errors.append('CLOSURE-006: missing managed import: '+entry['target']+' -> '+name)
         handlers=('check-repository-mutation.py', 'check-tests-before-commit.sh', 'check-merge-ready.py')
         settings=json.loads((root/'.claude/settings.json').read_text(encoding='utf-8'))
         hooks=[h for e in settings['hooks']['PreToolUse'] if re.fullmatch(e['matcher'],'Bash') for h in e['hooks']]
