@@ -25,8 +25,18 @@ def json_bytes(value): return (json.dumps(value,ensure_ascii=False,indent=2,sort
 def settings_bytes(value): return (json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
 # «Равно по смыслу»: канонический JSON строг к типам (true, 1 и 1.0 различаются), в отличие от ==.
 def canonical(value): return json.dumps(value,sort_keys=True,ensure_ascii=False)
+def git_environment(extra=None):
+    env={name:value for name,value in os.environ.items()
+         if not name.startswith('GIT_') or name in ('GIT_AUTHOR_NAME','GIT_AUTHOR_EMAIL','GIT_AUTHOR_DATE',
+                                                  'GIT_COMMITTER_NAME','GIT_COMMITTER_EMAIL','GIT_COMMITTER_DATE')}
+    env.update({'GIT_CONFIG_GLOBAL':'NUL' if os.name=='nt' else '/dev/null',
+                'GIT_CONFIG_NOSYSTEM':'1','GIT_TERMINAL_PROMPT':'0'})
+    if extra:
+        if any(name.startswith('GIT_') for name in extra):raise InstallError('Git environment override denied')
+        env.update(extra)
+    return env
 def git(root,*args):
-    run=subprocess.run(['git','-C',str(root),*args],capture_output=True)
+    run=subprocess.run(['git','-C',str(root),*args],capture_output=True,env=git_environment())
     if run.returncode: raise InstallError('git failed: '+ ' '.join(args[:2]))
     return run.stdout
 
@@ -69,13 +79,13 @@ def beads_inventory(root):
             elif item.is_dir():items.append({'path':relative,'kind':'directory'})
             else:items.append({'path':relative,'kind':'unknown'});reasons.append(name+': unknown entry')
         observed[name]=items;reasons.append(name+': retained state')
-    config=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-regexp',r'^(overgate\.beads|beads-sync\.|beads\.|core\.hooksPath)'],capture_output=True)
+    config=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-regexp',r'^(overgate\.beads|beads-sync\.|beads\.|core\.hooksPath)'],capture_output=True,env=git_environment())
     if config.returncode not in (0,1):reasons.append('local Git writer config unreadable')
     elif config.stdout:
         observed['git_config_sha256']=digest(config.stdout)
         if any(prefix in config.stdout for prefix in (b'overgate.beads',b'beads-sync.',b'beads.')):
             reasons.append('registered Beads writer/override')
-    prompt_env={**os.environ,'GIT_TERMINAL_PROMPT':'0'}
+    prompt_env=git_environment()
     try:
         remote=subprocess.run(['git','-C',str(root),'ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup'],
                               capture_output=True,env=prompt_env,timeout=30)
@@ -105,7 +115,7 @@ def validate_payload(manifest,payload,beads=True):
         checker=root/'scripts/check-reference.py'
         if not checker.is_file():raise InstallError('missing payload checker: scripts/check-reference.py')
         result=subprocess.run([sys.executable,'-I','-B',str(checker),'--root',str(root)]+([] if beads else ['--no-beads']),
-                              cwd=root,capture_output=True,text=True)
+                              cwd=root,capture_output=True,text=True,env=git_environment())
         if result.returncode:
             raise InstallError('payload preflight failed: '+(result.stdout+result.stderr).strip())
 

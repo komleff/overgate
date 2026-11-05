@@ -23,10 +23,22 @@ tests, gh для PR evidence. `bd` 1.2.2 обязателен для автон�
 
 ### Beads и облачный агент
 
-Описанный ниже installer и его manifest по-прежнему поставляют legacy v0. Source rc.5
-WI-A добавляет managed helpers и инструкции, но не включает их через install/upgrade;
-выбор protocol, preservation и activation — отдельный WI-B. Не применять managed publisher
-из install PR или поверх существующей базы без этого перехода.
+Fresh Beads install ставит полный managed closure и `beads_protocol: managed-v1` без
+создания DB или задачи в install PR. Существующий rc.4 Beads target остаётся
+`legacy-v0` до отдельного reviewed перехода; `--no-beads` ставит `none`.
+Не применять managed publisher из install PR или поверх существующей базы без этого перехода.
+
+Fresh `managed-v1` install PR ставит только source bytes. После merge activation из
+trusted target `main` требует repo-local Git `user.name`/`user.email` publisher
+(или явную service identity) и авторизованный transport: доверенный repo-local
+`credential.helper` для HTTPS либо SSH remote с `SSH_AUTH_SOCK`. Global/system
+Git config и `GIT_CONFIG_*` очищаются в trusted writer route; обычный пользовательский
+HTTPS helper из global config здесь недоступен. Отсутствующая identity/auth останавливает
+setup до task write. Не сохраняйте credentials в репозитории или отчёте.
+Если activation остановилась после native init/setup, сохраните DB, private work
+directory и очередь; тот же вызов `bd-activate.sh --resume` сверяет checkpoint и
+продолжает. Частично созданная DB без полного checkpoint требует reviewed recovery,
+а не удаления `.beads` или автоматического rollback.
 
 Для fresh Beads target `bd-bootstrap.sh` после пустого init закрепляет фактический issue
 prefix активной строкой в tracked `.beads/config.yaml`. Перед завершением project install PR
@@ -38,9 +50,9 @@ prefix активной строкой в tracked `.beads/config.yaml`. Пере
 `bd`/Dolt нужны основному checkout оператора; облачному агенту достаточно снимка задач и
 канала публикации PR, включая уже авторизованный GitHub-коннектор. Авторизация shell
 Git/gh не является обязательным шагом для этого канала.
-Inventory содержит reader/worktree/sync helpers, но пока не содержит applier/engine/queue.
-Для автоматического применения cloud-заявок подключить reviewed project tooling отдельным
-изменением по инструкции; до этого заявки pending. Не инициализировать облачную базу.
+Managed install содержит reader, typed queue и applier, но writer запускается только через
+зарегистрированный trusted publisher после отдельной post-merge activation. До регистрации
+заявки pending. Не инициализировать облачную базу.
 Локальная worktree и агент основного checkout работают через `bash scripts/bd-wt.sh`: база
 выбирается по `dolt_mode` из `.beads/metadata.json` (embedded или dolt-сервер), проходит
 только allowlist подкоманд, флаги смены базы/каталога и чтения файла отклоняются; чтение

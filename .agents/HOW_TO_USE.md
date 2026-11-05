@@ -73,6 +73,23 @@ issue prefix. Источник prefix — только активное project-
 проверяется по platform/binary hash и native full-field round-trip. Unknown CLI, prefix или
 remote state — stop, без `bd init`/restore поверх существующей работы.
 
+После merge fresh install PR оператор запускает `bash scripts/bd-activate.sh` из
+чистого trusted `main`, указывая три авторизованных checkout, фактический project prefix,
+qualified `bd`, UUID actor, название реальной задачи и новый private `--work-dir`.
+До запуска в publisher repo-local Git config должны быть `user.name` и `user.email`
+(либо явно заданные service author/committer). Для HTTPS нужен доверенный repo-local
+`credential.helper`; для SSH — доступный `SSH_AUTH_SOCK`. Унаследованные global/system
+Git config и `GIT_CONFIG_*` не используются для идентичности remote и публикации.
+Секреты не записывайте в project config, очередь или PR evidence.
+
+При остановке до первой публикации сохраните native DB, очередь и
+`activation-checkpoint.json` в private work directory. После устранения причины
+повторите ту же команду с теми же аргументами и `--resume`; helper сверит exact
+source/queue/CLI/local DB и remote state. При частичном `bd init`, порче checkpoint
+или неизвестном remote сохраните состояние для reviewed recovery, без удаления `.beads`
+и без слепого повторного init. После публикации успех подтверждает только peer
+read-back того же SHA и реального ID.
+
 Агент в основном/linked checkout читает опубликованные задачи через
 `bash scripts/bd-read.sh ready|list|show` либо соответствующий read route `bd-wt.sh`.
 Reader сверяет managed protocol, ledger и hashes; stale `BD_READ_NO_FETCH=1` отмечается
