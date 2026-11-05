@@ -178,7 +178,9 @@ class InstallTests(unittest.TestCase):
         checker=self.target/'scripts/check-reference.py'
         managed=[e['target'] for e in self.source_manifest()['files'] if e.get('component')=='beads'
                  and ('bd-managed-' in e['target'] or 'bd-publisher-' in e['target']
-                      or e['target'] in ('scripts/lib/bd-snapshot.mjs','scripts/bd-apply-intents.sh'))]
+                      or e['target'] in ('scripts/lib/bd-snapshot.mjs','scripts/bd-apply-intents.sh',
+                                         'scripts/lib/bd-git-environment.mjs'))]
+        self.assertIn('scripts/lib/bd-git-environment.mjs',managed)
         self.assertGreaterEqual(len(managed),12)
         for name in managed:
             with self.subTest(name=name):

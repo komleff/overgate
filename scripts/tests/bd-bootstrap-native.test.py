@@ -190,6 +190,25 @@ class NativeClone(unittest.TestCase):
         self.assertEqual(records(export.read_text()), records(self.snapshot))
         self.assertEqual({row['id'] for row in records(export.read_text()) if row.get('_type') == 'issue'}, set(self.ids))
 
+    def test_inherited_git_origin_spoof_cannot_start_fresh_database(self):
+        real=self.root/'spoof-real.git';target=self.root/'spoof-target';attacker=self.root/'spoof-attacker.git'
+        run(self.root,'git','clone','-q','--bare',str(self.remote),str(real))
+        run(self.root,'git','clone','-q',str(real),str(target));self.configure(target)
+        git(target,'rm','-qr','--','.beads')
+        git(target,'commit','-q','-m','fresh project without local Beads state')
+        git(target,'push','-q','origin','main')
+        run(self.root,'git','clone','-q','--bare',str(real),str(attacker))
+        git(attacker,'update-ref','-d','refs/heads/beads-backup')
+        before=git(target,'rev-parse','HEAD')
+        env=dict(os.environ,GIT_CONFIG_COUNT='1',GIT_CONFIG_KEY_0=f'url.{attacker}.insteadOf',
+                 GIT_CONFIG_VALUE_0=str(real))
+        result=run(target,'bash','scripts/bd-bootstrap.sh',env=env,check=False)
+        self.assertNotEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertFalse((target/'.beads/metadata.json').exists(),'spoofed absent remote must stop before bd init')
+        self.assertEqual(git(target,'rev-parse','HEAD'),before)
+        self.assertEqual(git(attacker,'branch','--list','beads-backup'),'')
+        self.assertEqual(git(real,'rev-parse','refs/heads/beads-backup'),self.base)
+
     def test_unknown_and_wrong_prefix_refuse_before_database_creation(self):
         forged = self.root / 'forged-receipt.json'
         forged.write_text('{"issue_prefix":"big-heroes"}\n', encoding='utf-8')

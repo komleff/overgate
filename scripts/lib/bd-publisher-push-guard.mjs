@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ManagedGit } from './bd-managed-git.mjs';
 import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
+import { cleanGitEnvironment } from './bd-git-environment.mjs';
 
 const ZERO = '0'.repeat(40);
 const BEADS_REF = 'refs/heads/beads-backup';
@@ -15,24 +16,20 @@ const MANAGED_PATHS = new Set([SNAPSHOT, '.beads/overgate-outcomes-v1.json', '.b
 const oidPattern = /^[0-9a-f]{40}$/;
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
-const GIT_ENVIRONMENT = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_NAMESPACE'];
 
 function git(cwd, args, { encoding = 'utf8' } = {}) {
-  const environment = { ...process.env, MSYS2_ARG_CONV_EXCL: '*' };
-  for (const name of GIT_ENVIRONMENT) delete environment[name];
   return execFileSync('git', args, { cwd, encoding, timeout: 15000, maxBuffer: 32 * 1024 * 1024,
-    env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+    env: cleanGitEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function withCleanGitEnvironment(action) {
-  const saved = new Map(GIT_ENVIRONMENT.map(name => [name, process.env[name]]));
-  for (const name of GIT_ENVIRONMENT) delete process.env[name];
+  const saved = new Map(Object.entries(process.env).filter(([name]) => name.startsWith('GIT_')));
+  for (const name of saved.keys()) delete process.env[name];
+  for (const [name, value] of Object.entries(cleanGitEnvironment())) if (name.startsWith('GIT_')) process.env[name] = value;
   try { return action(); }
   finally {
-    for (const [name, value] of saved) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
+    for (const name of Object.keys(process.env)) if (name.startsWith('GIT_')) delete process.env[name];
+    Object.assign(process.env, Object.fromEntries(saved));
   }
 }
 

@@ -5,6 +5,11 @@ if [ -n "${GIT_INDEX_FILE:-}" ]; then
   echo 'STOP: GIT_INDEX_FILE override запрещён для Beads bootstrap; canonical Git index должен быть проверен.' >&2
   exit 1
 fi
+bootstrap_source_dir="${BASH_SOURCE[0]%/*}"
+[ "$bootstrap_source_dir" = "${BASH_SOURCE[0]}" ] && bootstrap_source_dir=.
+BOOTSTRAP_SCRIPT_DIR="$(cd "$bootstrap_source_dir" && pwd -P)"
+. "$BOOTSTRAP_SCRIPT_DIR/lib/bd-env.sh"
+bd_env_sanitize_git
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 . "$ROOT/scripts/lib/bd-env.sh"

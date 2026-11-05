@@ -341,6 +341,12 @@
       "component": "beads"
     },
     {
+      "source": "scripts/lib/bd-git-environment.mjs",
+      "target": "scripts/lib/bd-git-environment.mjs",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
       "source": "scripts/lib/bd-managed-git.mjs",
       "target": "scripts/lib/bd-managed-git.mjs",
       "policy": "managed",
