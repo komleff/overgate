@@ -1,8 +1,8 @@
 ---
 title: "Install, upgrade and rollback — OverGate 4 RC"
 status: active
-version: "4.0.0-rc.4"
-date: 2026-10-03
+version: "4.0.0-rc.5"
+date: 2026-11-05
 tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
@@ -39,6 +39,42 @@ setup до task write. Не сохраняйте credentials в репозито
 directory и очередь; тот же вызов `bd-activate.sh --resume` сверяет checkpoint и
 продолжает. Частично созданная DB без полного checkpoint требует reviewed recovery,
 а не удаления `.beads` или автоматического rollback.
+
+Для существующего `legacy-v0` target fresh `bd-activate.sh` не применяют. Сначала
+перечислите все известные авторизованные standalone old-writer clones и создайте
+read-only packet на их точных bytes:
+
+```bash
+python3 /trusted/overgate/scripts/bd-upgrade-preserve.py --target /project \
+  --writer-root /project --writer-root /other-known-clone \
+  --bd-bin /qualified/bd --actor <agent-UUID> \
+  --outcome verified-clean --output /private/legacy-packet.json
+```
+
+Packet и snapshot остаются вне репозитория. `pending-retained` сохраняет очередь
+и владельца, но блокирует switch до отдельного разрешения. Сверьте frozen `R`,
+native export каждого clone, DB/queue/receipt/config/hooks, fetch и все push URL
+origin. Unknown/unupgraded writer, drift либо неполный список — stop. Сначала
+установите проверенную legacy helper closure во всех перечисленных клонах через
+отдельный project PR, выполните operator merge и обновите клоны до одного trusted
+`main`. Повторно создайте packet и включите fence до первой managed publication:
+
+```bash
+python3 /project/scripts/bd-upgrade-fence.py --packet /private/legacy-packet.json
+```
+
+Fence блокирует штатные old-writer helpers в этих клонах до task mutation и
+публикации, включая период после switch. После fence создайте **новый** private
+packet тем же read-only вызовом; он связывает исходный packet SHA с неизменным
+task state и установленными fence receipts. Отдельный reviewed target PR с
+`install-overgate.py plan --preservation /private/post-fence-packet.json
+--switch-managed` меняет installed protocol/closure только после принятого packet;
+`--preservation` без `--switch-managed` оставляет `legacy-v0`. После operator merge
+используйте trusted-main WI-A `bd-publisher-setup.mjs` и
+`bd-apply-intents.sh --bootstrap` с frozen legacy `R` и verified-clean manifest,
+затем реальную typed очередь и peer readback того же published SHA/полного task
+state. До первой publication installer rollback возможен при точном checkpoint;
+после неё откат protocol запрещён. DB и pending intents не удаляются.
 
 Для fresh Beads target `bd-bootstrap.sh` после пустого init закрепляет фактический issue
 prefix активной строкой в tracked `.beads/config.yaml`. Перед завершением project install PR

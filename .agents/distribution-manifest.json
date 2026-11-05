@@ -311,6 +311,18 @@
       "component": "beads"
     },
     {
+      "source": "scripts/bd-upgrade-preserve.py",
+      "target": "scripts/bd-upgrade-preserve.py",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
+      "source": "scripts/bd-upgrade-fence.py",
+      "target": "scripts/bd-upgrade-fence.py",
+      "policy": "managed",
+      "component": "beads"
+    },
+    {
       "source": "scripts/bd-publisher-setup.mjs",
       "target": "scripts/bd-publisher-setup.mjs",
       "policy": "managed",

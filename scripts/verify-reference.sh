@@ -45,6 +45,8 @@ run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate
 run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.test.py
 run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
 run bd-bootstrap-native "$PYTHON" scripts/tests/bd-bootstrap-native.test.py
+run bd-upgrade-preserve "$PYTHON" scripts/tests/bd-upgrade-preserve.test.py
+run bd-legacy-fence "$PYTHON" scripts/tests/bd-legacy-fence.test.py
 run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
 run bd-managed-prefix node scripts/tests/bd-managed-prefix.test.mjs

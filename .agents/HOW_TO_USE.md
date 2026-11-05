@@ -1,8 +1,8 @@
 ---
 title: "OverGate — как работать"
 status: active
-version: "4.0.0-rc.4"
-date: 2026-10-03
+version: "4.0.0-rc.5"
+date: 2026-11-05
 tags: [pipeline, usage]
 ---
 # Как работать
@@ -118,6 +118,18 @@ preservation manifest; install PR не делает task write. Успех фи�
 с base/actor/queue hash и причиной; `tmp:` не выдаётся за task ID. Cloud connector может
 передать только данные очереди, не выполняя helper. Второй writer из обычного clone не
 создаётся. Это WI-A source route; installer/upgrade activation — отдельный WI-B.
+
+Для уже работающего `legacy-v0` проекта этот fresh route не заменяет прежнюю DB.
+Порядок WI-B: read-only preservation packet со всеми известными old-writer clones,
+reviewed legacy helper upgrade и operator merge, fence каждого clone до первой
+managed publication, отдельный принятый `--switch-managed` target PR и merge.
+После этого trusted-main publisher setup/bootstrap использует сохранённые frozen
+`R` и точный legacy snapshot; typed create→claim и peer readback подтверждают
+переход. Reader проверяет весь managed segment от activation marker; старый legacy
+snapshot служит базой, а отсутствие/подмена снимка после marker даёт stop.
+Неразрешённая pending очередь остаётся у владельца и блокирует switch; автоматический
+replay не выполняется. Точные команды и rollback граница — в
+[`INSTALL.md`](INSTALL.md#beads-и-облачный-агент).
 
 ### Legacy v0 — до managed activation
 

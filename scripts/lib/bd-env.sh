@@ -43,6 +43,18 @@ bd_env_native_path() {
   printf '%s\n' "$original"
 }
 
+# Local legacy cutover fence is checked by every old OverGate writer entry
+# before native bd or a task-branch publication. Either control artifact keeps
+# the fence closed if one half of an interrupted install is present.
+bd_env_legacy_fenced() {
+  local config_rc=0 marker
+  git config --local --get overgate.beadsLegacyFence >/dev/null 2>&1 || config_rc=$?
+  [ "$config_rc" = 0 ] && return 0
+  [ "$config_rc" = 1 ] || return 0
+  marker="$(git rev-parse --git-path overgate-bd-legacy-fence.json 2>/dev/null)" || return 0
+  [ -e "$marker" ] || [ -L "$marker" ]
+}
+
 # Возвращает 0, если текущее дерево — основной checkout (не git-worktree).
 # Критерий: в worktree --git-common-dir указывает на общий .git основного дерева,
 # а --git-dir — на отдельный .git/worktrees/<name>; в основном дереве они равны.

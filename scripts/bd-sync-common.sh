@@ -12,6 +12,10 @@ bd_env_sanitize_git
 bd_sync_validate() {
   BD_SYNC_VALIDATED_PRESENT=0
   BD_SYNC_VALIDATED_TIP=""
+  if bd_env_legacy_fenced; then
+    echo 'STOP: legacy writer fenced for reviewed managed cutover; bd-sync export/restore disabled.' >&2
+    return 1
+  fi
   # Whitelist ветки (а не blacklist — последний неполон: BD_SYNC_BRANCH=feature/x схлопнул бы
   # рабочую ветку до snapshot-файла). Разрешены только канон-ветка и её именованные варианты.
   case "$BRANCH" in

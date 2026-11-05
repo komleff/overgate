@@ -35,11 +35,24 @@ try {
   parseLedger(ledger);
   if (marker.snapshot_sha256 !== sha(snapshot) || marker.ledger_sha256 !== sha(ledger))
     throw new Error('managed protocol hash mismatch');
-  const commits = git(['rev-list', '--reverse', '--topo-order', ref]).trim().split('\n');
-  let previous = { snapshot: '', ledger: { version: 1, outcomes: [] } }, activated = false;
+  const allCommits = git(['rev-list', '--reverse', '--topo-order', ref]).trim().split('\n');
+  const additions = new Set(git(['log', '--reverse', '--topo-order', '--diff-filter=A', '--format=%H', ref,
+    '--', '.beads/overgate-managed-v1.json']).trim().split('\n').filter(Boolean));
+  const start = allCommits.findIndex(oid => additions.has(oid));
+  if (start < 0) throw new Error('managed activation marker missing in retained history');
+  const prior = start > 0 ? allCommits[start - 1] : null;
+  const priorSnapshot = prior ? optional(prior, '.beads/issues.jsonl') : '';
+  if (priorSnapshot === null) throw new Error('pre-activation legacy snapshot missing');
+  normalizeSnapshot(priorSnapshot, 'pre-activation legacy snapshot');
+  if (prior && (optional(prior, '.beads/overgate-managed-v1.json') !== null
+    || optional(prior, '.beads/overgate-outcomes-v1.json') !== null))
+    throw new Error('pre-activation managed marker/ledger unexpected');
+  const commits = allCommits.slice(start);
+  let previous = { snapshot: priorSnapshot, ledger: { version: 1, outcomes: [] } };
   for (const [index, oid] of commits.entries()) {
     const parents = git(['rev-list', '--parents', '-n', '1', oid]).trim().split(' ').slice(1);
-    if (parents.length !== (index === 0 ? 0 : 1) || (index > 0 && parents[0] !== commits[index - 1]))
+    const expectedParent = index === 0 ? prior : commits[index - 1];
+    if (parents.length !== (expectedParent ? 1 : 0) || (expectedParent && parents[0] !== expectedParent))
       throw new Error('managed history is not a single retained chain');
     const row = optional(oid, '.beads/issues.jsonl');
     if (row === null) throw new Error('published snapshot missing in retained history');
@@ -47,18 +60,14 @@ try {
     const protocolAt = optional(oid, '.beads/overgate-managed-v1.json');
     const ledgerAt = optional(oid, '.beads/overgate-outcomes-v1.json');
     if ((protocolAt === null) !== (ledgerAt === null)) throw new Error('managed protocol/ledger incomplete in retained history');
-    if (protocolAt === null) {
-      if (activated) throw new Error('managed protocol downgrade in retained history');
-      previous = { snapshot: row, ledger: { version: 1, outcomes: [] } };
-      continue;
-    }
+    if (protocolAt === null) throw new Error('managed protocol downgrade in retained history');
     const checked = JSON.parse(protocolAt), parsed = parseLedger(ledgerAt);
     if (canonical(Object.keys(checked).sort()) !== canonical(['ledger_sha256', 'prefix', 'snapshot_sha256', 'version'])
       || checked.version !== 1 || checked.prefix !== marker.prefix
       || checked.snapshot_sha256 !== sha(row) || checked.ledger_sha256 !== sha(ledgerAt))
       throw new Error('managed protocol hash/prefix mismatch in retained history');
     assertAuthorizedSnapshotTransition(previous.snapshot, row, previous.ledger, parsed);
-    previous = { snapshot: row, ledger: parsed }; activated = true;
+    previous = { snapshot: row, ledger: parsed };
   }
   if (previous.snapshot !== snapshot) throw new Error('published snapshot changed during retained history proof');
 } catch (error) {
