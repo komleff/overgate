@@ -3,7 +3,7 @@
 # помощник прозрачен для входного потока.
 #
 # Причина существования, часть 1 (крючок). Переменная
-# U2_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS добавляла паузу перед запуском и
+# OVERGATE_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS добавляла паузу перед запуском и
 # принимала любое значение без верхней границы. Зеркальный крючок гейта коммита
 # сведён минимумом и умеет только сужать окно — здесь было наоборот. На машине
 # без нативного timeout это боевой маршрут: переменная в окружении растягивала
@@ -92,7 +92,7 @@ PYX
 # уложиться в предел и вернуть код истечения 124.
 
 MEASURED="$(elapsed_seconds "PATH=$FALLBACK_BIN" \
-  "U2_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=30" -- \
+  "OVERGATE_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=30" -- \
   "$HELPER" 3 /bin/sleep 60)"
 PAUSE_SECONDS="$(printf '%s\n' "$MEASURED" | sed -n '1p')"
 PAUSE_RC="$(printf '%s\n' "$MEASURED" | sed -n '2p')"
@@ -106,7 +106,7 @@ assert_eq "$PAUSE_RC" "124" "по истечении предела помощн
 # Предел 10 с, пауза 9 с, команда не завершается: корректное поведение — около
 # 10 с всего (9 паузы + 1 ожидания), прежнее сложение дало бы около 19 с.
 DEDUCTED="$(elapsed_seconds "PATH=$FALLBACK_BIN" \
-  "U2_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=9" -- \
+  "OVERGATE_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=9" -- \
   "$HELPER" 10 /bin/sleep 60)"
 DEDUCTED_SECONDS="$(printf '%s\n' "$DEDUCTED" | sed -n '1p')"
 DEDUCTED_RC="$(printf '%s\n' "$DEDUCTED" | sed -n '2p')"
@@ -117,14 +117,14 @@ assert_eq "$DEDUCTED_RC" "124" "с вычтенной паузой предел 
 
 # Пауза внутри предела не ломает штатный запуск: команда успевает завершиться.
 QUICK="$(elapsed_seconds "PATH=$FALLBACK_BIN" \
-  "U2_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=1" -- \
+  "OVERGATE_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=1" -- \
   "$HELPER" 20 /bin/sh -c 'exit 7')"
 assert_eq "$(printf '%s\n' "$QUICK" | sed -n '2p')" "7" \
   "пауза внутри предела сохраняет код выхода команды"
 
 # Мусорное значение крючка паузы не должно ни падать, ни растягивать окно.
 GARBAGE="$(elapsed_seconds "PATH=$FALLBACK_BIN" \
-  "U2_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=не-число" -- \
+  "OVERGATE_WITH_TIMEOUT_TEST_STARTUP_PAUSE_SECONDS=не-число" -- \
   "$HELPER" 20 /bin/sh -c 'exit 5')"
 assert_eq "$(printf '%s\n' "$GARBAGE" | sed -n '2p')" "5" \
   "нечисловое значение крючка паузы игнорируется"

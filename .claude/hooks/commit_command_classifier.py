@@ -1244,7 +1244,7 @@ def _classify_execution_candidates(words: Sequence[str]) -> CommandClass:
         if nested is not CommandClass.ORDINARY:
             return CommandClass.AMBIGUOUS
         if _basename(head) == "git" and _classify_git(
-            list(words[index + 1 :]) + ["$U2_UNKNOWN_SUBCOMMAND"]
+            list(words[index + 1 :]) + ["$OVERGATE_UNKNOWN_SUBCOMMAND"]
         ) is CommandClass.AMBIGUOUS:
             return CommandClass.AMBIGUOUS
     return CommandClass.ORDINARY

@@ -233,11 +233,11 @@ Skill не добавляет stage/verifier и не расширяет budget. 
 Окно project tests сужается на elapsed quick phase через
 `OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS`, согласованное с existing consumer.
 
-Вне root, включая subdirectory/package монорепо, разрешена только одна unquoted absolute
+Вне root, включая subdirectory/package монорепо, для rc.4.1 разрешена только одна unquoted absolute
 `cd` в checkout с dispatcher. Допустимые символы пути: латиница/цифры/`_ : / . -`.
 Пробелы, кириллица, скобки и кавычки не входят в recovery форму (rc.1 и rc.2); новый root session
-— документированный выход. Allowlist чтения и поиск dispatcher по `CLAUDE_PROJECT_DIR`
-не возвращаются. Recovery redesign и косметическая нормализация внутренних prefixes — `og-7sr`.
+— документированный выход rc.4.1. Allowlist чтения и поиск dispatcher по `CLAUDE_PROJECT_DIR`
+не возвращаются. Recovery redesign и адресная нормализация внутренних prefixes — §3.35.
 Codex не мигрирует на dispatcher в этой линии; проверяется existing adapter closure.
 
 Manifest ставит guards/helpers/dispatcher до settings; rollback восстанавливает settings
@@ -313,6 +313,26 @@ worktree или isolated reader применяет только trusted publishe
 **Отклонено:** direct Dolt write, restore-over-pending, silent legacy upgrade, force push,
 local JSONL как authority и исполнение helper из PR branch. Старые проектные записи и
 U2-specific repair exception не входят в generic protocol.
+
+### 3.35 Portable Bash recovery WI-C (2026-11-05)
+
+Действует для rc.5 после merge WI-C `og-7sr`. Одна существующая `PreToolUse(Bash)` entry
+остаётся без literal backslash, с timeout 600 и поиском dispatcher только в cwd. В режиме
+восстановления полный `tool_input.command` разбирается как JSON; candidate не исполняется.
+Canonical Git root текущего cwd с dispatcher фиксируется до проверки. Для такого cwd
+разрешён один exact literal `cd` к этому root: напечатанная shell-safe форма с single quotes
+и экранированием апострофа или прежняя unquoted форма простой ASCII-грамматики. Другой
+checkout, tail, expansion, подстановка и относительный путь блокируются. `CLAUDE_PROJECT_DIR`
+не является источником root identity. Вне Git или без доказанного cwd-root сохраняется
+только rc.4.1 unquoted simple absolute `cd` к target с dispatcher; неизвестный сложный root
+не превращается в исполнимую подсказку, агенту предлагается новая сессия из root.
+На Windows только spelling `C:/...` сопоставляется с `/c/...` того же frozen root;
+drive-relative и другой drive не получают разрешения.
+
+Inline parser использует обязательный для installer Python 3 (`python3`, на Windows fallback
+`py -3`); отсутствие интерпретатора блокирует recovery. Dispatcher guards и их время
+исполнения не меняются; Codex adapter не получает новый route. Активные временные/runtime
+имена из WI-C приведены к OverGate, исторические U2 refs остаются provenance.
 
 ## 4. Ключевые решения
 

@@ -83,7 +83,7 @@ def run(command_text: str, payload_command: str, cwd: Path | str, project_dir: s
 
 def make_tree(mutation: tuple[str, str] | None = None, drop: str | None = None) -> Path:
     """Временный git-репозиторий с копией .claude/hooks и .claude/tools."""
-    tree = Path(tempfile.mkdtemp(prefix="u2-pre-bash-"))
+    tree = Path(tempfile.mkdtemp(prefix="overgate-pre-bash-"))
     for sub in ("hooks", "tools"):
         shutil.copytree(ROOT / ".claude" / sub, tree / ".claude" / sub,
                         ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
@@ -103,7 +103,7 @@ def make_tree(mutation: tuple[str, str] | None = None, drop: str | None = None) 
     return tree
 
 
-OUTSIDE = Path(tempfile.mkdtemp(prefix="u2-outside-"))
+OUTSIDE = Path(tempfile.mkdtemp(prefix="overgate-outside-"))
 BLOCK_MARKERS = ("CLAUDE_PROJECT_DIR=[", "PWD=[", "cd ")
 # Каталог с оператором оболочки в имени и подложенным файлом диспетчера: `cd <OUTSIDE>/x;true`
 # для оболочки — две команды, для проверки формы восстановления — не путь (Code Review, круг 1).
@@ -190,18 +190,133 @@ class SessionDirectory(unittest.TestCase):
         code, err = run(ENTRY, recovery, ROOT / "scripts", None)
         self.assertEqual(code, 0, err)
 
-    def test_unsupported_recovery_paths_require_root_restart(self):
-        for name in ('space path','кириллица','path(parentheses)'):
+    def test_complex_root_recovery_and_exact_literal_parser(self):
+        for name in ('space path','кириллица','path(parentheses)',"quote'path",'dollar$path'):
             with self.subTest(name=name):
                 # TemporaryDirectory снимает readonly с Git objects на NTFS;
                 # ошибки очистки не игнорируются и остаются провалом fixture.
                 with tempfile.TemporaryDirectory(prefix="overgate-path-case-", ignore_cleanup_errors=False) as directory:
                     tree=make_tree();holder=Path(directory);target=holder/name
                     shutil.move(str(tree),target)
-                    code,err=run(ENTRY,'cd '+target.as_posix(),OUTSIDE,str(target))
+                    nested=target/'nested';nested.mkdir()
+                    bash_root=subprocess.run([BASH,'-c','pwd -P'],cwd=target,capture_output=True,
+                                             text=True,encoding='utf-8')
+                    self.assertEqual(bash_root.returncode,0,bash_root.stderr)
+                    root=bash_root.stdout.strip()
+                    code,err=run(ENTRY,'ls',nested,str(OUTSIDE))
                     self.assertEqual(code,2,err)
+                    recovery=err.split('Восстановление: ',1)[1].splitlines()[0]
+                    expected="cd '"+root.replace("'", "'\"'\"'")+"'"
+                    self.assertEqual(recovery,expected)
+                    code,err=run(ENTRY,recovery,nested,str(OUTSIDE))
+                    self.assertEqual(code,0,err)
+                    completed=subprocess.run([BASH,'-c',recovery+' && pwd -P'],cwd=nested,capture_output=True,text=True,encoding='utf-8')
+                    self.assertEqual(completed.returncode,0,completed.stderr)
+                    self.assertEqual(completed.stdout.strip(),root)
+                    for bad in (recovery+'; true',recovery+' && true',recovery+'\ntrue',
+                                'cd "'+target.as_posix()+'"', 'cd '+target.as_posix(),
+                                'cd $(echo '+target.as_posix()+')', 'cd $HOME', 'cd ../'):
+                        code,err=run(ENTRY,bad,nested,str(target))
+                        self.assertEqual(code,2,(bad,err))
+                    sentinel=holder/'must-not-exist'
+                    for bad in (recovery+'; touch '+sentinel.as_posix(),
+                                'cd $(touch '+sentinel.as_posix()+')',
+                                recovery+' && touch '+sentinel.as_posix()):
+                        code,err=run(ENTRY,bad,nested,str(target))
+                        self.assertEqual(code,2,(bad,err))
+                        self.assertFalse(sentinel.exists(),bad)
                     code,err=run(ENTRY,'git log -1 --oneline',target,str(target))
                     self.assertEqual(code,0,err)
+
+    def test_proven_root_blocks_second_checkout_and_unknown_root_hint_is_honest(self):
+        own=make_tree();other=make_tree();nested=own/'nested';nested.mkdir()
+        for command in ('cd '+other.as_posix(),"cd '"+other.as_posix()+"'"):
+            code,err=run(ENTRY,command,nested,str(other))
+            self.assertEqual(code,2,err)
+        code,err=run(ENTRY,'ls',OUTSIDE,None)
+        self.assertEqual(code,2,err)
+        self.assertNotIn('Восстановление: cd ',err)
+        self.assertIn('новую сессию',err)
+
+    def test_full_json_field_is_parsed_without_first_match_shortcut(self):
+        tree=make_tree();nested=tree/'nested';nested.mkdir()
+        recovery="cd '"+tree.resolve().as_posix()+"'"
+        payload=json.dumps({'tool_input':{'command':'ls','description':recovery},'other':{'command':recovery}})
+        completed=subprocess.run([BASH,'-c',ENTRY],input=payload,cwd=nested,capture_output=True,
+                                 text=True,encoding='utf-8')
+        self.assertEqual(completed.returncode,2,completed.stderr)
+
+    def test_git_environment_cannot_replace_cwd_checkout_identity(self):
+        own=make_tree();other=make_tree();nested=own/'nested';nested.mkdir()
+        def recovery_for(tree):
+            completed=subprocess.run([BASH,'-c','pwd -P'],cwd=tree,capture_output=True,
+                                     text=True,encoding='utf-8')
+            self.assertEqual(completed.returncode,0,completed.stderr)
+            return "cd '"+completed.stdout.strip().replace("'", "'\"'\"'")+"'"
+        own_recovery=recovery_for(own)
+        other_recovery=recovery_for(other)
+        env={'GIT_DIR':str(other/'.git'),'GIT_WORK_TREE':str(other)}
+        code,err=run(ENTRY,own_recovery,nested,str(other),env)
+        self.assertEqual(code,0,err)
+        code,err=run(ENTRY,other_recovery,nested,str(other),env)
+        self.assertEqual(code,2,err)
+
+    @unittest.skipIf(WINDOWS, "Windows interpreter fallback is covered by native QA")
+    def test_recovery_needs_no_optional_node_binary(self):
+        tree=make_tree();nested=tree/'nested';nested.mkdir()
+        with tempfile.TemporaryDirectory(prefix='overgate-no-node-') as directory:
+            for name in ('bash','cat','git','python3'):
+                found=shutil.which(name)
+                self.assertIsNotNone(found)
+                (Path(directory)/name).symlink_to(Path(found).resolve())
+            recovery="cd '"+tree.resolve().as_posix()+"'"
+            code,err=run(ENTRY,recovery,nested,None,{'PATH':directory})
+            self.assertEqual(code,0,err)
+
+    def test_windows_drive_spelling_only_maps_to_same_proven_root(self):
+        prefix=' -c "import json,os,sys;'
+        self.assertIn(prefix,ENTRY)
+        parser='import json,os,sys;'+ENTRY.split(prefix,1)[1].split('" 2>/dev/null',1)[0]
+        for root,command,expected in (
+                ('/d/own/root','cd /d/own/root',0),
+                ('/d/own/root','cd D:/own/root',0),
+                ('D:/own/root','cd /d/own/root',0),
+                ('D:/own/root','cd D:/own/root',0),
+                ('D:/own/complex path',"cd '/d/own/complex path'",0),
+                ('D:/own/root','cd C:/own/root',1),
+                ('D:/own/root','cd /c/own/root',1),
+                ('D:/own/root','cd D:/other/root',1),
+                ('D:/own/root','cd D:own/root',1),
+                ('D:/own/root','cd /d/own/root && true',1)):
+            with self.subTest(root=root,command=command):
+                env={**os.environ,'R':root}
+                payload=json.dumps({'tool_input':{'command':command}})
+                result=subprocess.run([sys.executable,'-c',parser],input=payload,env=env,
+                                      capture_output=True,text=True,encoding='utf-8')
+                self.assertEqual(result.returncode,expected,result.stderr)
+                if expected==0:self.assertEqual(result.stdout,command[3:].strip("'"))
+
+    @unittest.skipUnless(WINDOWS, 'native Git Bash drive aliases need Windows')
+    def test_native_windows_same_root_drive_aliases(self):
+        tree=make_tree();nested=tree/'nested';nested.mkdir()
+        native=tree.resolve().as_posix()
+        bash_root=subprocess.run([BASH,'-c','pwd -P'],cwd=tree,capture_output=True,
+                                 text=True,encoding='utf-8')
+        self.assertEqual(bash_root.returncode,0,bash_root.stderr)
+        msys=bash_root.stdout.strip()
+        if not native[1:3]==':/' or not all(ch.isascii() and
+                (ch.isalnum() or ch in '_:/.-') for ch in native):
+            self.skipTest('native fixture path is not a simple drive path')
+        self.assertTrue(msys.startswith('/'+native[0].lower()+'/'),msys)
+        for path in (native,msys):
+            with self.subTest(path=path):
+                code,err=run(ENTRY,'cd '+path,nested,None)
+                self.assertEqual(code,0,err)
+        other='D' if native[0].upper()!='D' else 'C'
+        for path in (other+native[1:],'/'+other.lower()+msys[2:]):
+            with self.subTest(foreign=path):
+                code,err=run(ENTRY,'cd '+path,nested,None)
+                self.assertEqual(code,2,err)
 
     def test_relative_cd_into_checkout_is_blocked(self):
         """Из родителя checkout `cd <имя каталога>` — относительный путь, не форма восстановления."""

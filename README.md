@@ -75,10 +75,14 @@ root файл через `--settings <ROOT>/.claude/settings.json`, разреш
 runtime может принять `cd`, затем вернуть cwd в стартовый подкаталог; это не успешное
 восстановление. Такой startup проверяется отдельно от автоматического root startup.
 Семантика загрузки: [Claude settings](https://code.claude.com/docs/en/settings) и
-[CLI options](https://code.claude.com/docs/en/cli-reference). Допускается только одна unquoted команда
-`cd <absolute-checkout-path>`; допустимые символы пути — латиница, цифры, `_ : / . -`.
-Пробелы, кириллица, скобки и кавычки в этой форме не поддерживаются. Для такого пути
-завершите сессию и откройте новую непосредственно в корне checkout через интерфейс
-runtime/терминала. Root-запуск не зависит от `CLAUDE_PROJECT_DIR`, даже если переменная
-указывает на соседний checkout. Исправление recovery paths и внутренних U2-префиксов
-отложено в `og-7sr`; до него сохраняется исходная семантика source dispatcher, принятая в rc.1.
+[CLI options](https://code.claude.com/docs/en/cli-reference). Из подкаталога checkout
+с dispatcher в canonical Git root отказ печатает одну shell-safe команду
+`cd '<canonical-root>'`; скопированная целиком команда проходит тот же parser для путей
+с пробелами, кириллицей, скобками и апострофами. Допустим также прежний unquoted
+`cd <absolute-checkout-path>` для простого ASCII-пути. Tail, substitution, relative path
+и второй checkout при доказанном cwd-root блокируются до исполнения. Если cwd-root
+не доказан (включая вне Git), hook не угадывает сложный путь: начните новую сессию
+непосредственно из корня нужного checkout. Прежний простой unquoted absolute `cd`
+к target с dispatcher при этом остаётся разрешённым. После отдельного вызова `cd`
+проверьте в следующей Bash-команде, что runtime сохранил cwd. Root-запуск не зависит
+от `CLAUDE_PROJECT_DIR`, даже если переменная указывает на соседний checkout.
