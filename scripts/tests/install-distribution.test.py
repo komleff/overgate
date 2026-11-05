@@ -440,6 +440,64 @@ class InstallTests(unittest.TestCase):
         run=subprocess.run([BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,
                             '--bd-bin',binary,'--prefix','big-heroes','--actor',actor,
                             '--title','Actual project task','--work-dir',work],cwd=self.target,capture_output=True,text=True,timeout=180)
+        if (run.returncode and 'trusted managed apply failed (exit 3;' in run.stderr or
+            os.environ.get('OG_TEST_NATIVE_CONTEXT_DIAG')=='1'):
+            # Disposable projection probe. Report only path relationships and command
+            # stages; never print native context paths or child stderr.
+            probe=self.root/'native-context-probe';probe.mkdir()
+            script=r'''import fs from 'node:fs';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {configureProjectPrefix} from './scripts/lib/bd-managed-contract.mjs';
+import {materializeFresh} from './scripts/lib/bd-managed-cli.mjs';
+const [root,binary,actor]=process.argv.slice(1), calls=[];
+const hash=value=>createHash('sha256').update(String(value)).digest('hex');
+const signature=(actual,expected)=>{
+  if(typeof actual!=='string')return {type:typeof actual};
+  let canonical=false;
+  try {canonical=fs.realpathSync.native(actual)===fs.realpathSync.native(expected)} catch {}
+  const relative=path.relative(root,actual).replaceAll('\\','/');
+  return {exact:actual===expected,resolved:path.resolve(actual)===path.resolve(expected),canonical,
+    drive:/^[A-Za-z]:/.test(actual),msys:/^\/[A-Za-z]\//.test(actual),
+    backslash:actual.includes('\\'),slash:actual.includes('/'),
+    relative:/^(?!\.\.)(?:[A-Za-z0-9_.\/-]{1,100})$/.test(relative)?relative:null};
+};
+const run=(program,args,options)=>{
+  const command=program==='git'?'git':args.includes('--version')?'version':
+    args.includes('--help')?'help':args.includes('context')?'context':
+    args.includes('init')?'init':args.includes('import')?'import':
+    args.includes('export')?'export':'other';
+  const receipt={command,explicit_db:args.includes('--db')};
+  try {
+    const output=execFileSync(program,args,{...options,encoding:'utf8',maxBuffer:2*1024*1024});
+    receipt.exit=0;
+    if(command==='context'){
+      const value=JSON.parse(output),cwd=path.join(root,'tmp','store');
+      receipt.paths={beads_dir:signature(value.beads_dir,path.join(cwd,'.beads')),
+        repo_root:signature(value.repo_root,cwd),cwd_repo_root:signature(value.cwd_repo_root,cwd)};
+      receipt.backend=value.backend;receipt.dolt_mode=value.dolt_mode;
+      receipt.is_worktree=value.is_worktree;receipt.is_redirected=value.is_redirected;
+    }
+    calls.push(receipt);return output;
+  } catch(error){receipt.exit=error.status??null;receipt.stderr_sha256=hash(error.stderr??'');calls.push(receipt);throw error}
+};
+configureProjectPrefix('big-heroes');
+let result='success',error_kind=null,error_sha256=null;
+try {materializeFresh({directory:root,binary,actor,snapshot:'',run})}
+catch(error){result='failure';error_sha256=hash(error.message);
+  error_kind=error.message.includes('fresh context paths do not match owned root')?'context_paths':
+    error.message.includes('fresh context must be standalone embedded')?'context_mode':
+    error.message.includes('Command failed:')?'child_command':'other';}
+console.log(JSON.stringify({result,error_kind,error_sha256,calls,
+  metadata_present:fs.existsSync(path.join(root,'tmp','store','.beads','metadata.json')),
+  embedded_present:fs.existsSync(path.join(root,'tmp','store','.beads','embeddeddolt'))}));'''
+            diagnostic=subprocess.run(['node','--input-type=module','-e',script,'--',str(probe.resolve()),str(binary),actor],
+                                      cwd=self.target,capture_output=True,text=True,timeout=180)
+            self.assertEqual(diagnostic.returncode,0,
+                             'native context probe failed; stdout/stderr sha256 '+
+                             hashlib.sha256((diagnostic.stdout+diagnostic.stderr).encode()).hexdigest())
+            print('NATIVE_CONTEXT_PROBE '+diagnostic.stdout.strip(),file=sys.stderr)
         if ((run.returncode and ('native issue prefix differs from project-owned prefix' in run.stderr or
                                 'native bd init project-owned local state missing' in run.stderr)) or
             os.environ.get('OG_TEST_NATIVE_DIAG')=='1'):
