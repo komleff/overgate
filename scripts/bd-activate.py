@@ -75,6 +75,12 @@ def inventory(root):
         raise ActivationError('Beads preservation required before activation: '+'; '.join(result['reasons']))
     return result
 
+def origin_state(root):
+    fetch=git(root,'remote','get-url','origin')
+    pushes=git(root,'remote','get-url','--push','--all','origin').splitlines()
+    if not fetch or not pushes:raise ActivationError('origin fetch/push destination unavailable')
+    return (fetch,pushes)
+
 def local_git_values(root,key):
     result=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-all',key],
                           capture_output=True,env=installer.git_environment())
@@ -187,6 +193,7 @@ def main(args):
     if not args.title.strip() or len(args.title)>8000:raise ActivationError('explicit project task title required')
     if SCRIPT!=primary/'scripts/bd-activate.py':raise ActivationError('trusted activation helper path required')
     head=trusted(primary);installed(primary,head)
+    origin_sha256=sha(json.dumps(origin_state(primary),separators=(',',':')).encode())
     requested_work=Path(args.work_dir);work=requested_work.resolve()
     if not requested_work.is_absolute() or requested_work.is_symlink() or any(work==root or root in work.parents for root in (primary,publisher,peer)):
         raise ActivationError('private activation work directory must be outside checkouts')
@@ -203,12 +210,16 @@ def main(args):
         {'intent_id':'activation-claim','op':'claim','ref':'tmp:first-task'})).encode('utf-8')
     bound={'primary':str(primary),'publisher':str(publisher),'peer':str(peer),'head':head,
            'actor':args.actor,'prefix':args.prefix,'title':args.title,'binary':str(Path(args.bd_bin).resolve()),
-           'raw_sha256':sha(raw_bytes)}
+           'raw_sha256':sha(raw_bytes),'origin_sha256':origin_sha256}
     if args.resume:
         checkpoint_file=work/'activation-checkpoint.json'
         if not checkpoint_file.is_file() or checkpoint_file.is_symlink() or raw.is_symlink() or not raw.is_file():
             raise ActivationError('activation checkpoint/queue missing or unsafe; preserve state')
         journal=json.loads(checkpoint_file.read_bytes())
+        if not isinstance(journal,dict) or not isinstance(journal.get('bound'),dict):
+            raise ActivationError('activation checkpoint invalid; preserve queue and native state')
+        if journal['bound'].get('origin_sha256')!=origin_sha256:
+            raise ActivationError('activation checkpoint origin changed; preserve queue and native state')
         if journal.get('version')!=1 or journal.get('bound')!=bound or journal.get('stage') not in STAGES or raw.read_bytes()!=raw_bytes:
             raise ActivationError('activation checkpoint/queue binding changed; preserve state')
     else:
@@ -222,10 +233,9 @@ def main(args):
             if trusted(root)!=head:raise ActivationError('publisher/peer trusted main differs from primary')
             installed(root,head)
             if not args.resume:inventory(root)
-        origins=[(git(root,'remote','get-url','origin'),git(root,'remote','get-url','--push','--all','origin'))
-                 for root in (primary,publisher,peer)]
+        origins=[origin_state(root) for root in (primary,publisher,peer)]
         if origins[0]!=origins[1] or origins[0]!=origins[2]:raise ActivationError('publisher/peer origin differs')
-        publisher_identity_auth(publisher,origins[1][1])
+        publisher_identity_auth(publisher,'\n'.join(origins[1][1]))
         if args.resume:
             remote_states=[installer.beads_inventory(root)['remote'] for root in (primary,publisher,peer)]
             if len({json.dumps(item,sort_keys=True) for item in remote_states})!=1 or remote_states[0]['status']=='unknown':

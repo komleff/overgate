@@ -76,6 +76,36 @@ MSYS_OUT="$(PATH="$MSYS_BIN" OG_MSYS_SCRIPT="$MSYS_SCRIPT" OG_NATIVE_SCRIPT="$NA
 assert_eq "$MSYS_OUT" 'script-ran' \
   "native Python получает путь к script с апострофом в Windows-форме"
 
+# Публичный installed entry передаёт -I -B до script operand. Проверяем весь
+# маршрут Git Bash → wrapper → launcher → native py на сложном пути.
+PUBLIC_ROOT="$TMP_DIR/Проект's (QA) space/primary"
+PUBLIC_BIN="$TMP_DIR/public-entry-bin"
+mkdir -p "$PUBLIC_ROOT/scripts" "$PUBLIC_ROOT/.claude/tools" "$PUBLIC_BIN"
+cp "$ROOT/scripts/bd-activate.sh" "$PUBLIC_ROOT/scripts/bd-activate.sh"
+cp "$LAUNCHER" "$PUBLIC_ROOT/.claude/tools/run-python.sh"
+: > "$PUBLIC_ROOT/scripts/bd-activate.py"
+cp "$MSYS_BIN/cygpath" "$PUBLIC_BIN/cygpath"
+cat > "$PUBLIC_BIN/py" <<'SH'
+#!/bin/sh
+[ "$1" = -3 ] || exit 64
+shift
+[ "$1" = -c ] && exit 0
+printf '%s\n' "$@" > "$OG_CAPTURE"
+SH
+chmod +x "$PUBLIC_BIN/py"
+PUBLIC_CAPTURE="$TMP_DIR/public-entry-argv"
+PUBLIC_NATIVE="D:/CodexArtifacts/Проект's (QA) space/primary/scripts/bd-activate.py"
+PUBLIC_CANON="$(cd "$PUBLIC_ROOT" && pwd -P)"
+PATH="$PUBLIC_BIN:$PATH" OG_MSYS_SCRIPT="$PUBLIC_CANON/scripts/bd-activate.py" \
+  OG_NATIVE_SCRIPT="$PUBLIC_NATIVE" OG_CAPTURE="$PUBLIC_CAPTURE" \
+  bash "$PUBLIC_ROOT/scripts/bd-activate.sh" --work-dir 'D:/private work'
+assert_eq "$(sed -n '1p' "$PUBLIC_CAPTURE")" '-I' "public entry сохраняет Python isolation -I"
+assert_eq "$(sed -n '2p' "$PUBLIC_CAPTURE")" '-B' "public entry сохраняет Python isolation -B"
+assert_eq "$(sed -n '3p' "$PUBLIC_CAPTURE")" "$PUBLIC_NATIVE" \
+  "public entry передаёт native Windows script path после флагов"
+assert_eq "$(sed -n '4p' "$PUBLIC_CAPTURE")" '--work-dir' "public entry сохраняет аргументы"
+assert_eq "$(sed -n '5p' "$PUBLIC_CAPTURE")" 'D:/private work' "public entry сохраняет complex arg"
+
 BROKEN_PY_BIN="$TMP_DIR/broken-py-bin"
 BROKEN_PY_MARKER="$TMP_DIR/broken-py.marker"
 PYTHON3_MARKER="$TMP_DIR/python3.marker"

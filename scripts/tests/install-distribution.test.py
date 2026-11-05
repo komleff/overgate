@@ -342,7 +342,11 @@ class InstallTests(unittest.TestCase):
             self.assertIn('injected activation stop after '+point,result.stderr)
             expected_stage={'after-peer-init':'peer-init','after-setup':'setup',
                             'after-bootstrap':'bootstrapped','after-push':'published'}[point]
-            self.assertEqual(json.loads((work/'activation-checkpoint.json').read_bytes())['stage'],expected_stage)
+            checkpoint_bytes=(work/'activation-checkpoint.json').read_bytes()
+            checkpoint_value=json.loads(checkpoint_bytes)
+            self.assertEqual(checkpoint_value['stage'],expected_stage)
+            self.assertRegex(checkpoint_value['bound']['origin_sha256'],r'^[0-9a-f]{64}$')
+            self.assertNotIn(str(remote).encode(),checkpoint_bytes,'origin URL must not enter private checkpoint')
             raw=(work/'raw-intents.jsonl').read_bytes()
             if raw_hash is None:raw_hash=hashlib.sha256(raw).hexdigest()
             self.assertEqual(hashlib.sha256(raw).hexdigest(),raw_hash)
@@ -358,6 +362,21 @@ class InstallTests(unittest.TestCase):
                 self.assertNotEqual(changed.returncode,0)
                 self.assertIn('checkpoint/queue binding changed',changed.stderr)
                 self.assertEqual((work/'raw-intents.jsonl').read_bytes(),raw)
+                attacker=self.root/'resume-attacker.git'
+                subprocess.check_call(['git','clone','-q','--bare',str(remote),str(attacker)])
+                for clone in (self.target,publisher,peer):
+                    git(clone,'remote','set-url','origin',str(attacker))
+                    git(clone,'remote','set-url','--push','origin',str(attacker))
+                redirected=subprocess.run([*command,'--resume'],cwd=self.target,
+                                          capture_output=True,text=True,timeout=90)
+                self.assertNotEqual(redirected.returncode,0)
+                self.assertIn('activation checkpoint origin changed',redirected.stderr)
+                self.assertEqual((work/'raw-intents.jsonl').read_bytes(),raw)
+                self.assertEqual(tuple((root/'.beads/metadata.json').read_bytes() for root in (self.target,peer)),native_metadata)
+                self.assertEqual(git(attacker,'branch','--list','beads-backup'),'')
+                for clone in (self.target,publisher,peer):
+                    git(clone,'remote','set-url','origin',str(remote))
+                    git(clone,'config','--local','--unset-all','remote.origin.pushurl')
         completed=subprocess.run([*command,'--resume'],cwd=self.target,capture_output=True,text=True,timeout=180)
         self.assertEqual(completed.returncode,0,completed.stdout+completed.stderr)
         result=json.loads(completed.stdout)
