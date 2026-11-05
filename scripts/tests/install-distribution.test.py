@@ -433,15 +433,28 @@ class InstallTests(unittest.TestCase):
             def safe(value):
                 if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_-]{0,64}',value):return value
                 return {'type':type(value).__name__,'sha256':hashlib.sha256(repr(value).encode('utf-8')).hexdigest()}
+            locations=[]
+            for path in self.root.rglob('metadata.json'):
+                relative=path.relative_to(self.root).as_posix()
+                if len(locations)<10 and len(relative)<=200 and re.fullmatch(r'[A-Za-z0-9_./:-]+',relative):
+                    locations.append(relative)
+            checkpoint_path=work/'activation-checkpoint.json'
+            checkpoint=json.loads(checkpoint_path.read_bytes()) if checkpoint_path.is_file() else {}
+            print('NATIVE_PREFIX_DIAGNOSTIC_STATE '+json.dumps({
+                'metadata_locations':locations,'checkpoint_present':checkpoint_path.is_file(),
+                'checkpoint_stage':safe(checkpoint.get('stage')),'raw_queue_present':(work/'raw-intents.jsonl').is_file(),
+            },sort_keys=True),file=sys.stderr)
             for role,root in (('primary',self.target),('publisher',publisher),('peer',peer)):
-                if not (root/'.beads/metadata.json').is_file():continue
                 db=root/'.beads/dolt'
                 observed=subprocess.run([str(binary),'--db',str(db),'--readonly','config','list','--json'],
                                         cwd=root,env=activation.native_env(root),capture_output=True,timeout=60)
                 config=json.loads(observed.stdout.decode('utf-8')) if observed.returncode==0 else {}
-                metadata=json.loads((root/'.beads/metadata.json').read_bytes())
+                metadata_path=root/'.beads/metadata.json'
+                metadata=json.loads(metadata_path.read_bytes()) if metadata_path.is_file() else {}
                 print('NATIVE_PREFIX_DIAGNOSTIC '+json.dumps({
-                    'role':role,'config_exit':observed.returncode,
+                    'role':role,'beads_dir_present':(root/'.beads').is_dir(),
+                    'db_dir_present':db.is_dir(),'embedded_dir_present':(root/'.beads/embeddeddolt').is_dir(),
+                    'metadata_present':metadata_path.is_file(),'config_exit':observed.returncode,
                     'issue_prefix_type':type(config.get('issue_prefix')).__name__,
                     'issue_prefix':safe(config.get('issue_prefix')),
                     'metadata_backend':safe(metadata.get('backend')),
