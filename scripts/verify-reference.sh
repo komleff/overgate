@@ -27,6 +27,7 @@ run structure "$PYTHON" scripts/check-reference.py
 run structural-mutations "$PYTHON" scripts/tests/check-reference.test.py
 run closure-mutations "$PYTHON" scripts/tests/reference-closure.test.py
 run pre-bash-dispatch "$PYTHON" scripts/tests/pre-bash-dispatch.test.py
+run portability-names "$PYTHON" scripts/tests/portability-names.test.py
 run activation bash scripts/tests/activation-routing.test.sh
 run mutation-guard bash scripts/tests/repository-mutation-guard.test.sh
 run classifier bash scripts/tests/commit-command-classifier.test.sh

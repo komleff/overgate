@@ -22,6 +22,8 @@ RC1_SHA = '633937250fa8f47b49f928c1d8781ab17fe8c8e3'
 # Точный commit тега v4.0.0-rc.2: вторая база upgrade, для которой заявлено побайтное соответствие.
 RC2_SHA = '073595ae6fb51c16fa49576acca40d94d068af83'
 RC3_SHA = 'b830d5ed7ed31e597b45f7f3c18b8fb6baad6b29'
+# Frozen rc.4.1 entry до WI-C: installer обязан заменить только его exact identity.
+WIC_BASE_SHA = '8f70ced157968e9e914bce9b2371ab85fb8a19df'
 PR_URL = 'https://github.com/example/project/pull/1'
 GITIGNORE_HEADER = b'# OverGate personal state (managed fragment)'
 # NTFS не хранит POSIX execute bits (как в reference-closure): mode сверяется только вне Windows.
@@ -243,6 +245,23 @@ class InstallTests(unittest.TestCase):
                 self.assertEqual(mode,'custom');self.assertIn('permissions проекта сохранены',notes)
                 with self.assertRaisesRegex(installer.InstallError,'меняется вручную'):
                     installer.select_claude(json.dumps(old).encode(),source,manifest,'bypass',[])
+
+    def test_wic_rc4_entry_migrates_but_changed_managed_hook_stays_conflict(self):
+        installer=load_installer();manifest=self.source_manifest();source=self.source_blob('.claude/settings.json')
+        old=json.loads(subprocess.check_output(['git','-C',str(ROOT),'show',WIC_BASE_SHA+':.claude/settings.json']))
+        got,mode=installer.select_claude(json.dumps(old).encode(),source,manifest,None,[])
+        self.assertEqual((got,mode),(source,'auto'))
+        old['hooks']['PreToolUse'][0]['hooks'][0]['command']+=' ; true'
+        with self.assertRaisesRegex(installer.InstallError,'custom managed runtime hook'):
+            installer.select_claude(json.dumps(old).encode(),source,manifest,None,[])
+
+    def test_current_wic_settings_modes_remain_managed_for_upgrade(self):
+        installer=load_installer();manifest=self.source_manifest();source=self.source_blob('.claude/settings.json')
+        for mode in ('auto','bypass'):
+            with self.subTest(mode=mode):
+                existing=installer.claude_variant(source,mode)
+                got,detected=installer.select_claude(existing,source,manifest,None,[])
+                self.assertEqual((got,detected),(existing,mode))
 
     def test_wi1_install_state_drift_refuses_rollback(self):
         self.make_plan();self.approve();self.apply();path=self.target/'.overgate/install-state.json';path.write_bytes(path.read_bytes()+b' ')

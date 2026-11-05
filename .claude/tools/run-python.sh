@@ -3,6 +3,17 @@
 
 probe='import sys; raise SystemExit(0 if sys.version_info.major == 3 else 1)'
 
+# Native Windows Python не всегда преобразует MSYS-путь argv с апострофом.
+case "${1-}" in
+  /*)
+    if command -v cygpath >/dev/null 2>&1; then
+      script_path="$(cygpath -m "$1")" || exit 127
+      [ -n "$script_path" ] || exit 127
+      shift
+      set -- "$script_path" "$@"
+    fi ;;
+esac
+
 if command -v py >/dev/null 2>&1 && py -3 -c "$probe" >/dev/null 2>&1; then
   exec py -3 "$@"
 fi

@@ -601,6 +601,16 @@
               "timeout": 5
             }
           ]
+        },
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash -c 'H=./.claude/hooks/pre-bash.sh; if [ -f \"$H\" ]; then exec bash \"$H\"; fi; P=$(cat); Q=$(printf %s \"$P\" | tr -d \"{[:space:]\" | cut -c1); T=$(printf %s \"$P\" | grep -oE \"[$Q]command[$Q]: *[$Q]cd (/|[A-Za-z]:/)[A-Za-z0-9_:/.-]*[$Q]\" | head -n1); T=${T#*cd }; T=${T%?}; if [ -n \"$T\" ] && [ -f \"$T/.claude/hooks/pre-bash.sh\" ]; then exit 0; fi; R=$(git rev-parse --show-toplevel 2>/dev/null); echo \"БЛОКИРОВКА: каталог сессии не корень репозитория, диспетчер хуков .claude/hooks/pre-bash.sh здесь не найден (PWD=[$PWD], CLAUDE_PROJECT_DIR=[${CLAUDE_PROJECT_DIR-}]). Проходит только одна команда: cd с абсолютным путём к корню репозитория (прямые слэши, без кавычек). Восстановление: cd ${R:-<корень репозитория>}\" >&2; exit 2'",
+              "timeout": 600
+            }
+          ]
         }
       ]
     }
@@ -646,7 +656,11 @@
   "known_settings_fingerprints": {
     "e75edfb4711109864edabd58f4f2c0518f2a99187c02b40a62699ae5631fbe02": "legacy",
     "f86047ef9c09600ead8d9169c47e36f7bb836c2e1b79136ae11b6ecc5fb7b9d1": "auto",
-    "a304bc514402c2e63f22c1982daac2bbd9d61bab4c1c583bd321401057509c52": "bypass"
+    "a304bc514402c2e63f22c1982daac2bbd9d61bab4c1c583bd321401057509c52": "bypass",
+    "c8f99726d276aa6c441607ccb57ecba6b53a19fba9fecb18d2162bc4ae0cdbd7": "auto",
+    "28303cd635e254030813a1890b7c41ec36a8e08890895178af3d432450ec6e95": "bypass",
+    "95c064900c80e037e64b7df44df6f8b43eab13efcf1f2e591dd659c1f6205b87": "auto",
+    "f80607a701649df22c4b547a799ca85c4288e863cfc6e3542d399b57fe36a577": "bypass"
   },
   "beads_version": {
     "min": "1.2.2",

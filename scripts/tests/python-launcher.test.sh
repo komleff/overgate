@@ -48,6 +48,34 @@ else
   pass "launcher не продолжает поиск после исправного py -3"
 fi
 
+MSYS_BIN="$TMP_DIR/msys-bin"
+mkdir -p "$MSYS_BIN"
+cat >"$MSYS_BIN/py" <<'SH'
+#!/bin/sh
+[ "$1" = -3 ] || exit 64
+shift
+[ "$1" = -c ] && exit 0
+[ "$1" = "$OG_NATIVE_SCRIPT" ] || exit 64
+shift
+exec "$OG_REAL_PYTHON" "$OG_TEST_SCRIPT" "$@"
+SH
+cat >"$MSYS_BIN/cygpath" <<'SH'
+#!/bin/sh
+[ "$1" = -m ] || exit 64
+shift
+[ "$1" = "$OG_MSYS_SCRIPT" ] || exit 64
+printf '%s\n' "$OG_NATIVE_SCRIPT"
+SH
+chmod +x "$MSYS_BIN/py" "$MSYS_BIN/cygpath"
+printf '%s\n' 'import sys; print(sys.argv[1])' >"$TMP_DIR/quoted-script.py"
+MSYS_SCRIPT="/c/fixture/quote'path/check.py"
+NATIVE_SCRIPT="C:/fixture/quote'path/check.py"
+MSYS_OUT="$(PATH="$MSYS_BIN" OG_MSYS_SCRIPT="$MSYS_SCRIPT" OG_NATIVE_SCRIPT="$NATIVE_SCRIPT" \
+  OG_REAL_PYTHON="$REAL_PYTHON" OG_TEST_SCRIPT="$TMP_DIR/quoted-script.py" \
+  "$LAUNCHER" "$MSYS_SCRIPT" 'script-ran')"
+assert_eq "$MSYS_OUT" 'script-ran' \
+  "native Python получает путь к script с апострофом в Windows-форме"
+
 BROKEN_PY_BIN="$TMP_DIR/broken-py-bin"
 BROKEN_PY_MARKER="$TMP_DIR/broken-py.marker"
 PYTHON3_MARKER="$TMP_DIR/python3.marker"
