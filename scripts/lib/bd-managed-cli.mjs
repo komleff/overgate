@@ -77,7 +77,7 @@ export function materializeFresh({ directory, binary, actor, snapshot, run = def
     return info;
   };
   context();
-  invoke(['init', '--prefix', getProjectPrefix(), '--non-interactive', '--skip-agents', '--skip-hooks'], 180000);
+  run(executable, ['--actor', actor, 'init', '--prefix', getProjectPrefix(), '--non-interactive', '--skip-agents', '--skip-hooks'], { cwd, env, timeout: 180000 });
   context();
   const frozenFile = path.join(evidence, 'frozen.jsonl'); fs.writeFileSync(frozenFile, snapshot, { flag: 'wx', mode: 0o600 });
   invoke(['import', frozenFile, '--json']);
