@@ -50,6 +50,7 @@ for test_name in merge-gate-parse-complexity readiness-declaration-corpus readin
   run "$test_name" "$PYTHON" "scripts/tests/$test_name.test.py"
 done
 run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate_review_pass.sh
+run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run verify-tiers "$PYTHON" scripts/tests/verify-tiers.test.py
 # Граница commit tier: длинные интеграционные наборы installer/Beads ниже идут только в full
 # (/verify и обязательный CI verify-reference); гейт коммита укладывается в свой предел.
@@ -63,7 +64,6 @@ run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
 run bd-bootstrap-native "$PYTHON" scripts/tests/bd-bootstrap-native.test.py
 run bd-upgrade-preserve "$PYTHON" scripts/tests/bd-upgrade-preserve.test.py
 run bd-legacy-fence "$PYTHON" scripts/tests/bd-legacy-fence.test.py
-run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
 run bd-managed-prefix node scripts/tests/bd-managed-prefix.test.mjs
 run bd-managed-snapshot node scripts/tests/bd-managed-snapshot.test.mjs
