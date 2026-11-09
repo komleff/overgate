@@ -160,6 +160,17 @@ assert_eq "$?" "2" "repository guard: отсутствие sibling parser бло
 assert_contains "$GUARD_MISSING_OUT" "parser package not loaded" \
   "repository guard: причина missing sibling видна"
 
+# og-5l6: маршрут git (Git Bash на Windows) грузится по явному пути на любой ОС;
+# без него guard не продолжает с неполным набором.
+GUARD_ROUTE_MISSING="$TMP_DIR/repository-guard-route-missing"
+build_tree "$GUARD_ROUTE_MISSING" current
+rm -f "$GUARD_ROUTE_MISSING/.claude/hooks/git_bash_route.py"
+GUARD_ROUTE_OUT="$(printf '%s' "$SAFE_PAYLOAD" | \
+  "$PYTHON_RUNNER" "$GUARD_ROUTE_MISSING/.claude/hooks/check-repository-mutation.py" 2>&1 >/dev/null)"
+assert_eq "$?" "2" "repository guard: отсутствие маршрута git блокирует fail-secure"
+assert_contains "$GUARD_ROUTE_OUT" "git route not loaded" \
+  "repository guard: причина отсутствия маршрута git видна"
+
 # --- 3. Гейт публикации: тот же инвариант, тот же сосед ------------------------
 
 GATE_TREE="$TMP_DIR/gate"

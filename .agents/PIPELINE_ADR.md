@@ -374,7 +374,8 @@ Inline parser использует обязательный для installer Pyt
 ### 3.37 Commit tier reference-гейта overgate (2026-11-09)
 
 **Статус:** proposed для rc.5.1 (`og-cfx`). Уточняет §3.30 «exact commit → fail-closed suite»
-для собственного репозитория OverGate; установленные проекты не затрагиваются.
+для собственного репозитория OverGate; установленные проекты не затрагиваются. Состав commit
+tier заменён §3.38 (rc.5.2): граница уровня и полный набор в `/verify`/CI сохраняются.
 
 **Контекст.** Гейт коммита Claude запускает `.agents/project/verify.sh` с пределом 570 с
 (расширять предел запрещено). В overgate этот entrypoint вызывал полный reference-набор:
@@ -399,6 +400,91 @@ overgate вызывает этот уровень. Полный набор бе�
   переработки фикстур tag-installs; уровень гейта нужен сейчас.
 - *Выбор тестов по изменённым файлам.* Отклонено: недетерминированная полнота и сложность
   без доказанной пользы.
+
+### 3.38 Ядро commit tier, Windows-гейт и fail-closed guard (2026-11-10)
+
+**Статус:** proposed для rc.5.2 (`og-5l6`, `og-0pu`, `og-1lg` п.1). Заменяет решение §3.37
+о составе commit tier; граница уровня, NOT RUN на неизвестный аргумент и полный набор в
+`/verify` и обязательном CI сохраняются. План: `docs/plans/2026-11-10-v4.0.0-rc.5.2-windows-gate.md`.
+
+**Контекст.** На Windows 11 ru-RU оператора 13 из 27 шагов commit tier падали, а сумма шагов
+превышала предел гейта 570 с (оценка > 700 с); на macOS под нагрузкой гейт тоже не укладывался.
+Guard репозитория пропускал git-alias при недоступном `--git-dir`/`GIT_DIR`/`GIT_COMMON_DIR`
+(lookup отвечал «нет alias», на любой ОС), а на Windows нативный Python передавал MSYS-пути
+команды нативному `git.exe` без преобразования. Windows CI не исполнял commit tier, а
+`PYTHONUTF8=1` маскировал зависимость тестов от ANSI code page.
+
+**Решение.**
+
+1. Commit tier = ядро пути коммита, ровно 12 шагов: `structure`, `structural-mutations`,
+   `closure-mutations`, `pre-bash-dispatch`, `portability-names`, `activation`, `mutation-guard`,
+   `classifier`, `commit-gate`, `readiness`, `python-launcher`, `verify-tiers`. Остальные 22 шага
+   прежнего commit tier (publisher, with-timeout ×2, merge-gate/gate/shell-grammar, module-resolution,
+   finalize ×4, bd ×3, complexity ×2, corpus, nonascii) идут только в full. `run()` печатает время
+   каждого шага, commit tier — сумму.
+2. Джоба CI `windows-commit-tier` в условиях оператора: Git Bash, Python 3.14, без
+   `PYTHONUTF8`/`PYTHONIOENCODING`, `TMPDIR`/`TEMP` на `D:` с кириллицей, апострофом и пробелом
+   (нет `D:` — FAIL), явная печать привилегии symlink, `timeout-minutes: 60`. Джоба исполняет
+   `bash .agents/project/verify.sh` и все 22 вынесенных шага с временем каждого.
+   `verify-tiers.test.py` держит точный список commit tier и присутствие каждого вынесенного
+   шага в full и в этой джобе.
+3. Guard: при явном репозиторном контексте (`--git-dir`, `GIT_DIR`, `GIT_COMMON_DIR`) перед
+   lookup alias выполняется `git rev-parse --git-dir` с тем же контекстом; отказ — блок.
+   Контекст только из `-c`/`GIT_CONFIG_*`/`HOME`/`XDG_CONFIG_HOME`/`-C`/`--work-tree` проверку не
+   запускает: lookup там отражает реальный набор alias, а вне репозитория были бы ложные блоки.
+4. Guard на Windows (`os.name == 'nt'`): lookup alias, rev-parse и разбор контекста shell-alias
+   идут через Git Bash той же установки Git for Windows, что исполняет команды агента
+   (`.claude/hooks/git_bash_route.py`, входит в замкнутое множество guard, closure и manifest).
+   MSYS-преобразование argv и окружения совпадает с реальным запуском. Входы выбора bash — только
+   окружение процесса хука: `CLAUDE_CODE_GIT_BASH_PATH` и PATH для поиска `git.exe`; присваивания
+   и `env` в самой команде выбор не меняют. Решающий признак — bash и `git.exe` из одной установки
+   (`<root>/cmd/git.exe` и `<root>/usr/bin/bash.exe`; `git.exe` из `<root>/cmd` или
+   `<root>/<mingw>/bin`); `$OSTYPE == msys` — дополнительная проверка. WSL-заглушки, Cygwin,
+   отдельный MSYS2, другая установка, отсутствие и ошибка запуска — блок. **Поддерживается только
+   Git Bash из Git for Windows.** Семантика вызова — `exec git "$@"`; argv передаётся bash через
+   окружение и скрипт на stdin, а не командной строкой Windows: MSYS разбирает командную строку
+   нативного родителя сам (одинарные кавычки, `\`, glob), и argv lookup мог бы отличаться от argv
+   реального запуска.
+5. Тесты reference-набора запускают bash через `native_bash()` или явный путь Git Bash, не зависят
+   от ANSI code page и не требуют привилегии symlink там, где symlink не нужен по смыслу; кейсы
+   отказа на symlink без привилегии дают явный SKIP с причиной и исполняются в Windows CI.
+
+**Отклонённые варианты.**
+
+- *Оставить merge-gate/with-timeout в commit tier.* Отклонено: Windows оператора ≈540 с при
+  пределе 570 с — гейт флакает от любой нагрузки.
+- *Параллельный запуск шагов.* Отклонено: тайминг-кейсы (`pre-bash-dispatch` быстрая фаза,
+  `merge-gate-parse-budget`, complexity, `with-timeout-transparency`) флакают от собственной
+  нагрузки; bash 3.2 на macOS без `wait -n`.
+- *Ускорить `pre-bash-dispatch`.* Отклонено как отдельная работа с риском изменить смысл проверки.
+- *Выбор тестов по изменённым файлам.* Отклонено в §3.37, причины те же.
+- *Перечислить классы путей и преобразовывать MSYS-пути в guard.* Отклонено: классов много
+  (`GIT_CONFIG_GLOBAL`, `HOME`, `XDG_CONFIG_HOME`, `include.path`, `GIT_CONFIG_KEY_n/VALUE_n`,
+  `--config-env`, репозиторные пути), правила MSYS неполно воспроизводимы — пропуск класса
+  остаётся fail-open.
+- *Тестовый `native_bash()` или первый `bash.exe` из PATH в guard.* Отклонено: вне замкнутого
+  множества guard, WindowsApps-заглушка WSL, Cygwin/MSYS2 давали бы ложный блок или fail-open.
+- *`CLAUDE_CODE_GIT_BASH_PATH` из окружения команды.* Отклонено: присваивание в самой команде
+  подменяло бы bash — fail-open.
+- *`bash -c 'exec git "$@"' _ <argv…>` командной строкой Windows.* Отклонено при реализации:
+  разбор командной строки MSYS склеивает аргументы с `'`, и скрытый в кавычках `-C` меняет
+  репозиторий lookup — fail-open.
+
+**Named risks (приняты PM).**
+
+- Быстрая фаза `pre-bash-dispatch` (≤ 10 с) флакает под сильной нагрузкой машины; тест остаётся
+  в commit tier.
+- «Ядро» уже реального пути коммита: `.claude/tools/with-timeout.sh` вызывается гейтом на каждом
+  коммите, а `gate-*`/`shell-grammar-single-source` проверяют грамматику, общую с классификатором.
+  Их регрессию локальный гейт не поймает — только `/verify` и CI (Linux full, Windows джоба).
+  Merge-гейт не ослаблен.
+- Windows-маршрут guard добавляет запуск bash на каждое обращение к git (lookup, rev-parse,
+  контекст shell-alias); предел вызова на Windows 5 с, общий предел быстрой проверки диспетчера
+  10 с. Превышение — блок.
+- `env -C <MSYS-путь>` на Windows guard не преобразует (каталог задаёт Python): безопасный alias
+  в такой форме даёт ложный блок, опасный — блок.
+- Codex adapter на Windows вызывает guard с пределом 5 с; маршрут Git Bash его не менял (Codex
+  вне scope rc.5.2).
 
 ## 4. Ключевые решения
 

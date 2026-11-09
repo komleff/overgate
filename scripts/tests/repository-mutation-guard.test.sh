@@ -126,6 +126,57 @@ expect_block "env clear removes inherited Git context" "GIT_DIR='$SAFE_REPO/.git
 expect_block "env dynamic Git context" 'env GIT_DIR="$REPO/.git" sh -c "git outer"'
 expect_block "dynamic git context path" 'git -C "$REPO" outer'
 expect_block "dynamic git environment path" 'GIT_DIR="$REPO/.git" git outer'
+
+# --- og-5l6 (AC-01): явный репозиторный контекст, который git не открывает ------
+# Недоступный --git-dir/GIT_DIR/GIT_COMMON_DIR git пропускает молча: lookup alias
+# отвечал кодом 1 («нет alias»), и guard пропускал команду. Теперь — блок.
+MISSING_CTX="$GUARD_TEST_TMP/missing-repo"
+OUTSIDE_DIR="$GUARD_TEST_TMP/outside"
+mkdir -p "$OUTSIDE_DIR"
+CTX_REASON="git cannot open the explicit repository context"
+expect_block_reason "unreachable --git-dir alias lookup" "git --git-dir='$MISSING_CTX/.git' outer" "$CTX_REASON"
+expect_block_reason "unreachable --git-dir separate value" "git --git-dir '$MISSING_CTX/.git' outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_DIR alias lookup" "GIT_DIR='$MISSING_CTX/.git' git outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_DIR via env wrapper" "env GIT_DIR='$MISSING_CTX/.git' git outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_COMMON_DIR alias lookup" "GIT_COMMON_DIR='$MISSING_CTX' git -C '$ALIAS_REPO' outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_DIR shell wrapper" "GIT_DIR='$MISSING_CTX/.git' sh -c 'git outer'" "$CTX_REASON"
+# Регрессия: недоступные -C и --work-tree блокировались и раньше.
+expect_block "unreachable -C alias lookup" "git -C '$MISSING_CTX' outer"
+expect_block "unreachable --work-tree alias lookup" "git --work-tree='$MISSING_CTX' -C '$ALIAS_REPO' outer"
+# Без ложного блока: валидный контекст, builtin, -c/HOME вне репозитория.
+expect_allow "valid --git-dir safe alias" "git --git-dir='$ALIAS_REPO/.git' safe"
+expect_allow "valid GIT_DIR safe alias" "GIT_DIR='$ALIAS_REPO/.git' git safe"
+expect_allow "unreachable --git-dir builtin" "git --git-dir='$MISSING_CTX/.git' status --short"
+expect_allow "unreachable GIT_DIR builtin" "GIT_DIR='$MISSING_CTX/.git' git log -1"
+expect_allow "-c outside repository" "git -C '$OUTSIDE_DIR' -c user.name=x og-no-such-ext"
+expect_allow "HOME outside repository" "HOME='$MISSING_CTX' git -C '$OUTSIDE_DIR' og-no-such-ext"
+
+# --- og-5l6 (AC-02): alias из каждого класса источников конфигурации -------------
+# На Windows пути здесь — MSYS (`/d/...`); guard обязан видеть alias так же, как
+# реальный запуск из Git Bash. На macOS/Linux — регрессия того же поведения.
+CFG_DIR="$GUARD_TEST_TMP/config-sources"
+mkdir -p "$CFG_DIR/home" "$CFG_DIR/xdg/git"
+printf '[alias]\n\tcfgland = !gh pr merge 756 --squash\n\tcfgsafe = !git status --short\n' > "$CFG_DIR/aliases"
+cp "$CFG_DIR/aliases" "$CFG_DIR/home/.gitconfig"
+cp "$CFG_DIR/aliases" "$CFG_DIR/xdg/git/config"
+CFG_CLASSES=(
+  "GIT_CONFIG_GLOBAL|GIT_CONFIG_GLOBAL='$CFG_DIR/aliases' git"
+  "HOME|HOME='$CFG_DIR/home' git"
+  "XDG_CONFIG_HOME|XDG_CONFIG_HOME='$CFG_DIR/xdg' git"
+  "-c include.path|git -c include.path='$CFG_DIR/aliases'"
+  "GIT_CONFIG_KEY_n include.path|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0='$CFG_DIR/aliases' git"
+  "--git-dir|git --git-dir='$ALIAS_REPO/.git'"
+  "GIT_DIR|GIT_DIR='$ALIAS_REPO/.git' git"
+  "-C|git -C '$ALIAS_REPO'"
+)
+git -C "$ALIAS_REPO" config alias.cfgland '!gh pr merge 756 --squash'
+git -C "$ALIAS_REPO" config alias.cfgsafe '!git status --short'
+for entry in "${CFG_CLASSES[@]}"; do
+  class="${entry%%|*}"
+  prefix="${entry#*|}"
+  expect_block "config source $class: dangerous alias" "$prefix cfgland"
+  expect_allow "config source $class: safe alias" "$prefix cfgsafe"
+done
 PERSISTENT_ALIAS_OUT="$(payload "git land" | \
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.land \
   GIT_CONFIG_VALUE_0='!gh pr merge 756 --squash' \
@@ -425,6 +476,13 @@ PY
 rc=$?
 if [ "$rc" -eq 0 ]; then printf 'PASS Claude deny parity\n'; pass=$((pass+1))
 else printf 'FAIL Claude deny parity\n' >&2; fail=$((fail+1)); fi
+
+# og-5l6 (AC-02): маршрут `nt` и выбор Git Bash — модульный тест того же шага.
+if "$RUNNER" "$ROOT/scripts/tests/guard-git-bash-route.test.py"; then
+  printf 'PASS guard git route (nt) unit tests\n'; pass=$((pass+1))
+else
+  printf 'FAIL guard git route (nt) unit tests\n' >&2; fail=$((fail+1))
+fi
 
 printf 'repository mutation guard: %d pass, %d fail\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

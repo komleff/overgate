@@ -59,6 +59,18 @@ except Exception as exc:
     )
     raise SystemExit(EXIT_BLOCK)
 
+# Маршрут запуска git (на Windows — через Git Bash той же установки) грузится
+# всегда, а не только на `nt`: модуль входит в замкнутое множество guard, и его
+# отсутствие блокирует на любой ОС.
+try:
+    git_route = _load_sibling("git_bash_route")
+except Exception as exc:
+    print(
+        f"BLOCKED fail-secure: repository mutation git route not loaded: {exc}",
+        file=sys.stderr,
+    )
+    raise SystemExit(EXIT_BLOCK)
+
 _PROTECTED = {"main", "master", "refs/heads/main", "refs/heads/master"}
 _FORCE_FLAGS = {
     "-f", "--force", "--force-with-lease", "--mirror", "--all", "--branches",
@@ -154,6 +166,45 @@ _MUTATION_WORDS = re.compile(
 
 class GuardError(RuntimeError):
     pass
+
+
+def _run_git(
+    argv: Sequence[str], env: dict[str, str], cwd: str | None, purpose: str
+) -> "subprocess.CompletedProcess[str]":
+    """git с контекстом команды; на Windows — через Git Bash (git_bash_route)."""
+
+    try:
+        return git_route.run_git(argv, env=env, cwd=cwd)
+    except git_route.RouteError as exc:
+        raise GuardError(f"cannot {purpose}: {exc}") from exc
+
+
+# Источники контекста, при недоступности которых `git config --get` молча
+# отвечает «нет alias» (код 1). `-C` и `--work-tree` такого не делают: недоступный
+# `-C` даёт 128, а рабочее дерево на набор alias не влияет.
+_REPOSITORY_CONTEXT_ENV = ("GIT_DIR", "GIT_COMMON_DIR")
+
+
+def _repository_context(context_args: Sequence[str], env: dict[str, str]) -> bool:
+    if any(name in env for name in _REPOSITORY_CONTEXT_ENV):
+        return True
+    return any(word == "--git-dir" or word.startswith("--git-dir=") for word in context_args)
+
+
+def _require_repository_context(
+    context_args: Sequence[str], env: dict[str, str], cwd: str | None, subcommand: str
+) -> None:
+    """Явный репозиторный контекст, который git не открывает, — блок (fail-closed)."""
+
+    if not _repository_context(context_args, env):
+        return
+    probe = _run_git([*context_args, "rev-parse", "--git-dir"], env, cwd,
+                     f"inspect git repository context for alias {subcommand}")
+    if probe.returncode != 0:
+        raise GuardError(
+            f"git cannot open the explicit repository context (--git-dir/GIT_DIR/"
+            f"GIT_COMMON_DIR) for alias lookup of {subcommand}: rev-parse exit {probe.returncode}"
+        )
 
 
 def _basename(value: str) -> str:
@@ -561,19 +612,13 @@ def _git_invocation(
     normalized = subcommand.lower()
     if normalized not in _GUARD_BUILTIN_GIT_SUBCOMMANDS:
         lookup_env = effective_env
-        try:
-            alias_proc = subprocess.run(
-                ["git", *alias_context, "config", "--get", f"alias.{subcommand}"],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=2,
-                env=lookup_env,
-                cwd=git_cwd,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise GuardError(f"cannot inspect git alias {subcommand}: {exc}") from exc
+        # Код 1 lookup означает «нет alias» только для репозитория, который git
+        # открыл: иначе недоступный --git-dir/GIT_DIR/GIT_COMMON_DIR прятал alias.
+        _require_repository_context(alias_context, lookup_env, git_cwd, subcommand)
+        alias_proc = _run_git(
+            [*alias_context, "config", "--get", f"alias.{subcommand}"],
+            lookup_env, git_cwd, f"inspect git alias {subcommand}",
+        )
         if alias_proc.returncode == 0:
             expansion = alias_proc.stdout.rstrip("\r\n")
             if not expansion:
@@ -606,7 +651,10 @@ def _git_shell_context(
     # Git запускает !alias из корня рабочего дерева; -c наследуется через
     # GIT_CONFIG_PARAMETERS, а -C не должен повторно применяться в дочернем git.
     effective_env = dict(env)
-    shell_cwd = cwd or os.getcwd()
+    base_cwd = cwd or os.getcwd()
+    # `-C` применяет сам git (аргументами rev-parse), а не склейка путей в Python:
+    # на Windows путь Git Bash (`/d/...`) понимает только маршрут git_bash_route.
+    chdir_args: List[str] = []
     index = 0
     while index < len(context_args):
         word = context_args[index]
@@ -645,27 +693,26 @@ def _git_shell_context(
             raise GuardError("dynamic git context for shell alias")
         if word == "-C":
             if value:
-                shell_cwd = os.path.abspath(os.path.join(shell_cwd, value))
+                chdir_args.extend(["-C", value])
         elif word in {"--git-dir", "--work-tree", "--namespace"}:
             name = {"--git-dir": "GIT_DIR", "--work-tree": "GIT_WORK_TREE", "--namespace": "GIT_NAMESPACE"}[word]
             effective_env[name] = value
 
-    def inspect(argument: str) -> str:
-        proc = subprocess.run(
-            ["git", "rev-parse", argument], cwd=shell_cwd, env=effective_env,
-            check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, timeout=2,
-        )
+    def inspect(*arguments: str) -> str:
+        proc = _run_git([*chdir_args, "rev-parse", *arguments], effective_env, base_cwd,
+                        "establish git shell alias working directory")
         if proc.returncode != 0 or not proc.stdout.strip():
             raise GuardError("cannot establish git shell alias working directory")
         return proc.stdout.rstrip("\r\n")
 
-    # Явные относительные пути должны сохранить смысл после перехода в корень.
+    # Явные относительные пути должны сохранить смысл после перехода в корень:
+    # git сам приводит их к абсолютным относительно каталога после `-C`.
     if "GIT_DIR" in effective_env:
         effective_env["GIT_DIR"] = inspect("--absolute-git-dir")
-    for name in ("GIT_WORK_TREE", "GIT_COMMON_DIR"):
-        if name in effective_env:
-            effective_env[name] = os.path.abspath(os.path.join(shell_cwd, effective_env[name]))
+    if "GIT_COMMON_DIR" in effective_env:
+        effective_env["GIT_COMMON_DIR"] = inspect("--path-format=absolute", "--git-common-dir")
+    if "GIT_WORK_TREE" in effective_env:
+        effective_env["GIT_WORK_TREE"] = inspect("--show-toplevel")
     shell_cwd = inspect("--absolute-git-dir") if inspect("--is-bare-repository") == "true" else inspect("--show-toplevel")
     return effective_env, shell_cwd
 

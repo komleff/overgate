@@ -67,6 +67,14 @@ class ClosureTests(unittest.TestCase):
         p=self.root/'.agents/distribution-manifest.json';m=json.loads(p.read_text(encoding='utf-8'))
         m['files']=[x for x in m['files'] if not x['target'].endswith('shell_grammar.py')];p.write_text(json.dumps(m),encoding='utf-8')
         self.assertTrue(any('CLOSURE-001' in x for x in checker.closure(self.root)))
+    # og-5l6: маршрут git guard (Git Bash на Windows) — часть замкнутого множества guard.
+    def test_guard_git_route_absent(self):
+        (self.root/'.claude/hooks/git_bash_route.py').unlink()
+        self.assertTrue(any('git_bash_route.py' in x for x in checker.closure(self.root)))
+    def test_guard_git_route_removed_from_manifest(self):
+        p=self.root/'.agents/distribution-manifest.json';m=json.loads(p.read_text(encoding='utf-8'))
+        m['files']=[x for x in m['files'] if not x['target'].endswith('git_bash_route.py')];p.write_text(json.dumps(m),encoding='utf-8')
+        self.assertTrue(any('CLOSURE-001' in x for x in checker.closure(self.root)))
     @unittest.skipIf(os.name=='nt','NTFS uses explicit native Git Bash, not POSIX execute bits')
     def test_non_executable_launcher(self):
         (self.root/'.claude/tools/run-python.sh').chmod(0o644)
