@@ -12,7 +12,7 @@ for Windows, что исполняет команды агента: MSYS-пре�
 и PATH для поиска `git.exe`). Окружение самой команды получает лишь запущенный
 bash для git; присваивание `CLAUDE_CODE_GIT_BASH_PATH=…`/`PATH=…` в команде выбор
 не меняет. Решающий признак — bash и `git.exe` из одной установки Git for
-Windows; `$OSTYPE == msys` — дополнительная проверка. Любая неоднозначность,
+Windows; `$OSTYPE` msys/cygwin — дополнительная проверка. Любая неоднозначность,
 отсутствие или ошибка запуска — `RouteError`, guard блокирует (fail-closed).
 
 argv git передаётся через окружение, а не командной строкой Windows: MSYS/Cygwin
@@ -120,7 +120,14 @@ def resolve_bash(environ: Mapping[str, str], is_file: Callable[[str], bool]) -> 
     raise RouteError(f"Git Bash not found in {root}")
 
 
-def bash_script(program: str = "git", ostype: str = "msys") -> str:
+# Дополнительная проверка, что запущен bash MSYS/Cygwin-рода, а не WSL или иной:
+# Git for Windows до 2.5x сообщает `msys`, начиная с 2.56 (bash x86_64-pc-cygwin) — `cygwin`.
+# Отличить Git for Windows от отдельного Cygwin/MSYS2 по ней нельзя; решающий признак —
+# раскладка установки в resolve_bash.
+GIT_BASH_OSTYPES = "msys*|cygwin*"
+
+
+def bash_script(program: str = "git", ostype: str = GIT_BASH_OSTYPES) -> str:
     """Скрипт для `bash -s`: собрать argv из окружения и выполнить `exec git "$@"`."""
     return (
         f'case "$OSTYPE" in {ostype}) ;; *) exit {EXIT_NOT_MSYS} ;; esac\n'
@@ -194,5 +201,5 @@ def run_git(
     except (OSError, subprocess.SubprocessError) as exc:
         raise RouteError(f"Git Bash {bash} did not run git: {exc}") from exc
     if proc.returncode == EXIT_NOT_MSYS:
-        raise RouteError(f"{bash} is not Git Bash (OSTYPE is not msys)")
+        raise RouteError(f"{bash} is not Git Bash (OSTYPE is not msys/cygwin)")
     return proc

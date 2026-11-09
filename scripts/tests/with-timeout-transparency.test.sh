@@ -157,7 +157,10 @@ assert_eq "$(printf '%s\n' "$BASELINE" | sed -n '2p')" "124" \
 
 # --- 2. Прозрачность входного потока на обоих маршрутах -----------------------
 
-FALLBACK_STDIN="$(printf 'полезная-нагрузка' | PATH="$FALLBACK_BIN" "$HELPER" 10 cat)"
+# Команда — сам интерпретатор Python, а не `cat` из стенда: Python-fallback запускает её
+# нативно, и на Windows CreateProcess исполняет только .exe (обёртка-скрипт не годится).
+FALLBACK_STDIN="$(printf 'полезная-нагрузка' | PATH="$FALLBACK_BIN" "$HELPER" 10 \
+  "$PYTHON_BIN" -c 'import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())')"
 assert_eq "$FALLBACK_STDIN" "полезная-нагрузка" \
   "маршрут Python-fallback пропускает входной поток к команде"
 

@@ -439,7 +439,8 @@ Guard репозитория пропускал git-alias при недосту�
    окружение процесса хука: `CLAUDE_CODE_GIT_BASH_PATH` и PATH для поиска `git.exe`; присваивания
    и `env` в самой команде выбор не меняют. Решающий признак — bash и `git.exe` из одной установки
    (`<root>/cmd/git.exe` и `<root>/usr/bin/bash.exe`; `git.exe` из `<root>/cmd` или
-   `<root>/<mingw>/bin`); `$OSTYPE == msys` — дополнительная проверка. WSL-заглушки, Cygwin,
+   `<root>/<mingw>/bin`); `$OSTYPE` msys/cygwin (Git for Windows 2.56 сообщает `cygwin`) —
+   дополнительная проверка. WSL-заглушки, Cygwin,
    отдельный MSYS2, другая установка, отсутствие и ошибка запуска — блок. **Поддерживается только
    Git Bash из Git for Windows.** Семантика вызова — `exec git "$@"`; argv передаётся bash через
    окружение и скрипт на stdin, а не командной строкой Windows: MSYS разбирает командную строку

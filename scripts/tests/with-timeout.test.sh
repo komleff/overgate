@@ -549,7 +549,9 @@ done
 SIGNAL_HARNESS_TOOLS="$TMP_DIR/signal-harness-tools"
 SIGNAL_HARNESS="$SIGNAL_HARNESS_TOOLS/with-timeout.sh"
 mkdir -p "$SIGNAL_HARNESS_TOOLS"
-ln -s "$PYTHON_RUNNER" "$SIGNAL_HARNESS_TOOLS/run-python.sh"
+# D-2: обёртка вместо symlink (без привилегии Windows `ln -s` отказывает).
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$PYTHON_RUNNER" > "$SIGNAL_HARNESS_TOOLS/run-python.sh"
+chmod +x "$SIGNAL_HARNESS_TOOLS/run-python.sh"
 "$PYTHON_RUNNER" - "$HELPER" "$SIGNAL_HARNESS" <<'PY_BUILD_SIGNAL_HARNESS'
 from pathlib import Path
 import sys
@@ -769,9 +771,14 @@ assert_eq "$STARTUP_ORDER_RC" "143" \
 # ранний выход 124 после TERM корня и 137 после принудительного KILL всей группы.
 NATIVE_TIMEOUT_BIN="$TMP_DIR/native-timeout-bin"
 mkdir -p "$NATIVE_TIMEOUT_BIN"
-ln -s "$PYTHON_BIN" "$NATIVE_TIMEOUT_BIN/python3"
+# D-2: обёртки вместо symlink; стенду нужны только имена в урезанном PATH.
+stand_wrapper() { # stand_wrapper <каталог> <имя> <абсолютный путь>
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$3" > "$1/$2"
+  chmod +x "$1/$2"
+}
+stand_wrapper "$NATIVE_TIMEOUT_BIN" python3 "$PYTHON_BIN"
 for native_tool in mktemp sed rm; do
-  ln -s "$(command -v "$native_tool")" "$NATIVE_TIMEOUT_BIN/$native_tool"
+  stand_wrapper "$NATIVE_TIMEOUT_BIN" "$native_tool" "$(command -v "$native_tool")"
 done
 cat >"$NATIVE_TIMEOUT_BIN/timeout" <<'NATIVE_TIMEOUT_BODY'
 #!/usr/bin/env python3
@@ -1077,11 +1084,13 @@ fi
 
 GTIMEOUT_BIN="$TMP_DIR/gtimeout-bin"
 mkdir -p "$GTIMEOUT_BIN"
-ln -s "$PYTHON_BIN" "$GTIMEOUT_BIN/python3"
+stand_wrapper "$GTIMEOUT_BIN" python3 "$PYTHON_BIN"
 for native_tool in mktemp sed rm; do
-  ln -s "$(command -v "$native_tool")" "$GTIMEOUT_BIN/$native_tool"
+  stand_wrapper "$GTIMEOUT_BIN" "$native_tool" "$(command -v "$native_tool")"
 done
-ln -s "$NATIVE_TIMEOUT_BIN/timeout" "$GTIMEOUT_BIN/gtimeout"
+# Копия, а не обёртка: двойник пишет маркер по собственному имени (argv[0] = gtimeout).
+cp "$NATIVE_TIMEOUT_BIN/timeout" "$GTIMEOUT_BIN/gtimeout"
+chmod +x "$GTIMEOUT_BIN/gtimeout"
 GTIMEOUT_INVOKED_FILE="$TMP_DIR/gtimeout-invoked"
 GTIMEOUT_OUTPUT="$TMP_DIR/gtimeout.out"
 PATH="$GTIMEOUT_BIN" NATIVE_INVOKED="$GTIMEOUT_INVOKED_FILE" FAKE_TIMEOUT_MODE=kill \
@@ -1233,6 +1242,13 @@ for skill in finalize-pr; do
     "$SKILL_SANDBOX/.claude/tools/run-python.sh"
   chmod +x "$SKILL_SANDBOX/.claude/tools/run-python.sh"
   chmod -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
+  if [ -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh" ]; then
+    # Git Bash на NTFS (noacl) выводит бит исполнения из shebang, и chmod -x не действует:
+    # неисполнимость моделируется файлом без shebang — так её видит и сам preflight.
+    tail -n +2 "$SKILL_SANDBOX/.claude/tools/with-timeout.sh" > "$TMP_DIR/nonexec-helper"
+    mv "$TMP_DIR/nonexec-helper" "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
+  fi
+  [ ! -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh" ] || fail "стенд не смог сделать помощник неисполнимым"
   NONEXEC_OUTPUT="$TMP_DIR/$skill-nonexec.out"
   (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash "$PREFLIGHT") >"$NONEXEC_OUTPUT" 2>&1
   NONEXEC_RC=$?

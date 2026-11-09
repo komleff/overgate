@@ -237,7 +237,8 @@ run_gate() {
     cat "$HELPER"
     # Фикстура подаёт тела уже с разделителем Record Separator между отчётами —
     # ровно так, как их отдаёт jq в скилле (`.body + "\u001e"`).
-    printf 'REVIEW_BODIES=$(cat %s)\n' "$body_file"
+    # %q: путь временного каталога может содержать пробел (Windows CI: `D:\og-тест tmp`).
+    printf 'REVIEW_BODIES=$(cat %q)\n' "$body_file"
     cat "$EXTRACT"
     printf 'exit 0\n'
   } > "$TMP/run.sh"

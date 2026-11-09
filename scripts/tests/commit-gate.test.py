@@ -29,7 +29,9 @@ class CommitGate(unittest.TestCase):
         self.env = dict(os.environ, VERIFY_MARKER=str(self.marker))
 
     def run_hook(self, command, expected):
-        result = subprocess.run([native_bash(), str(self.root / '.claude/hooks/check-tests-before-commit.sh')],
+        # Путь с прямыми слэшами, как его передаёт диспетчер: гейт выводит HOOK_DIR по `/`,
+        # и Windows-путь с `\` уводил его в `.` (launcher «не найден»).
+        result = subprocess.run([native_bash(), (self.root / '.claude/hooks/check-tests-before-commit.sh').as_posix()],
             input=json.dumps({'tool_input': {'command': command}}), text=True, encoding='utf-8', capture_output=True,
             env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)

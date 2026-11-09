@@ -166,6 +166,7 @@ jobs:
       # run-python.sh берёт `py -3`; на runner есть и Python 3.15 (UTF-8 mode по умолчанию),
       # он маскировал бы зависимость от ANSI code page. Версия проверяется шагом ниже.
       PY_PYTHON: '3.14'
+      PY_PYTHON3: '3.14'
       PYTHON_MANAGER_DEFAULT: '3.14'
     steps:
       - uses: actions/checkout@v4

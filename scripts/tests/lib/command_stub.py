@@ -39,10 +39,19 @@ def _launcher() -> bytes:
     return (Path(scripts.__file__).parent / name).read_bytes()
 
 
+# Стандартные потоки заглушки — двоичные: заглушка обязана видеть байты ровно как
+# настоящая программа (CRLF в теле комментария не должен превращаться в LF).
+_BINARY_STDIO = (
+    "import msvcrt as _msvcrt, os as _os\n"
+    "for _fd in (0, 1, 2):\n"
+    "    _msvcrt.setmode(_fd, _os.O_BINARY)\n"
+)
+
+
 def _write_exe(target: Path, main_source: str) -> None:
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
-        archive.writestr("__main__.py", main_source)
+        archive.writestr("__main__.py", _BINARY_STDIO + main_source)
     shebang = f'#!"{sys.executable}"\r\n'.encode("utf-8")
     target.write_bytes(_launcher() + shebang + stream.getvalue())
 
