@@ -423,8 +423,10 @@ Guard репозитория пропускал git-alias при недосту�
    finalize ×4, bd ×3, complexity ×2, corpus, nonascii) идут только в full. `run()` печатает время
    каждого шага, commit tier — сумму.
 2. Джоба CI `windows-commit-tier` в условиях оператора: Git Bash, Python 3.14, без
-   `PYTHONUTF8`/`PYTHONIOENCODING`, `TMPDIR`/`TEMP` на `D:` с кириллицей, апострофом и пробелом
-   (нет `D:` — FAIL), явная печать привилегии symlink, `timeout-minutes: 60`. Джоба исполняет
+   `PYTHONUTF8`/`PYTHONIOENCODING`, `TMPDIR`/`TEMP` на `D:` с кириллицей и пробелом (нет `D:` —
+   FAIL), явная печать привилегии symlink, `timeout-minutes: 60`. Апостроф — в путях фикстур, не
+   в корне `TMPDIR`: MSYS не преобразует argv-путь с апострофом для нативных программ (проба в
+   джобе: `apos's` FAIL, кириллица и пробел OK), и такой корень проверял бы MSYS, а не продукт. Джоба исполняет
    `bash .agents/project/verify.sh` и все 22 вынесенных шага с временем каждого.
    `verify-tiers.test.py` держит точный список commit tier и присутствие каждого вынесенного
    шага в full и в этой джобе.
