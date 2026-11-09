@@ -1256,6 +1256,8 @@ for skill in finalize-pr; do
   assert_ne "$NONEXEC_RC" "0" "$skill останавливается с неисполнимым помощником"
   assert_contains "$NONEXEC_TEXT" "не исполним" "$skill называет причину неисполнимости"
 
+  # Восстановить исходный помощник: на NTFS выше у него снят shebang, и chmod +x его не вернёт.
+  cp "$HELPER" "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
   chmod +x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
   COMMAND_ERROR_OUTPUT="$TMP_DIR/$skill-command-error.out"
   (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash -c \
