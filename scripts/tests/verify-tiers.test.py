@@ -13,7 +13,7 @@ CUT = 'if [ "$TIER" = commit ]'
 INTEGRATION = {
     'install-fresh-upgrade-rollback', 'install-helpers', 'bd-bootstrap-native', 'bd-upgrade-preserve',
     'bd-legacy-fence', 'bd-sync', 'bd-managed-prefix', 'bd-managed-snapshot', 'bd-managed-two-clone',
-    'bd-publisher-guard', 'bd-publisher-setup', 'bd-managed-routes'}
+    'bd-publisher-guard', 'bd-publisher-setup', 'bd-managed-routes', 'bd-network-git'}
 COMMIT_TIER = {
     'structure', 'structural-mutations', 'closure-mutations', 'pre-bash-dispatch', 'portability-names',
     'activation', 'mutation-guard', 'classifier', 'commit-gate', 'readiness', 'publisher',

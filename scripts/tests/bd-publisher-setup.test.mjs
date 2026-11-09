@@ -8,7 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { preparePublisherControl, installPublisherControl, assertPublisherIdentityAndAuth } from '../bd-publisher-setup.mjs';
 import { ManagedGit, ZERO } from '../lib/bd-managed-git.mjs';
 import { emptyLedger } from '../lib/bd-managed-contract.mjs';
-import { cleanGitEnvironment } from '../lib/bd-git-environment.mjs';
+import * as gitEnvironment from '../lib/bd-git-environment.mjs';
+
+const { cleanGitEnvironment } = gitEnvironment;
+// До og-4py функции нет: тест не должен падать на импорте (RED по поведению).
+const disposeNetworkGitEnvironment = () => gitEnvironment.disposeNetworkGitEnvironment?.();
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
@@ -42,8 +46,18 @@ test('setup binds generic registration to current trusted main and installed gua
     const options = { primaryRoot: primary, publisherRoot: publisher, qualifiedCli: cli, output,
       qualifyCli: () => true, readIssuePrefix: () => 'big-heroes' };
     const identityPlan = path.join(root, 'missing-identity-plan.json');
-    assert.throws(() => preparePublisherControl({ ...options, output: identityPlan }), /identity|user\.name|user\.email/,
-      'publisher needs local or explicit service Git identity before setup');
+    // Пустой источник пользовательского config (seam og-4py): без identity setup останавливается.
+    const emptyReader = path.join(root, 'empty-user-config');
+    fs.writeFileSync(emptyReader, '');
+    const withUserConfig = (extra, action) => {
+      const prior = process.env;
+      process.env = { ...Object.fromEntries(Object.entries(prior).filter(([name]) => name !== 'OVERGATE_GIT_USER_CONFIG_FILE')), ...extra };
+      disposeNetworkGitEnvironment();
+      try { return action(); } finally { process.env = prior; disposeNetworkGitEnvironment(); }
+    };
+    withUserConfig({ OVERGATE_GIT_USER_CONFIG_FILE: emptyReader }, () => assert.throws(
+      () => preparePublisherControl({ ...options, output: identityPlan }), /identity|user\.name|user\.email/,
+      'publisher needs Git identity (user config or service) before setup'));
     assert.equal(fs.existsSync(identityPlan), false);
     git(publisher, 'config', '--local', 'user.name', 'fixture');
     git(publisher, 'config', '--local', 'user.email', 'fixture@example.invalid');
@@ -90,13 +104,21 @@ test('setup binds generic registration to current trusted main and installed gua
     assert.equal(git(publisher, 'config', '--local', '--get', 'overgate.beadsCli'), fs.realpathSync(cli));
     assert.equal(git(publisher, 'config', '--local', '--get', 'overgate.beadsPrefix'), 'big-heroes');
     const httpsOrigin = { push: ['https://example.invalid/project.git'] };
-    assert.throws(() => assertPublisherIdentityAndAuth(publisher, httpsOrigin), /HTTPS authentication unavailable/,
-      'isolated writer cannot rely on global/system credential helper');
+    withUserConfig({ OVERGATE_GIT_USER_CONFIG_FILE: emptyReader }, () => assert.throws(
+      () => assertPublisherIdentityAndAuth(publisher, httpsOrigin), /HTTPS authentication unavailable/,
+      'isolated HOME with empty user config source has no HTTPS helper'));
     const credentialHelper = path.join(root, 'fixture-credential-helper.sh');
     const credentialLog = path.join(root, 'credential-helper.log');
     fs.writeFileSync(credentialHelper, `#!/bin/sh\nprintf '%s\\n' "$1" >> '${credentialLog}'\nif [ "$1" = get ]; then printf 'username=fixture\\npassword=synthetic\\n'; fi\n`, { mode: 0o700 });
+    // og-4py: helper из пользовательского global config (fixture HOME) достаточен без repo-local настройки.
+    const fixtureHome = path.join(root, 'fixture-home');
+    fs.mkdirSync(fixtureHome);
+    fs.writeFileSync(path.join(fixtureHome, '.gitconfig'), `[credential]\n\thelper = ${credentialHelper}\n`);
+    withUserConfig({ HOME: fixtureHome, XDG_CONFIG_HOME: path.join(fixtureHome, '.config') },
+      () => assert.doesNotThrow(() => assertPublisherIdentityAndAuth(publisher, httpsOrigin), 'user global helper passes preflight'));
     git(publisher, 'config', '--local', 'credential.helper', credentialHelper);
-    assert.doesNotThrow(() => assertPublisherIdentityAndAuth(publisher, httpsOrigin));
+    withUserConfig({ OVERGATE_GIT_USER_CONFIG_FILE: emptyReader },
+      () => assert.doesNotThrow(() => assertPublisherIdentityAndAuth(publisher, httpsOrigin), 'repo-local helper still passes'));
     const credentialGlobal = path.join(root, 'credential-global-spoof');
     fs.writeFileSync(credentialGlobal, '[credential]\n\thelper = !printf "username=wrong\\npassword=wrong\\n"\n');
     const credentials = execFileSync('git', ['credential', 'fill'], { cwd: publisher, encoding: 'utf8',

@@ -35,6 +35,8 @@ case "$2" in
   */bd-managed-read-check.mjs) printf '%s\n' "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-managed-read-check.mjs" ;;
   */bd-read-engine.mjs) printf '%s\n' "D:/CodexArtifacts/Проект's (QA) space/primary/scripts/lib/bd-read-engine.mjs" ;;
   */overgate-bd-read.*) printf '%s\n' 'D:/Temp/overgate-bd-read.fixture' ;;
+  # og-4py: приватный файл переноса для сетевого Git-вызова; тест сверяет только Node operands.
+  */overgate-git-net.*/config) printf '%s\n' "$2" ;;
   *) exit 64 ;;
 esac
 SH
@@ -54,7 +56,7 @@ export PATH="$TEMP/bin:$PATH" OG_NODE_PATH_LOG="$TEMP/node-paths.txt" OG_NODE_SN
 [ "$(cat "$OG_NODE_SNAPSHOT_ARG")" = 'D:/Temp/overgate-bd-read.fixture' ] || { echo 'FAIL: reader snapshot argument is not native' >&2; exit 1; }
 cat > "$TEMP/bin/cygpath" <<'SH'
 #!/usr/bin/env bash
-exit 64
+case "$2" in */overgate-git-net.*/config) printf '%s\n' "$2" ;; *) exit 64 ;; esac
 SH
 : > "$OG_NODE_PATH_LOG"
 if ( cd "$PROJECT" && bash scripts/bd-apply-intents.sh --read-state ) >"$TEMP/apply.out" 2>"$TEMP/apply.err"; then
@@ -66,4 +68,16 @@ fi
 [ ! -s "$OG_NODE_PATH_LOG" ] || { echo 'FAIL: Node ran after failed path conversion' >&2; exit 1; }
 grep -q 'native Node module path unavailable' "$TEMP/apply.err"
 grep -q 'native Node reader module path unavailable' "$TEMP/read.err"
+# og-4py: нативный путь файла переноса не получен → сетевой вызов fail-closed до Node.
+cat > "$TEMP/bin/cygpath" <<'SH'
+#!/usr/bin/env bash
+case "$2" in */overgate-git-net.*/config) exit 64 ;; *) printf '%s\n' "$2" ;; esac
+SH
+: > "$OG_NODE_PATH_LOG"
+if ( cd "$PROJECT" && TMPDIR="$TEMP" bash scripts/bd-read.sh ready --json ) >"$TEMP/read.out" 2>"$TEMP/read.err"; then
+  echo 'FAIL: reader fetched without native network config path' >&2; exit 1
+fi
+grep -q 'native network Git config path unavailable' "$TEMP/read.err"
+[ ! -s "$OG_NODE_PATH_LOG" ] || { echo 'FAIL: Node ran after failed network config path conversion' >&2; exit 1; }
+if ls -d "$TEMP"/overgate-git-net.* >/dev/null 2>&1; then echo 'FAIL: network config left after fail-closed' >&2; exit 1; fi
 printf '%s\n' 'PASS bd-node-path native module operands 3/3'
