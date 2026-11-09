@@ -8,7 +8,7 @@ import { normalizeSnapshot } from './bd-snapshot.mjs';
 import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
 import { validateManagedHistory } from './bd-managed-journal.mjs';
 import { loadProjectPrefix } from './bd-managed-project.mjs';
-import { cleanGitEnvironment } from './bd-git-environment.mjs';
+import { cleanGitEnvironment, networkGitEnvironment, residualHint, exitOnNetworkSignal } from './bd-git-environment.mjs';
 
 export const ZERO = '0'.repeat(40);
 const branch = 'beads-backup';
@@ -29,10 +29,18 @@ export class ManagedGit {
     requireThat(fs.realpathSync(this.call(['rev-parse', '--show-toplevel']).trim()) === this.cwd, 'managed Git context root mismatch');
     this.prefix = loadProjectPrefix(this.cwd, { readIssuePrefix });
   }
-  call(args, { input, index } = {}) {
-    const env = cleanGitEnvironment();
+  // network: ls-remote/fetch/push и commit-tree снимка получают обычный вход пользователя
+  // (og-4py, ADR §3.39); прочие вызовы — чистая изоляция.
+  call(args, { input, index, network = false } = {}) {
+    const env = network ? networkGitEnvironment(this.cwd) : cleanGitEnvironment();
     if (index) env.GIT_INDEX_FILE = index;
-    return execFileSync(this.git, args, { cwd: this.cwd, env, input, encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+    try {
+      return execFileSync(this.git, args, { cwd: this.cwd, env, input, encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (error) {
+      if (network) exitOnNetworkSignal(error);
+      if (network && error.status !== 2) error.message += residualHint(this.cwd);
+      throw error;
+    }
   }
   optional(commit, file) {
     requireThat(validSha(commit) && commit !== ZERO, 'invalid frozen commit');
@@ -58,12 +66,12 @@ export class ManagedGit {
     let seen = null;
     try { this.call(['show-ref', '--verify', '--quiet', seenRef]); seen = this.call(['rev-parse', '--verify', `${seenRef}^{commit}`]).trim(); }
     catch (error) { if (error.status !== 1) throw error; }
-    try { this.call(['ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${branch}`]); }
+    try { this.call(['ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${branch}`], { network: true }); }
     catch (error) {
       if (error.status === 2) { requireThat(!anchor && !seen, 'history anchor missing: remote branch absent'); return this.readAt(ZERO); }
       throw new Error(`ls-remote failed (not confirmed missing branch): ${error.message}`);
     }
-    this.call(['fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+    this.call(['fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { network: true });
     const R = this.call(['rev-parse', '--verify', `refs/remotes/origin/${branch}^{commit}`]).trim();
     const shallowFile = path.resolve(this.cwd, this.call(['rev-parse', '--git-path', 'shallow']).trim());
     const shallowRaw = fs.existsSync(shallowFile) ? fs.readFileSync(shallowFile, 'utf8') : '';
@@ -119,7 +127,7 @@ export class ManagedGit {
         this.call(['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`], { index });
       }
       const tree = this.call(['write-tree'], { index }).trim();
-      return this.call(['commit-tree', tree, ...(base === ZERO ? [] : ['-p', base]), '-m', 'beads-backup: managed CLI transaction']).trim();
+      return this.call(['commit-tree', tree, ...(base === ZERO ? [] : ['-p', base]), '-m', 'beads-backup: managed CLI transaction'], { network: true }).trim();
     } finally {
       requireThat(path.resolve(temporary).startsWith(this.common + path.sep), 'unsafe temporary index cleanup');
       fs.rmSync(temporary, { recursive: true, force: true });
@@ -131,6 +139,6 @@ export class ManagedGit {
   }
   pushCandidate(commit) {
     requireThat(validSha(commit) && commit !== ZERO, 'candidate push invalid');
-    this.call(['push', '--no-follow-tags', 'origin', `${commit}:refs/heads/${branch}`]);
+    this.call(['push', '--no-follow-tags', 'origin', `${commit}:refs/heads/${branch}`], { network: true });
   }
 }

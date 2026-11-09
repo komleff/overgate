@@ -181,12 +181,14 @@ test('B-09/seam: override with system/unknown scope survives inherited GIT_CONFI
   const work = tmp('seam'), root = repository('seam-repo');
   const override = overrideFile(work, [['unknown', 'credential.helper', 'osxkeychain-fixture'], ['system', 'credential.helper', 'manager-fixture'],
     ['local', 'credential.helper', 'local-dropped'], ['command', 'credential.helper', 'command-dropped'], ['global', 'url.file:///evil.insteadof', 'x'],
-    ['global', 'user.email', 'seam@example.invalid']]);
+    ['global', 'user.email', 'seam@example.invalid'], ['global', 'credential.usehttppath', null],
+    ['global', 'credential.https://a b.example/"q"\\.helper', '!x "q" \\ ; # \ttab\nline']]);
   const env = baseEnv({ [OVERRIDE]: override, GIT_CONFIG_NOSYSTEM: '1' });
   for (const language of LANGUAGES) {
     const run = carriedVia(language, root, env);
     assert.equal(run.status, 0, `${language}: ${run.stderr}`);
-    assert.deepEqual(records(run.stdout), ['credential.helper\nosxkeychain-fixture', 'credential.helper\nmanager-fixture', 'user.email\nseam@example.invalid'], language);
+    assert.deepEqual(records(run.stdout), ['credential.helper\nosxkeychain-fixture', 'credential.helper\nmanager-fixture', 'user.email\nseam@example.invalid',
+      'credential.usehttppath', 'credential.https://a b.example/"q"\\.helper\n!x "q" \\ ; # \ttab\nline'], language);
   }
   const empty = overrideFile(work, []);
   for (const language of LANGUAGES) {
@@ -201,6 +203,34 @@ test('B-09/seam: override with system/unknown scope survives inherited GIT_CONFI
     assert.notEqual(run.status, 0, `${language}: ${file} must fail closed`);
     assert.match(run.stderr, /fail-closed/, `${language}: diagnostic`);
     assert.ok(!run.stderr.includes(SECRET) && !run.stdout.includes(SECRET), `${language}: value leaked`);
+  }
+});
+
+test('B-04 order: interleaved sections keep git helper order and reset after transfer (credential fill in shell/mjs/python env)', () => {
+  const work = tmp('order'), root = repository('order-repo', null), log = path.join(work, 'helpers.log');
+  const marker = name => `!echo ${name} >> '${log}'`;
+  const global = path.join(work, 'global');
+  fs.writeFileSync(global, `[credential]\n\thelper = ${marker('A')}\n[credential "https://github.com"]\n\thelper =\n[credential]\n\thelper = ${marker('B')}\n`);
+  const override = overrideFile(work, [['unknown', 'credential.helper', marker('A')], ['global', 'credential.https://github.com.helper', ''],
+    ['global', 'credential.helper', marker('B')]]);
+  const fill = (language, url) => {
+    const input = `url=${url}\n\n`, env = baseEnv({ [OVERRIDE]: override, SSH_ASKPASS: '' });
+    fs.writeFileSync(log, '');
+    if (language === 'git') spawnSync('git', ['credential', 'fill'], { cwd: root, input, encoding: 'utf8',
+      env: baseEnv({ GIT_CONFIG_GLOBAL: global, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', SSH_ASKPASS: '' }) });
+    else if (language === 'shell') spawnSync('bash', ['-c', '. "$1/scripts/lib/bd-env.sh"; bd_env_sanitize_git; bd_env_network_git "$2" credential fill', '_', source, root], { cwd: root, input, env, encoding: 'utf8' });
+    else if (language === 'python') spawnSync(python, ['-I', '-c', `import importlib.util,subprocess,sys
+spec=importlib.util.spec_from_file_location('i',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+subprocess.run(['git','credential','fill'],cwd=sys.argv[2],input=sys.stdin.buffer.read(),env=m.network_git_environment(sys.argv[2]))`, installerPath, root], { cwd: root, input, env, encoding: 'utf8' });
+    else spawnSync(process.execPath, ['--input-type=module', '-e', `import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
+const { networkGitEnvironment } = await import(process.argv[1]);
+spawnSync('git', ['credential', 'fill'], { cwd: process.argv[2], input: fs.readFileSync(0), env: networkGitEnvironment(process.argv[2]) });`, moduleUrl, root], { cwd: root, input, env, encoding: 'utf8' });
+    return fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(line => line.split(' ')[0]);
+  };
+  for (const url of ['https://github.com/o/r.git', 'https://gitlab.com/g/p.git']) {
+    const expected = fill('git', url);
+    assert.deepEqual(expected, url.includes('github') ? ['B'] : ['A', 'B'], 'oracle fixture');
+    for (const language of LANGUAGES) assert.deepEqual(fill(language, url), expected, `${language} ${url}`);
   }
 });
 
@@ -295,7 +325,7 @@ test('step 3 preflight: operator config passes; reset-only and missing identity 
 import importlib.util,sys
 spec=importlib.util.spec_from_file_location('activation',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 try:m.publisher_identity_auth(m.Path(sys.argv[2]),sys.argv[3])
-except m.ActivationError as error:print('STOP: '+str(error));sys.exit(1)
+except (m.ActivationError,m.installer.InstallError) as error:print('STOP: '+str(error));sys.exit(1)
 print('OK')
 `;
     const run = spawnSync(python, ['-I', '-c', script, activationPath, root, scenario.push.join('\n')],
@@ -328,6 +358,13 @@ const file = networkGitEnvironment(root).GIT_CONFIG_GLOBAL;
 console.log(JSON.stringify({ before, file, directoryMode: fs.statSync(path.dirname(file)).mode & 0o777, fileMode: fs.statSync(file).mode & 0o777 }));
 if (mode === 'error') throw new Error('route failure');
 if (mode === 'wait') setInterval(() => {}, 1000);
+if (mode === 'child-signal') {
+  // Сетевой child убит Ctrl-C группы: процесс завершается сразу, не продолжая синхронный маршрут.
+  const { spawnSync } = await import('node:child_process');
+  const { exitOnNetworkSignal } = await import(${JSON.stringify(moduleUrl)});
+  exitOnNetworkSignal({ signal: spawnSync('sh', ['-c', 'kill -INT $$']).signal });
+  console.log('CONTINUED-AFTER-SIGNAL');
+}
 `);
   fs.writeFileSync(py, `
 import importlib.util,json,os,sys,time
@@ -340,12 +377,12 @@ if mode=='error':raise RuntimeError('route failure')
 while mode=='wait':time.sleep(0.1)
 `);
   for (const language of ['mjs', 'python']) {
-    for (const mode of ['ok', 'error', 'SIGINT', 'SIGTERM']) {
+    for (const mode of ['ok', 'error', 'SIGINT', 'SIGTERM', ...(language === 'mjs' ? ['child-signal'] : [])]) {
       const temporary = tmp(`life-${language}-${mode}`);
       const env = baseEnv({ TMPDIR: temporary, [OVERRIDE]: override });
       const args = language === 'mjs' ? [process.execPath, [mjs]] : [python, ['-I', py]];
       const child = spawn(args[0], [...args[1], mode.startsWith('SIG') ? 'wait' : mode, root], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-      let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
+      let stderr = '', stdout = ''; child.stderr.on('data', chunk => { stderr += chunk; }); child.stdout.on('data', chunk => { stdout += chunk; });
       const done = exited(child);
       const info = JSON.parse(await waitLine(child));
       assert.equal(info.before, 0, `${language} ${mode}: lazy creation`);
@@ -357,6 +394,10 @@ while mode=='wait':time.sleep(0.1)
       if (mode === 'error') assert.notEqual(result.code, 0);
       if (mode === 'SIGINT') assert.ok(result.code === 130 || result.signal === 'SIGINT', `${language} SIGINT ${JSON.stringify(result)}`);
       if (mode === 'SIGTERM') assert.ok(result.code === 143 || result.signal === 'SIGTERM', `${language} SIGTERM ${JSON.stringify(result)}`);
+      if (mode === 'child-signal') {
+        assert.equal(result.signal, 'SIGINT', `${language} child-signal ${JSON.stringify(result)}`);
+        assert.doesNotMatch(stdout, /CONTINUED-AFTER-SIGNAL/, 'route must stop immediately');
+      }
       assert.equal(fs.existsSync(info.file), false, `${language} ${mode}: file removed`);
       assert.deepEqual(netDirectories(temporary), [], `${language} ${mode}: no leftover directory`);
       assert.ok(!stderr.includes(SECRET), `${language} ${mode}: value leaked`);
@@ -480,6 +521,74 @@ print(json.dumps(m.beads_inventory(m.Path(sys.argv[2]))['remote']))`, installerP
       }
     }
   } finally { remote.close(); }
+});
+
+test('diagnostic mode (shell/mjs/python): keys and scope without values, probe in route environment', async () => {
+  const remote = await authRemote();
+  try {
+    const work = tmp('diagnose'), bare = path.join(work, 'remote.git');
+    git(work, 'init', '-q', '--bare', bare);
+    const root = repository('diagnose-repo', bare);
+    git(root, 'commit', '-q', '--allow-empty', '-m', 'init');
+    const override = overrideFile(work, [['unknown', 'credential.helper', `!${SECRET}`], ['global', 'user.email', `${SECRET}@example.invalid`]]);
+    const commands = {
+      shell: probe => ['bash', [path.join(source, 'scripts/lib/bd-env.sh'), '--diagnose', probe]],
+      mjs: probe => [process.execPath, [path.join(source, 'scripts/lib/bd-git-environment.mjs'), '--diagnose', '--probe', probe]],
+      python: probe => [python, ['-I', installerPath, 'network-diagnose', '--probe', probe]],
+    };
+    const home = path.join(work, 'home');
+    fs.mkdirSync(home);
+    fs.writeFileSync(path.join(home, '.gitconfig'), `[http]\n\tproxy = http://user:${SECRET}@proxy.invalid\n[url "git@example.invalid:"]\n\tinsteadOf = https://example.invalid/\n[user]\n\temail = ${SECRET}@example.invalid\n`);
+    for (const [language, command] of Object.entries(commands)) {
+      const [plainBinary, plainArgs] = command('ls-remote');
+      const residual = spawnSync(plainBinary, plainArgs.slice(0, language === 'shell' ? 2 : language === 'mjs' ? 2 : 3), { cwd: root,
+        env: baseEnv({ HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') }), encoding: 'utf8' });
+      assert.equal(residual.status, 0, `${language}: ${residual.stderr}`);
+      assert.match(residual.stdout, /residual: global http\.proxy/, `${language}: residual http.* named`);
+      assert.match(residual.stdout, /residual: global url\.git@example\.invalid:\.insteadof/, `${language}: residual insteadOf named`);
+      assert.match(residual.stdout, /carried: global user\.email/);
+      assert.ok(!(residual.stdout + residual.stderr).includes(SECRET), `${language}: residual value leaked`);
+      git(root, 'remote', 'set-url', 'origin', bare);
+      let [binary, args] = command('ls-remote');
+      let run = spawnSync(binary, args, { cwd: root, env: baseEnv({ [OVERRIDE]: override, GIT_CONFIG_NOSYSTEM: '1' }), encoding: 'utf8' });
+      assert.equal(run.status, 0, `${language}: ${run.stderr}`);
+      assert.match(run.stdout, /carried: unknown credential\.helper/);
+      assert.match(run.stdout, /carried: global user\.email/);
+      assert.match(run.stdout, /probe: ls-remote exit=0 result=ok/);
+      assert.ok(!(run.stdout + run.stderr).includes(SECRET), `${language}: diagnostic leaked a value`);
+      git(root, 'remote', 'set-url', 'origin', remote.url);
+      [binary, args] = command('push-dry-run');
+      run = spawnSync(binary, args, { cwd: root, env: baseEnv({ [OVERRIDE]: overrideFile(work, []) }), encoding: 'utf8', timeout: 60000 });
+      assert.match(run.stdout, /carried: <none>/, `${language}: ${run.stderr}`);
+      assert.match(run.stdout, /probe: push-dry-run exit=\d+ result=auth-unavailable/, `${language}: ${run.stdout}${run.stderr}`);
+    }
+  } finally { remote.close(); }
+});
+
+test('residual: failed network call names non-carried user keys without values (shell/mjs/python)', () => {
+  const work = tmp('residual'), root = repository('residual-repo', path.join(work, 'missing-remote.git'));
+  const home = path.join(work, 'home');
+  fs.mkdirSync(home);
+  fs.writeFileSync(path.join(home, '.gitconfig'), `[http]\n\tproxy = http://user:${SECRET}@proxy.invalid\n[core]\n\tsshCommand = ssh -i /secret/${SECRET}\n`);
+  const env = baseEnv({ HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') });
+  const runs = {
+    shell: spawnSync('bash', ['-c', '. "$1/scripts/lib/bd-env.sh"; bd_env_sanitize_git; bd_env_network_git "$2" fetch -q origin', '_', source, root], { cwd: root, env, encoding: 'utf8' }),
+    mjs: spawnSync(process.execPath, ['--input-type=module', '-e', `const { ManagedGit } = await import(process.argv[1]);
+const repository = Object.create(ManagedGit.prototype); repository.cwd = process.argv[2]; repository.git = 'git';
+try { repository.call(['fetch', '-q', 'origin'], { network: true }); } catch (error) { console.error(error.message); process.exit(1); }`,
+    pathToFileURL(path.join(source, 'scripts/lib/bd-managed-git.mjs')).href, root], { cwd: root, env, encoding: 'utf8' }),
+    python: spawnSync(python, ['-I', '-c', `import importlib.util,sys
+spec=importlib.util.spec_from_file_location('i',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+try:m.net_git(sys.argv[2],'fetch','-q','origin')
+except m.InstallError as error:print(error,file=sys.stderr);sys.exit(1)`, installerPath, root], { cwd: root, env, encoding: 'utf8' }),
+  };
+  for (const [language, run] of Object.entries(runs)) {
+    assert.notEqual(run.status, 0, language);
+    assert.match(run.stderr, /http\.proxy \(global\)/, `${language}: residual key named\n${run.stderr}`);
+    assert.match(run.stderr, /core\.sshcommand \(global\)/, `${language}: residual key named`);
+    assert.match(run.stderr, /og-4py residual/, language);
+    assert.ok(!run.stderr.includes(SECRET), `${language}: residual value leaked`);
+  }
 });
 
 // Обёртка git, фиксирующая окружение каждого вызова: сетевые ли команды видят helper-маркер
