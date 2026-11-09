@@ -35,6 +35,9 @@ function baseEnv(extra = {}) {
   return { ...env, HOME: emptyHome, XDG_CONFIG_HOME: path.join(emptyHome, '.config'), ...extra };
 }
 const fixtureEnv = baseEnv({ GIT_CONFIG_NOSYSTEM: '1' });
+// Явная identity для коммитов подготовки фикстур: пустой HOME, а на Linux runner git не
+// выводит имя из GECOS. Только для этого вызова, repo-local config не меняется.
+const FIXTURE_IDENTITY = ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid'];
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: fixtureEnv, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 
 let overrideCount = 0;
@@ -492,7 +495,7 @@ test('B-01/B-02: route network calls present the user helper credentials; withou
     const withHelper = overrideFile(work, [['unknown', 'credential.helper', credentialHelper], ['global', 'user.name', 'G'], ['global', 'user.email', 'g@example.invalid']]);
     const without = overrideFile(work, [['global', 'user.name', 'G'], ['global', 'user.email', 'g@example.invalid']]);
     const legacy = repository('route-legacy', remote.url);
-    git(legacy, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(legacy, ...FIXTURE_IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'init');
     registerPrefix(legacy);
     const routes = {
       'bd-read fetch': [legacy, 'bash', [path.join(source, 'scripts/bd-read.sh'), 'list']],
@@ -529,7 +532,7 @@ test('diagnostic mode (shell/mjs/python): keys and scope without values, probe i
     const work = tmp('diagnose'), bare = path.join(work, 'remote.git');
     git(work, 'init', '-q', '--bare', bare);
     const root = repository('diagnose-repo', bare);
-    git(root, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(root, ...FIXTURE_IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'init');
     const override = overrideFile(work, [['unknown', 'credential.helper', `!${SECRET}`], ['global', 'user.email', `${SECRET}@example.invalid`]]);
     const commands = {
       shell: probe => ['bash', [path.join(source, 'scripts/lib/bd-env.sh'), '--diagnose', probe]],
