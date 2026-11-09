@@ -1,5 +1,12 @@
 # Progress
 
+## og-bo6 + og-cfx rc.5.1 — готово к финализации (2026-11-09)
+
+PR #18. Шпаргалка оператора, generic GD, GUIDE-001/002, commit tier для гейта коммита Claude
+(первые коммиты Claude в overgate прошли гейт). PLAN_READY, QA PASS, Code Review APPROVED,
+полный verify PASS. Pending: CI final HEAD, trusted finalize, operator merge, release rc.5.1,
+публикация Beads snapshot, согласованное обновление проектов.
+
 ## WI-1 rc.4 — implementation candidate, acceptance pending
 
 PR #12, branch plan/v4.0.0-rc.4-adoption. WI-1 AC/source plan v0.6 blob d9d760d сохранён

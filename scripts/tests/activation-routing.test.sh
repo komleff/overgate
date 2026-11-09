@@ -25,7 +25,7 @@ for name in ('canon-router', 'diagnose', 'handoff', 'product-gap', 'product-hand
     print('PASS skill packaging:', name)
 assert not packaging_errors, '\n'.join(packaging_errors)
 def case(name, path, *phrases):
-    text = (root / path).read_text()
+    text = (root / path).read_text(encoding='utf-8')
     for phrase in phrases:
         assert phrase in text, f'{name}: missing {phrase!r} in {path}'
     print('PASS static route:', name)

@@ -49,6 +49,11 @@
       "policy": "managed"
     },
     {
+      "source": ".agents/GD_ROLE.md",
+      "target": ".agents/GD_ROLE.md",
+      "policy": "preserve"
+    },
+    {
       "source": ".agents/SKILLS.md",
       "target": ".agents/SKILLS.md",
       "policy": "managed"

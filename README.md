@@ -7,7 +7,8 @@ Delivery First связывает принятую спецификацию, р�
 
 Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
 
-**Текущий candidate: v4.0.0-rc.5 (managed Beads, установка и восстановление пути).**
+**Текущий candidate: v4.0.0-rc.5.1 (шпаргалка оператора и роль GD) поверх опубликованного
+prerelease v4.0.0-rc.5 (managed Beads, установка и восстановление пути).**
 Опубликованный `v4.0.0-rc.4.1` остаётся отдельным prerelease; Stable Dreadnought
 сохраняет прежний snapshot `466ad20` и статус Latest. Здесь живёт generic reference из
 [U2](https://github.com/komleff/u2), без его product/game data.
@@ -27,6 +28,8 @@ External review доступен по named risk или прямому запр�
 |---|---|
 | Doctrine/lifecycle | [PIPELINE_ADR §§3.28–3.33](.agents/PIPELINE_ADR.md), [краткая карта](.agents/PIPELINE.md) |
 | Шесть delivery roles | [PM, SV, PL, DEV, QA, RV](.agents/AGENT_ROLES.md) |
+| Роль проекта | [Game Designer](.agents/GD_ROLE.md) — ставится всегда, использование необязательно |
+| Точка входа оператора | [Шпаргалка с промптами ролей](.agents/HOW_TO_USE.md) |
 | Пять core skills | [canon-router, product-gap, product-handoff, diagnose, handoff](.agents/SKILLS.md) |
 | Project authority | AGENTS.md установленного проекта; fallback — оператор |
 | Runtime adapters | `.claude/`, `.codex/hooks.json` |
@@ -44,7 +47,7 @@ login Git CLI не нужен; post-merge publisher требует автори�
 [Порядок доступа к Beads](.agents/HOW_TO_USE.md#beads-основной-checkout-worktree-и-облачный-агент)
 различает основной checkout, linked worktree и isolated reader.
 
-Начните с [инструкции работы](.agents/HOW_TO_USE.md) или [установки](.agents/INSTALL.md).
+Начните со [шпаргалки оператора с промптами ролей](.agents/HOW_TO_USE.md) или [установки](.agents/INSTALL.md).
 Установщик сначала создаёт plan/inventory на frozen source SHA. Target Draft PR, Verification
 Contract и независимый PLAN_READY предшествуют копированию. Project owner, tests, context и
 runtime overrides сохраняются; conflict останавливает upgrade. Backup позволяет вернуть исходные

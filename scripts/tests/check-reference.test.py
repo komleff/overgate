@@ -33,7 +33,7 @@ class StructureTests(unittest.TestCase):
 
     def test_dangling_registry(self):
         path = self.root / '.agents/SKILLS.md'
-        path.write_text(path.read_text().replace('.agents/skills/diagnose/SKILL.md', '.agents/skills/missing/SKILL.md'))
+        path.write_text(path.read_text(encoding='utf-8').replace('.agents/skills/diagnose/SKILL.md', '.agents/skills/missing/SKILL.md'), encoding='utf-8')
         self.check(1, 'SKILL-002')
 
     def test_orphan_skill(self):
@@ -50,13 +50,55 @@ class StructureTests(unittest.TestCase):
 
     def test_duplicate_membership(self):
         path = self.root / '.agents/SKILLS.md'
-        path.write_text(path.read_text() + '\n| `diagnose` | `.agents/skills/diagnose/SKILL.md` | duplicate |\n')
+        path.write_text(path.read_text(encoding='utf-8') + '\n| `diagnose` | `.agents/skills/diagnose/SKILL.md` | duplicate |\n', encoding='utf-8')
         self.check(1, 'SKILL-005')
 
     def test_unresolved_role_pointer(self):
         path = self.root / '.claude/agents/tester.md'
-        path.write_text(path.read_text().replace('.agents/QA_ROLE.md', '.agents/UNKNOWN_ROLE.md'))
+        path.write_text(path.read_text(encoding='utf-8').replace('.agents/QA_ROLE.md', '.agents/UNKNOWN_ROLE.md'), encoding='utf-8')
         self.check(1, 'ROLE-003')
+
+    # og-bo6: шпаргалка оператора и роль проекта GD держатся структурной проверкой.
+    def edit(self, rel, old, new):
+        path = self.root / rel
+        text = path.read_text(encoding='utf-8')
+        self.assertIn(old, text, rel)
+        path.write_text(text.replace(old, new), encoding='utf-8')
+
+    def test_missing_gd_role(self):
+        (self.root / '.agents/GD_ROLE.md').unlink()
+        self.check(1, 'ROLE-001')
+
+    def test_unregistered_gd_role(self):
+        self.edit('.agents/AGENT_ROLES.md', '.agents/GD_ROLE.md', '.agents/GAME_DESIGN.md')
+        self.check(1, 'ROLE-002')
+
+    def test_unknown_extra_role(self):
+        (self.root / '.agents/XX_ROLE.md').write_text('# extra\n', encoding='utf-8')
+        self.check(1, 'ROLE-002')
+
+    def test_missing_role_prompt_in_guide(self):
+        for role in ('PM', 'SV', 'GD', 'PL', 'DEV', 'QA', 'RV'):
+            with self.subTest(role=role):
+                self.setUp()
+                self.edit('.agents/HOW_TO_USE.md', f'Прочитай .agents/{role}_ROLE.md', 'Прочитай свою роль')
+                self.check(1, 'GUIDE-001')
+
+    def test_role_prompt_below_beads_section(self):
+        path = self.root / '.agents/HOW_TO_USE.md'
+        text = path.read_text(encoding='utf-8')
+        prompt = 'Ты QA. Прочитай .agents/QA_ROLE.md.\n'
+        self.assertIn(prompt, text)
+        path.write_text(text.replace(prompt, '') + '\n```text\n' + prompt + '```\n', encoding='utf-8')
+        self.check(1, 'GUIDE-001')
+
+    def test_missing_guide(self):
+        (self.root / '.agents/HOW_TO_USE.md').unlink()
+        self.check(1, 'GUIDE-001')
+
+    def test_renamed_beads_anchor_heading(self):
+        self.edit('.agents/HOW_TO_USE.md', '## Beads: основной checkout, worktree и облачный агент', '## Beads')
+        self.check(1, 'GUIDE-002')
 
 
 if __name__ == '__main__':

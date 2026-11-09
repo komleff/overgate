@@ -210,13 +210,13 @@ python3 /trusted/overgate/scripts/install-overgate.py apply \
 Plan Review в том же PR. Нет `--force` и тихого overwrite изменённого managed role/skill.
 
 Explicit inventory — `.agents/distribution-manifest.json`. Копируются шесть delivery owners,
-ровно пять core skills, thin adapters, hook parser/policy/launcher/timeout/publisher closure,
+шпаргалка оператора `HOW_TO_USE.md`, роль проекта `GD_ROLE.md` (preserve), ровно пять core skills, thin adapters, hook parser/policy/launcher/timeout/publisher closure,
 Beads readers и необходимые instructions. Не копируются каталоги U2, game data, credentials,
 personal runtime state или весь `.claude/skills/`. Шаблоны Memory Bank входят в payload,
 но `.memory-bank` и `.beads` не managed: safe() по-прежнему запрещает эти пути.
 
-AGENTS.md, `.agents/project/verify.sh` и project rules `beads.md`, `tests.md`, `universal.md`
-сохраняются. `.claude/rules/large-payloads.md` — managed publication policy: известная v3.9 версия
+AGENTS.md, `.agents/project/verify.sh`, `.agents/GD_ROLE.md` и project rules `beads.md`,
+`tests.md`, `universal.md` сохраняются: создаются, только если их нет. `.claude/rules/large-payloads.md` — managed publication policy: известная v3.9 версия
 обновляется вместе с publisher/finalize, а project modification даёт conflict без записи.
 Остальные project-owned rules вне inventory не затрагиваются. Settings merge
 сохраняет project env/permissions/custom hooks, заменяет только известные old managed hooks и

@@ -25,6 +25,9 @@ RC2_SHA = '073595ae6fb51c16fa49576acca40d94d068af83'
 RC3_SHA = 'b830d5ed7ed31e597b45f7f3c18b8fb6baad6b29'
 # Frozen rc.4.1 entry до WI-C: installer обязан заменить только его exact identity.
 WIC_BASE_SHA = '8f70ced157968e9e914bce9b2371ab85fb8a19df'
+# Точный commit тега v4.0.0-rc.5: база upgrade hotfix rc.5.1 (og-bo6).
+RC5_SHA = '9addb791e93d66e6debcf110144be95658ea4f3c'
+ROLE_PROMPTS = tuple(f'Прочитай .agents/{role}_ROLE.md' for role in ('PM','SV','GD','PL','DEV','QA','RV'))
 PR_URL = 'https://github.com/example/project/pull/1'
 GITIGNORE_HEADER = b'# OverGate personal state (managed fragment)'
 # NTFS не хранит POSIX execute bits (как в reference-closure): mode сверяется только вне Windows.
@@ -1082,11 +1085,14 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
 
-    def install_tag(self,sha,name):
+    def install_tag(self,sha,name,lf=False):
         # Точная установка прежнего RC: отдельный clone источника на exact SHA тега, тот же
         # installer этого RC и тот же PLAN_READY binding, что у реального проекта.
+        # lf=True: installer rc.5+ отказывает «грязному» source, а Windows runner по умолчанию
+        # делает CRLF checkout; источник создаётся LF checkout, как требует QUICKSTART (og-bo6).
         clone=self.root/name
-        subprocess.check_call(['git','clone','-q','--shared','--no-checkout',str(ROOT),str(clone)],
+        lf_config=['-c','core.autocrlf=false'] if lf else []
+        subprocess.check_call(['git','clone','-q',*lf_config,'--shared','--no-checkout',str(ROOT),str(clone)],
                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         git(clone,'checkout','-q','--detach',sha)
         installer=clone/'scripts/install-overgate.py'
@@ -1171,9 +1177,9 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.assertIn('bd 1.2.2',rule)
         self.assertNotIn('bd 1.0.2',rule)
 
-    def check_exact_rc_upgrade(self,sha,name):
+    def check_exact_rc_upgrade(self,sha,name,lf=False):
         # AC-02 + AC-04 + AC-07: точная установка тега без overrides → upgrade → source rc.3.
-        self.install_tag(sha,name);before=snapshot(self.target)
+        self.install_tag(sha,name,lf=lf);before=snapshot(self.target)
         self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
         self.assertEqual(plan['conflicts'],[])
         self.approve();self.apply()
@@ -1191,6 +1197,43 @@ fs.rmSync(root,{recursive:true,force:true});'''
 
     def test_rc3_upgrade_adds_executable_gate_and_replaces_skill(self):
         self.check_exact_rc_upgrade(RC3_SHA, 'source-rc3')
+
+    # og-bo6: оператор получает шпаргалку с промптами ролей и generic GD в каждом проекте.
+    def assert_operator_entry(self):
+        how=(self.target/'.agents/HOW_TO_USE.md').read_text(encoding='utf-8')
+        for prompt in ROLE_PROMPTS:self.assertIn(prompt,how)
+        agents=(self.target/'AGENTS.md').read_text(encoding='utf-8')
+        self.assertIn('.agents/HOW_TO_USE.md',agents);self.assertIn('Ты PM. Прочитай .agents/PM_ROLE.md',agents)
+        run=subprocess.run([sys.executable,str(self.target/'scripts/check-reference.py'),'--root',str(self.target)],capture_output=True,text=True)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+
+    def test_og_bo6_fresh_installs_operator_guide_and_generic_gd_with_rollback(self):
+        for extra in ((),('--no-beads',)):
+            with self.subTest(extra=extra):
+                self.setUp();before=snapshot(self.target)
+                self.make_plan(*extra);self.approve();self.apply()
+                gd=self.target/'.agents/GD_ROLE.md'
+                self.assertEqual(gd.read_bytes(),self.source_blob('.agents/GD_ROLE.md'))
+                for term in ('U2','Universe','Almanac','корабл'):self.assertNotIn(term,gd.read_text(encoding='utf-8'))
+                self.assert_operator_entry()
+                self.call('rollback','--target',self.target,'--backup',self.backup())
+                self.assertFalse(gd.exists());self.assertEqual(snapshot(self.target),before)
+
+    def test_og_bo6_rc5_exact_install_upgrade_is_byte_exact(self):
+        self.check_exact_rc_upgrade(RC5_SHA,'source-rc5',lf=True)
+
+    def test_og_bo6_rc5_upgrade_preserves_project_gd_role(self):
+        self.install_tag(RC5_SHA,'source-rc5-gd',lf=True)
+        custom='# Game Designer проекта\n\nСобственный маршрут к канону.\n'.encode('utf-8')
+        (self.target/'.agents/GD_ROLE.md').write_bytes(custom)
+        self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
+        self.assertEqual(plan['conflicts'],[])
+        self.assertNotIn('.agents/GD_ROLE.md',[op['target'] for op in plan['operations']])
+        self.approve();self.apply()
+        self.assertEqual((self.target/'.agents/GD_ROLE.md').read_bytes(),custom)
+        self.assertEqual((self.target/'.agents/HOW_TO_USE.md').read_bytes(),self.source_blob('.agents/HOW_TO_USE.md'))
+        run=subprocess.run([sys.executable,str(self.target/'scripts/check-reference.py'),'--root',str(self.target)],capture_output=True,text=True)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
 
     def test_fresh_installs_executable_finalize_gate(self):
         self.make_plan(); self.approve(); self.apply()

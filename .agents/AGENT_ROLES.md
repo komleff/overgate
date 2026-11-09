@@ -7,6 +7,7 @@ tags: [pipeline, agents, roles, delivery-first]
 related:
   - .agents/PM_ROLE.md
   - .agents/SV_ROLE.md
+  - .agents/GD_ROLE.md
   - .agents/PIPELINE_ADR.md
 ---
 
@@ -41,6 +42,15 @@ Portfolio/dependencies/scope/budget stop-loss. Не обязателен для 
 Назначается установленным проектом в `AGENTS.md`. Если адресата нет — оператор.
 Это полномочие выбирать WHAT, а не седьмая обязательная delivery роль.
 PM/Planner/Developer не принимают отсутствующее product решение самостоятельно.
+
+## Game Designer — роль проекта (не delivery owner)
+
+Owner: `.agents/GD_ROLE.md`.
+
+Готовит WHAT для игровых и интерактивных проектов: механики, баланс, UX/UI, GDD, ТЗ и AC.
+Файл ставится в каждый проект; использовать роль необязательно, lifecycle от неё не зависит
+(ADR §3.31, §3.36). Принимает WHAT product authority проекта; GD решает сам только в области,
+которую ему назначил `AGENTS.md`.
 
 ## Developer
 

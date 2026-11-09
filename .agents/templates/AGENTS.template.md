@@ -4,8 +4,11 @@ Product authority: оператор (пока проект явно не наз�
 Project first-read route: текущий project context и один authoritative owner по теме.
 Если current owners конфликтуют — эскалация оператору; search result не authority.
 
+Оператору: копируемые промпты ролей — `.agents/HOW_TO_USE.md` (папка `.agents` скрыта
+в Finder/Проводнике). Обычно начинают с «Ты PM. Прочитай .agents/PM_ROLE.md.» и задачи.
+
 Pipeline: `.agents/PIPELINE.md`; role owners: `.agents/AGENT_ROLES.md`;
-core skills: `.agents/SKILLS.md`. Общая policy — ADR §§3.28–3.35.
+core skills: `.agents/SKILLS.md`. Общая policy — ADR §§3.28–3.36.
 PM/Planner/Developer не выбирают missing WHAT. Ready source → PASS_THROUGH.
 ИИ не merge/auto-merge и не обновляет main/master. Не обходить hooks/permissions,
 не читать `.env*`, credentials, secrets. Evidence публиковать с фактической ролью/моделью.

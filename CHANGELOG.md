@@ -3,10 +3,31 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
-## [Unreleased] — v4.0.0-rc.5 candidate
+## [Unreleased] — v4.0.0-rc.5.1 candidate (og-bo6)
 
-Выпуск требует приёмки WI-A/WI-B/WI-C и merge оператором; Stable/Latest остаётся
-v3.9.0. Source в PR не равен опубликованному release.
+Hotfix точки входа оператора. Выпуск — после приёмки и merge оператором; Stable/Latest
+остаётся v3.9.0. `manifest.version` остаётся `4.0.0-rc.5`, версию различает `source_sha`.
+
+### Fixed
+- `.agents/HOW_TO_USE.md` снова начинается со шпаргалки оператора: копируемые промпты всех
+  ролей, частые команды, решение о merge. Промпты пропали в rc.1 (`3766036`, PR #7).
+- Агент Claude снова может коммитить в overgate: гейт коммита вызывает
+  `verify-reference.sh --commit-tier` (без длинных installer/Beads наборов); полный набор —
+  `/verify` и обязательный CI (ADR §3.37, `og-cfx`).
+
+### Added
+- Generic `.agents/GD_ROLE.md` — роль проекта для гейм-дизайна; ставится в каждый проект,
+  использование необязательно; проектный GD при upgrade не перезаписывается (ADR §3.36).
+- `check-reference` GUIDE-001/GUIDE-002: промпт каждой роли в шпаргалке и Beads anchor.
+- QUICKSTART и шаблон `AGENTS.md` ведут к шпаргалке и объясняют скрытую папку `.agents`.
+
+### Upgrade
+- Проект с изменённым managed `AGENT_ROLES.md` или `HOW_TO_USE.md` получит штатный managed
+  conflict; разрешается в target PR.
+
+## [v4.0.0-rc.5] — 2026-11-05
+
+Prerelease (merge commit `9addb79`, PR #17); Stable/Latest остаётся v3.9.0.
 
 ### Added
 - Managed Beads v1: typed queue, registered trusted-main publisher, non-force

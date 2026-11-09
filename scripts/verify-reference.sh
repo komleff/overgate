@@ -2,6 +2,15 @@
 # Единый fail-fast reference entrypoint. Не подменяет проверки установленного проекта.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Уровень: full (по умолчанию: /verify, CI) или commit — ограниченный набор для гейта
+# коммита (og-cfx). Неизвестный аргумент — NOT RUN, никакой PASS.
+TIER=full
+case "${1-}" in
+  '') ;;
+  --commit-tier) TIER=commit; shift ;;
+  *) echo "NOT RUN: unknown argument: $1 (supported: --commit-tier)" >&2; exit 2 ;;
+esac
+if [ "$#" -gt 0 ]; then echo "NOT RUN: unexpected extra arguments" >&2; exit 2; fi
 cd "$ROOT"
 unset CLAUDE_PROJECT_DIR
 PYTHON="$ROOT/.claude/tools/run-python.sh"
@@ -41,13 +50,20 @@ for test_name in merge-gate-parse-complexity readiness-declaration-corpus readin
   run "$test_name" "$PYTHON" "scripts/tests/$test_name.test.py"
 done
 run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate_review_pass.sh
+run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
+run verify-tiers "$PYTHON" scripts/tests/verify-tiers.test.py
+# Граница commit tier: длинные интеграционные наборы installer/Beads ниже идут только в full
+# (/verify и обязательный CI verify-reference); гейт коммита укладывается в свой предел.
+if [ "$TIER" = commit ]; then
+  printf 'PASS verify-reference commit tier; installer/Beads integration NOT RUN here (full: bash scripts/verify-reference.sh, required CI); logs: %s\n' "$LOG_DIR"
+  exit 0
+fi
 # regression_pr183.sh is historical U2 live-comment tooling, not a deterministic reference fixture.
 run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.test.py
 run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
 run bd-bootstrap-native "$PYTHON" scripts/tests/bd-bootstrap-native.test.py
 run bd-upgrade-preserve "$PYTHON" scripts/tests/bd-upgrade-preserve.test.py
 run bd-legacy-fence "$PYTHON" scripts/tests/bd-legacy-fence.test.py
-run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 run bd-sync bash scripts/test-bd-sync.sh
 run bd-managed-prefix node scripts/tests/bd-managed-prefix.test.mjs
 run bd-managed-snapshot node scripts/tests/bd-managed-snapshot.test.mjs
