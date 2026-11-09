@@ -1,5 +1,11 @@
 # Progress
 
+## og-bo6 rc.5.1 — в работе (2026-11-09)
+
+PLAN_READY v0.2; реализованы шпаргалка оператора, generic GD, GUIDE-001/002 с RED→GREEN,
+install-тесты fresh/--no-beads/rollback/rc.5 upgrade/проектный GD. Pending: full verify,
+QA, Code Review, CI, trusted finalize, operator merge; затем согласованное обновление проектов.
+
 ## WI-1 rc.4 — implementation candidate, acceptance pending
 
 PR #12, branch plan/v4.0.0-rc.4-adoption. WI-1 AC/source plan v0.6 blob d9d760d сохранён

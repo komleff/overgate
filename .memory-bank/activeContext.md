@@ -1,5 +1,16 @@
 # Active Context
 
+## og-bo6 rc.5.1 — точка входа оператора (приоритет P0, 2026-11-09)
+
+Ветка `fix/og-bo6-operator-guide` от `9addb79` (tag v4.0.0-rc.5), CRITICAL, план
+`docs/plans/2026-11-09-v4.0.0-rc.5.1-operator-guide.md` v0.2: PLAN_READY (Plan Review 1/6,
+F1 решён вариантом b — GD ставится всегда, использование необязательно). Причина: с
+`3766036` (PR #7, rc.1) `HOW_TO_USE.md` без промптов ролей; GD в OverGate не было.
+Реализация: шпаргалка в начале HOW_TO_USE, generic GD (`preserve`), GUIDE-001/002,
+указатели в QUICKSTART/AGENTS template, ADR §3.36. QA/Code Review/CI/trusted finalize
+из `9addb79` pending. Обновление других проектов komleff — только после merge и по
+согласованию с оператором, по каждому проекту отдельно.
+
 ## WI-1 rc.4 — implementation candidate, acceptance pending
 
 PR #12, branch plan/v4.0.0-rc.4-adoption. WI-1 AC/source plan v0.6 blob d9d760d сохранён

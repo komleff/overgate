@@ -11,6 +11,8 @@
 | [Pipeline ADR §§3.28–3.33](../../.agents/PIPELINE_ADR.md) | Delivery First generic binding, lifecycle, single finalize, пять skills, автономная установка rc.4 | accepted for v4 RC |
 | [Pipeline ADR §3.34](../../.agents/PIPELINE_ADR.md) | Managed Beads publication, typed queue и trusted publisher | proposed for rc.5 WI-A |
 | [Pipeline ADR §3.35](../../.agents/PIPELINE_ADR.md) | Portable Bash recovery в текущем Git root | proposed for rc.5 WI-C |
+| [Pipeline ADR §3.36](../../.agents/PIPELINE_ADR.md) | Шпаргалка оператора в HOW_TO_USE и generic роль проекта GD; частично заменяет inventory/AC-04 PR #7 | proposed for rc.5.1 |
+| [Pipeline ADR §3.37](../../.agents/PIPELINE_ADR.md) | Commit tier reference-гейта overgate: ограниченный набор для гейта коммита, полный — `/verify` и CI | proposed for rc.5.1 |
 
 ## Решения проекта
 

@@ -10,6 +10,11 @@ from pathlib import Path
 
 SKILLS = {'canon-router', 'product-gap', 'product-handoff', 'diagnose', 'handoff'}
 ROLES = {'PM', 'SV', 'PL', 'DEV', 'QA', 'RV'}
+# Роль проекта: файл ставится всегда, использование необязательно (ADR §3.36).
+PROJECT_ROLES = {'GD'}
+GUIDE = '.agents/HOW_TO_USE.md'
+# Anchor этого заголовка используют README, INSTALL и preserve-копии .claude/rules/beads.md.
+BEADS_HEADING = '## Beads: основной checkout, worktree и облачный агент'
 ADAPTERS = {'developer': 'DEV', 'planner': 'PL', 'reviewer': 'RV', 'tester': 'QA'}
 RUNTIME = {
     '.claude/hooks/' + name for name in (
@@ -41,13 +46,22 @@ def check(root):
             return ''
         return p.read_text(encoding='utf-8')
     registry = read('.agents/AGENT_ROLES.md', 'ROLE-001')
-    for role in sorted(ROLES):
+    for role in sorted(ROLES | PROJECT_ROLES):
         path = f'.agents/{role}_ROLE.md'
         read(path, 'ROLE-001')
         if path not in registry:
             fail('ROLE-002', f'unregistered role: {path}')
-    if {p.name for p in (root / '.agents').glob('*_ROLE.md')} != {r + '_ROLE.md' for r in ROLES}:
-        fail('ROLE-002', 'delivery owner set must be exactly PM/SV/PL/DEV/QA/RV')
+    if {p.name for p in (root / '.agents').glob('*_ROLE.md')} - {r + '_ROLE.md' for r in ROLES | PROJECT_ROLES}:
+        fail('ROLE-002', 'role set must be exactly delivery PM/SV/PL/DEV/QA/RV plus project role GD')
+    # Шпаргалка оператора: промпт каждой роли стоит до технических Beads-секций.
+    guide = read(GUIDE, 'GUIDE-001')
+    lines = guide.splitlines()
+    cheat = '\n'.join(lines[:lines.index(BEADS_HEADING)]) if BEADS_HEADING in lines else guide
+    for role in sorted(ROLES | PROJECT_ROLES):
+        if f'Прочитай .agents/{role}_ROLE.md' not in cheat:
+            fail('GUIDE-001', f'operator cheat sheet lacks prompt before Beads sections: {role}_ROLE.md')
+    if guide and BEADS_HEADING not in lines:
+        fail('GUIDE-002', f'missing anchored heading in {GUIDE}: {BEADS_HEADING}')
     for adapter, role in ADAPTERS.items():
         body = read(f'.claude/agents/{adapter}.md', 'ROLE-003')
         pointers = re.findall(r'\.agents/[A-Z]+_ROLE\.md', body)
