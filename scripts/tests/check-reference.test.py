@@ -33,7 +33,7 @@ class StructureTests(unittest.TestCase):
 
     def test_dangling_registry(self):
         path = self.root / '.agents/SKILLS.md'
-        path.write_text(path.read_text().replace('.agents/skills/diagnose/SKILL.md', '.agents/skills/missing/SKILL.md'))
+        path.write_text(path.read_text(encoding='utf-8').replace('.agents/skills/diagnose/SKILL.md', '.agents/skills/missing/SKILL.md'), encoding='utf-8')
         self.check(1, 'SKILL-002')
 
     def test_orphan_skill(self):
@@ -50,12 +50,12 @@ class StructureTests(unittest.TestCase):
 
     def test_duplicate_membership(self):
         path = self.root / '.agents/SKILLS.md'
-        path.write_text(path.read_text() + '\n| `diagnose` | `.agents/skills/diagnose/SKILL.md` | duplicate |\n')
+        path.write_text(path.read_text(encoding='utf-8') + '\n| `diagnose` | `.agents/skills/diagnose/SKILL.md` | duplicate |\n', encoding='utf-8')
         self.check(1, 'SKILL-005')
 
     def test_unresolved_role_pointer(self):
         path = self.root / '.claude/agents/tester.md'
-        path.write_text(path.read_text().replace('.agents/QA_ROLE.md', '.agents/UNKNOWN_ROLE.md'))
+        path.write_text(path.read_text(encoding='utf-8').replace('.agents/QA_ROLE.md', '.agents/UNKNOWN_ROLE.md'), encoding='utf-8')
         self.check(1, 'ROLE-003')
 
     # og-bo6: шпаргалка оператора и роль проекта GD держатся структурной проверкой.

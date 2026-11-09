@@ -48,6 +48,7 @@ def run(cmd: Optional[str], with_token: bool = False) -> int:
         input=payload,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=env,
     )
     return result.returncode

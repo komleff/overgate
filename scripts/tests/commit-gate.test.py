@@ -26,7 +26,7 @@ class CommitGate(unittest.TestCase):
 
     def run_hook(self, command, expected):
         result = subprocess.run(['bash', str(self.root / '.claude/hooks/check-tests-before-commit.sh')],
-            input=json.dumps({'tool_input': {'command': command}}), text=True, capture_output=True,
+            input=json.dumps({'tool_input': {'command': command}}), text=True, encoding='utf-8', capture_output=True,
             env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
