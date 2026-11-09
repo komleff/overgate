@@ -20,6 +20,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$ROOT/scripts/tests/lib/assert.sh"
 
 PYTHON_RUNNER="$ROOT/.claude/tools/run-python.sh"
+# D-8: обработчики читают payload из stdin. В сессии Claude stdio Python — UTF-8
+# (`.claude/settings.json` env PYTHONIOENCODING); без этого на Windows stdin декодируется
+# по ANSI code page, «Готов к merge» искажается и гейт публикации пропускал тело (код 0).
+export PYTHONIOENCODING=utf-8
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT

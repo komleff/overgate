@@ -159,15 +159,15 @@ jobs:
   windows-commit-tier:
     name: windows-commit-tier
     # Условия оператора (ADR §3.38): Git Bash, Python 3.14, ANSI code page runner без
-    # PYTHONUTF8/PYTHONIOENCODING, временный каталог на D: с кириллицей, апострофом и пробелом.
+    # PYTHONUTF8/PYTHONIOENCODING, временный каталог на D: с кириллицей и пробелом (апостроф —
+    # в путях фикстур, см. шаг ниже).
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      # run-python.sh берёт `py -3`; на runner есть и Python 3.15 (UTF-8 mode по умолчанию),
-      # он маскировал бы зависимость от ANSI code page. Версия проверяется шагом ниже.
+      # run-python.sh берёт `py -3`; без PY_PYTHON3 это Python 3.15 образа runner (UTF-8 mode
+      # по умолчанию), он маскировал бы зависимость от ANSI code page. Версия проверяется ниже.
       PY_PYTHON: '3.14'
       PY_PYTHON3: '3.14'
-      PYTHON_MANAGER_DEFAULT: '3.14'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -212,7 +212,7 @@ jobs:
           py --list || true
           py -3 --version
           case "$(py -3 --version 2>&1)" in 'Python 3.14.'*) ;; *) echo 'py -3 must resolve to Python 3.14' >&2; exit 1 ;; esac
-          py -3 -c "import locale, os, sys, tempfile; print('preferred', locale.getpreferredencoding(), 'stdout', sys.stdout.encoding, 'utf8_mode', sys.flags.utf8_mode, 'tmp', tempfile.gettempdir())"
+          py -3 -c "import locale, os, sys, tempfile; print('preferred', locale.getpreferredencoding(), 'stdout', sys.stdout.encoding, 'utf8_mode', sys.flags.utf8_mode, 'tmp', ascii(tempfile.gettempdir()))"
           cmd //c where bash
           cmd //c where git
           # Привилегия создания symlink печатается явно: от неё зависят SKIP-кейсы D-2.
@@ -254,18 +254,8 @@ jobs:
               failed="$failed $label"
             fi
           }
-          step structure "$PY" scripts/check-reference.py
-          step structural-mutations "$PY" scripts/tests/check-reference.test.py
-          step closure-mutations "$PY" scripts/tests/reference-closure.test.py
-          step pre-bash-dispatch "$PY" scripts/tests/pre-bash-dispatch.test.py
-          step portability-names "$PY" scripts/tests/portability-names.test.py
-          step activation bash scripts/tests/activation-routing.test.sh
-          step mutation-guard bash scripts/tests/repository-mutation-guard.test.sh
-          step classifier bash scripts/tests/commit-command-classifier.test.sh
-          step commit-gate "$PY" scripts/tests/commit-gate.test.py
-          step readiness "$PY" .claude/hooks/test_check_merge_ready.py
-          step python-launcher bash scripts/tests/python-launcher.test.sh
-          step verify-tiers "$PY" scripts/tests/verify-tiers.test.py
+          # Шаги прежнего commit tier, вынесенные в full (ADR §3.38): на Windows они
+          # исполняются здесь; verify-tiers.test.py держит полноту списка.
           step publisher "$PY" scripts/tests/publish-pr-comment.test.py
           step with-timeout bash scripts/tests/with-timeout.test.sh
           step with-timeout-transparency bash scripts/tests/with-timeout-transparency.test.sh
