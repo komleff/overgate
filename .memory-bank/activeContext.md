@@ -1,5 +1,20 @@
 # Active Context
 
+## og-4py rc.5.2 — Beads с обычным входом пользователя в Git (P0, 2026-11-10)
+
+PR #20, ветка `fix/og-4py-beads-credentials`, CRITICAL, план
+`docs/plans/2026-11-10-v4.0.0-rc.5.2-beads-credentials.md` v0.5 (PLAN_READY). Причина:
+`bd-sync-export.sh` падал «terminal prompts disabled», хотя обычный `git push` работал;
+ручной repo-local helper оператор отклонил. Решение (ADR §3.39): только `ls-remote`/
+`fetch`/`push`/`commit-tree` получают перенос allowlist `credential.*`, `user.name`,
+`user.email` (scope system/global/unknown) через приватный временный `GIT_CONFIG_GLOBAL`;
+API `networkGitEnvironment` / `bd_env_network_git` / `network_git_environment`. Preflight —
+url-match helper по правилам git. Перенос пишет по секции на запись (`git config --add`
+менял порядок helper). Живые проверки QA: B-01/B-01a (Mac), B-08 (Windows) через
+`bash scripts/lib/bd-env.sh --diagnose push-dry-run`. Residual (`http.*`, ssh insteadOf,
+`core.sshCommand`, `author.*`, `commit.gpgSign`) — отдельные задачи Beads (PM).
+Координация: PR #19 (§3.38) и этот PR правят CHANGELOG/Memory Bank; второй merge — rebase.
+
 ## og-bo6 rc.5.1 — точка входа оператора (приоритет P0, 2026-11-09)
 
 PR #18, ветка `fix/og-bo6-operator-guide` от `9addb79` (tag v4.0.0-rc.5), CRITICAL, план

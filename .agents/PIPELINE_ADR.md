@@ -429,8 +429,12 @@ for Windows). Оператор 2026-11-10: ручная настройка вх�
    `command` отбрасываются (local git читает сам). Учитываются `include` и `includeIf`
    (`gitdir`, `hasconfig:remote.*.url`). Код возврата не из {0, 1}, Git без `--show-scope`
    (< 2.26) и некорректный фрейминг — fail-closed.
-4. Записи пишутся через `git config --file <tmp> --add` в приватный временный файл (каталог
-   0700, файл 0600, вне repo), который подключается как `GIT_CONFIG_GLOBAL`;
+4. Записи пишутся в приватный временный файл (каталог 0700, файл 0600, вне repo) по одной
+   секции на запись в порядке вывода reader (экранирование `\`, `"`, `\n`, `\t`, `\b`; ключ
+   без значения — без `=`), затем read-back `git config --file <tmp> -z --list` сверяет
+   перенос с записями reader, расхождение — fail-closed. `git config --add` не используется:
+   он дописывает ключ в существующую одноимённую секцию и меняет порядок списка helper.
+   Файл подключается как `GIT_CONFIG_GLOBAL`;
    `GIT_CONFIG_NOSYSTEM=1` остаётся. Однозначные ключи: побеждает local, как у обычного git;
    список `credential.helper`: порядок system → global/unknown → local и сброс пустым `helper =`.
    `GIT_CONFIG_COUNT` не используется. На Windows путь — native-форма, ошибка — fail-closed.

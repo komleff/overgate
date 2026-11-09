@@ -44,12 +44,16 @@ Fresh Beads install ставит полный managed closure и `beads_protocol
 Не применять managed publisher из install PR или поверх существующей базы без этого перехода.
 
 Fresh `managed-v1` install PR ставит только source bytes. После merge activation из
-trusted target `main` требует repo-local Git `user.name`/`user.email` publisher
-(или явную service identity) и авторизованный transport: доверенный repo-local
-`credential.helper` для HTTPS либо SSH remote с `SSH_AUTH_SOCK`. Global/system
-Git config и `GIT_CONFIG_*` очищаются в trusted writer route; обычный пользовательский
-HTTPS helper из global config здесь недоступен. Отсутствующая identity/auth останавливает
-setup до task write. Не сохраняйте credentials в репозитории или отчёте.
+trusted target `main` использует тот же вход в Git, что и обычный `git push` пользователя:
+`user.name`/`user.email` из Git config (или явную service identity) и HTTPS
+`credential.helper` (osxkeychain, `gh auth setup-git`, Git Credential Manager) либо SSH
+remote с `SSH_AUTH_SOCK`. Ручная repo-local настройка не нужна. Из global/system config
+переносятся только `credential.*`, `user.name`, `user.email` и только в сетевые вызовы
+(`ls-remote`/`fetch`/`push`) и `commit-tree` снимка; origin, `url.*.insteadOf`, alias,
+hooks и `GIT_CONFIG_*` вызывающего не влияют (ADR §3.39). Installer читает remote проекта
+тем же способом. Отсутствующая identity/auth останавливает setup до task write;
+`bash scripts/lib/bd-env.sh --diagnose ls-remote` показывает найденные ключи без значений.
+Не сохраняйте credentials в репозитории или отчёте.
 Если activation остановилась после native init/setup, сохраните DB, private work
 directory и очередь; тот же вызов `bd-activate.sh --resume` сверяет checkpoint и
 продолжает. Частично созданная DB без полного checkpoint требует reviewed recovery,

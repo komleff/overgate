@@ -3,6 +3,33 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
+## [Unreleased] — v4.0.0-rc.5.2 candidate: og-4py (обычный вход в Git для Beads)
+
+Hotfix PR #20. Выпуск — PM после merge оператором (вместе с PR #19 или отдельно).
+
+### Fixed
+- Beads синхронизирует и публикует задачи с обычным входом пользователя в Git: если обычный
+  `git push` работает, `bd-sync-export/restore`, `bd-read`, `bd-wt`, managed publisher,
+  activation, upgrade и installer проходят без ручной `git config --local credential.helper`
+  и repo-local identity (osxkeychain Apple Git, `gh auth setup-git`, Git Credential Manager).
+
+### Changed
+- Только сетевые вызовы (`ls-remote`/`fetch`/`push`) и `commit-tree` снимка получают перенос
+  `credential.*`, `user.name`, `user.email` из пользовательского config (system, global,
+  встроенный Apple Git, `include`/`includeIf`) через приватный временный файл; прочие
+  Git-вызовы остаются в полной изоляции, origin — только repo-local (ADR §3.39).
+- Preflight publisher/activation проверяет effective identity и helper для каждого HTTPS push
+  URL по правилам git; без входа — прежний отказ `HTTPS authentication unavailable`.
+
+### Added
+- Диагностика без значений: `bash scripts/lib/bd-env.sh --diagnose [ls-remote|push-dry-run]`
+  (также mjs и `install-overgate.py network-diagnose`).
+
+### Known limitations (residual)
+- Не переносятся `http.*` (proxy, CA, `sslBackend=schannel`), global `url.<ssh>.insteadOf`,
+  `core.sshCommand`, `author.*`/`committer.*`, обязательный `commit.gpgSign`; если обычный
+  push зависит от них, маршрут падает с подсказкой, называющей ключи (без значений).
+
 ## [Unreleased] — v4.0.0-rc.5.1 candidate (og-bo6)
 
 Hotfix точки входа оператора. Выпуск — после приёмки и merge оператором; Stable/Latest
