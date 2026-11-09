@@ -192,8 +192,10 @@ else: raise AssertionError(args)
 ''', encoding='utf-8')
     binpath=temp/'bin';binpath.mkdir()
     launcher=(root/'.claude/tools/run-python.sh').as_posix()
-    if os.name=='nt':
-        (binpath/'gh.cmd').write_text('@"'+sys.executable+'" "'+str(driver)+'" %*\r\n',encoding='utf-8')
+    # D-5: publisher (нативный Python) зовёт `gh` через CreateProcess, который ищет только
+    # gh.exe; ни shell-заглушка, ни gh.cmd вызов не перехватывали, и шёл настоящий gh.
+    from command_stub import exe_stub
+    exe_stub(binpath,'gh','import subprocess, sys\nraise SystemExit(subprocess.call([sys.executable, '+repr(str(driver))+', *sys.argv[1:]]))\n')
     for name in ['gh','bd','cp']:
         stub=binpath/name
         stub.write_text('#!/usr/bin/env bash\nexec "'+launcher+'" "'+driver.as_posix()+'" '+('' if name=='gh' else name+' ')+ '"$@"\n',encoding='utf-8');stub.chmod(0o755)

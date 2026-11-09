@@ -215,8 +215,19 @@ assert_ne "$ERROR_RC" "124" "обычная ошибка отличается о
 # даже если на машине разработчика установлены timeout или gtimeout.
 FALLBACK_BIN="$TMP_DIR/fallback-bin"
 mkdir -p "$FALLBACK_BIN"
-PYTHON_BIN="$(command -v python3)"
-ln -s "$PYTHON_BIN" "$FALLBACK_BIN/python3"
+# D-2: обёртка-скрипт вместо symlink — на Windows без привилегии `ln -s` отказывает,
+# а сам symlink по смыслу теста не нужен (нужен только python3 в урезанном PATH).
+PYTHON_BIN=''
+for python_candidate in python3 python; do
+  python_path="$(command -v "$python_candidate" 2>/dev/null)" || continue
+  if "$python_path" -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    PYTHON_BIN="$python_path"
+    break
+  fi
+done
+[ -n "$PYTHON_BIN" ] || fail "fallback-тест нашёл исправный Python 3"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$PYTHON_BIN" > "$FALLBACK_BIN/python3"
+chmod +x "$FALLBACK_BIN/python3"
 
 if PATH="$FALLBACK_BIN" command -v timeout >/dev/null 2>&1 || \
     PATH="$FALLBACK_BIN" command -v gtimeout >/dev/null 2>&1; then

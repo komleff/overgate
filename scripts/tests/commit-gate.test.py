@@ -5,10 +5,14 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts/tests/lib'))
+# D-1: голое имя `bash` из нативного Python на Windows уходит в WSL-заглушку System32.
+from claude_hooks import native_bash  # noqa: E402
 
 
 class CommitGate(unittest.TestCase):
@@ -20,12 +24,12 @@ class CommitGate(unittest.TestCase):
             shutil.copytree(ROOT / '.claude' / name, self.root / '.claude' / name)
         self.verify = self.root / '.agents/project/verify.sh'
         self.verify.parent.mkdir(parents=True)
-        self.verify.write_text('#!/usr/bin/env bash\nprintf called > "$VERIFY_MARKER"\nexit 7\n')
+        self.verify.write_text('#!/usr/bin/env bash\nprintf called > "$VERIFY_MARKER"\nexit 7\n', encoding='utf-8', newline='\n')
         self.marker = self.root / 'called'
         self.env = dict(os.environ, VERIFY_MARKER=str(self.marker))
 
     def run_hook(self, command, expected):
-        result = subprocess.run(['bash', str(self.root / '.claude/hooks/check-tests-before-commit.sh')],
+        result = subprocess.run([native_bash(), str(self.root / '.claude/hooks/check-tests-before-commit.sh')],
             input=json.dumps({'tool_input': {'command': command}}), text=True, encoding='utf-8', capture_output=True,
             env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
@@ -55,7 +59,7 @@ class CommitGate(unittest.TestCase):
         self.assertTrue(self.marker.exists())
 
     def test_passing_suite_allows(self):
-        self.verify.write_text('#!/usr/bin/env bash\nexit 0\n')
+        self.verify.write_text('#!/usr/bin/env bash\nexit 0\n', encoding='utf-8', newline='\n')
         self.run_hook('git commit -m x', 0)
 
     def test_missing_verify_blocks(self):
@@ -68,7 +72,7 @@ class CommitGate(unittest.TestCase):
 
     def test_timeout_blocks(self):
         self.env['OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS'] = '1'
-        self.verify.write_text('#!/usr/bin/env bash\nsleep 10\n')
+        self.verify.write_text('#!/usr/bin/env bash\nsleep 10\n', encoding='utf-8', newline='\n')
         self.run_hook('git commit -m x', 2)
 
 

@@ -16,6 +16,22 @@ GATE="${FINALIZE_GATE_TEST_SOURCE:-$ROOT/.claude/skills/finalize-pr/finalize-gat
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# Урезанный PATH прогонов гейта: только системные каталоги, без случайных `bd` и прочих
+# инструментов машины. D-4: в Git Bash на Windows git и jq лежат вне них (`/mingw64/bin`,
+# каталоги runner). Недостающий инструмент подкладывается обёрткой в отдельный каталог,
+# а не каталогом целиком: соседние программы (например, установленный `bd`) в PATH
+# прогона не попадают.
+FIXTURE_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+FIXTURE_BIN="$TMP/fixture-bin"
+mkdir -p "$FIXTURE_BIN"
+for fixture_tool in git jq; do
+  if ! PATH="$FIXTURE_PATH" command -v "$fixture_tool" >/dev/null 2>&1; then
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v "$fixture_tool")" > "$FIXTURE_BIN/$fixture_tool"
+    chmod +x "$FIXTURE_BIN/$fixture_tool"
+  fi
+done
+FIXTURE_PATH="$FIXTURE_PATH:$FIXTURE_BIN"
+
 pass=0
 fail=0
 ok() { pass=$((pass + 1)); printf 'ok %d - %s\n' "$pass" "$1"; }
@@ -225,7 +241,7 @@ run_gate() {
     cat "$EXTRACT"
     printf 'exit 0\n'
   } > "$TMP/run.sh"
-  local path="/usr/bin:/bin:/usr/sbin:/sbin"
+  local path="$FIXTURE_PATH"
   [ -n "$extra_path" ] && path="$extra_path:$path"
   if [ -n "$workdir" ]; then
     ( cd "$workdir" && env PATH="$path" bash "$TMP/run.sh" 2>&1 )
@@ -2294,7 +2310,7 @@ else
       cat "$FETCH"
       printf 'echo ПОЛУЧЕНО\n'
     } > "$TMP/run-fetch.sh"
-    env PATH="$1:/usr/bin:/bin:/usr/sbin:/sbin" bash "$TMP/run-fetch.sh" 2>&1
+    env PATH="$1:$FIXTURE_PATH" bash "$TMP/run-fetch.sh" 2>&1
   }
 
   # 59. Ненулевой код возврата при НЕПУСТОМ валидном выводе. Кейс адресный именно так:
@@ -2565,7 +2581,7 @@ run_piece() {
     cat "$piece"
     printf 'echo КУСОК-ПРОЙДЕН\n'
   } > "$TMP/run-piece.sh"
-  ( cd "$SNAP_ROOT" && env PATH="$stub_dir:/usr/bin:/bin:/usr/sbin:/sbin" bash "$TMP/run-piece.sh" 2>&1 )
+  ( cd "$SNAP_ROOT" && env PATH="$stub_dir:$FIXTURE_PATH" bash "$TMP/run-piece.sh" 2>&1 )
 }
 
 # --- чтения PR: ненулевой код при ПРАВДОПОДОБНОМ выводе (Шаги 1-4 и re-check перед публикацией)

@@ -76,10 +76,11 @@ def quick_limit(root: Path | str) -> int:
 
 
 def native_bash() -> str:
-    """Нативный Git Bash; System32/bash.exe ведёт в WSL и не проверяет Windows quoting."""
+    """Нативный Git Bash; System32/bash.exe и WindowsApps/bash.exe ведут в WSL."""
     if os.name!='nt':return 'bash'
-    candidates=[Path(p)/'bash.exe' for p in os.environ.get('PATH','').split(os.pathsep)]
+    candidates=[Path(p)/'bash.exe' for p in os.environ.get('PATH','').split(os.pathsep) if p]
     candidates += [Path('C:/Program Files/Git/usr/bin/bash.exe'),Path('C:/Program Files/Git/bin/bash.exe')]
     for candidate in candidates:
-        if candidate.is_file() and 'system32' not in str(candidate).lower():return str(candidate)
+        lowered=str(candidate).lower()
+        if candidate.is_file() and 'system32' not in lowered and 'windowsapps' not in lowered:return str(candidate)
     raise RuntimeError('native Git Bash is required')

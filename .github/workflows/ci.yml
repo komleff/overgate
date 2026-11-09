@@ -163,7 +163,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
+      # run-python.sh берёт `py -3`; на runner есть и Python 3.15 (UTF-8 mode по умолчанию),
+      # он маскировал бы зависимость от ANSI code page. Версия проверяется шагом ниже.
       PY_PYTHON: '3.14'
+      PYTHON_MANAGER_DEFAULT: '3.14'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -175,20 +178,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Temporary directory on D with Cyrillic, apostrophe and space
+      - name: Temporary directories on D with Cyrillic and space
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           # Нет D: — FAIL, а не тихий переход на C:.
           if (-not (Test-Path -LiteralPath 'D:\')) { throw 'D: drive is required for windows-commit-tier' }
-          $name = 'og-' + [char]0x0442 + [char]0x0435 + [char]0x0441 + [char]0x0442 + "'s tmp"
-          $native = Join-Path 'D:\' $name
-          New-Item -ItemType Directory -Force -Path $native | Out-Null
-          $msys = '/d/' + $name
-          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "TMPDIR=$msys"
-          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "TEMP=$native"
-          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "TMP=$native"
-          Write-Output "TMPDIR=$msys TEMP=$native"
+          $cyrillic = [string][char]0x0442 + [char]0x0435 + [char]0x0441 + [char]0x0442
+          # Апостроф в корне TMPDIR не ставится: MSYS не преобразует argv-путь с апострофом
+          # для нативных программ (проба ниже), это свойство MSYS, а не продукта. Пути с
+          # апострофом проверяют фикстуры (bd-node-path, python-launcher, pre-bash-dispatch).
+          # TEMP — отдельный каталог: /tmp Git Bash монтируется на TEMP, и TMPDIR под ним
+          # дал бы два написания одного каталога.
+          $tmpdir = 'og-' + $cyrillic + ' tmp'
+          $temp = 'og-' + $cyrillic + ' temp'
+          foreach ($name in @($tmpdir, $temp)) { New-Item -ItemType Directory -Force -Path (Join-Path 'D:\' $name) | Out-Null }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value ('TMPDIR=/d/' + $tmpdir)
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value ('TEMP=D:\' + $temp)
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value ('TMP=D:\' + $temp)
+          Write-Output "TMPDIR=/d/$tmpdir TEMP=D:\$temp"
       - name: Environment, encoding and symlink privilege
         shell: bash
         run: |
@@ -200,22 +208,24 @@ jobs:
           git --version
           node --version
           jq --version
+          py --list || true
           py -3 --version
-          py -3 -c "import locale, sys, tempfile; print('preferred', locale.getpreferredencoding(), 'stdout', sys.stdout.encoding, 'tmp', tempfile.gettempdir())"
+          case "$(py -3 --version 2>&1)" in 'Python 3.14.'*) ;; *) echo 'py -3 must resolve to Python 3.14' >&2; exit 1 ;; esac
+          py -3 -c "import locale, os, sys, tempfile; print('preferred', locale.getpreferredencoding(), 'stdout', sys.stdout.encoding, 'utf8_mode', sys.flags.utf8_mode, 'tmp', tempfile.gettempdir())"
           cmd //c where bash
           cmd //c where git
           # Привилегия создания symlink печатается явно: от неё зависят SKIP-кейсы D-2.
-          whoami //priv | grep -i SeCreateSymbolicLinkPrivilege || echo 'SeCreateSymbolicLinkPrivilege: absent'
+          /c/Windows/System32/whoami.exe //priv | grep -i SeCreateSymbolicLinkPrivilege || echo 'SeCreateSymbolicLinkPrivilege: absent'
           probe="$(mktemp -d)"
-          py -3 -c "import os, sys; os.symlink(os.path.join(sys.argv[1], 'missing'), os.path.join(sys.argv[1], 'link')); print('python os.symlink: available')" "$probe" || echo 'python os.symlink: unavailable'
+          py -3 -c "import os, sys; os.symlink(os.path.join(sys.argv[1], 'missing'), os.path.join(sys.argv[1], 'link')); print('python os.symlink: available')" "$(cygpath -w "$probe")" || echo 'python os.symlink: unavailable'
           # Диагностика MSYS-преобразования argv нативному git.exe по форме пути.
-          plain="$(cygpath -u "$RUNNER_TEMP")/og-plain-probe"
-          for dir in "$plain" "$probe/plain" "$probe/Проект's (QA) space"; do
-            mkdir -p "$dir"
-            if git -C "$dir" init -q >/dev/null 2>&1; then echo "msys argv ok: $dir"; else echo "msys argv FAIL: $dir"; fi
+          for name in plain "space dir" "кириллица" "apos's" "Проект's (QA) space"; do
+            mkdir -p "$probe/$name"
+            if git -C "$probe/$name" init -q >/dev/null 2>&1; then echo "msys argv ok: $name"; else echo "msys argv FAIL: $name"; fi
           done
-          rm -rf "$probe" "$plain"
+          rm -rf "$probe"
       - name: Commit tier (verify.sh)
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           start=$SECONDS

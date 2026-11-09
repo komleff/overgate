@@ -35,11 +35,25 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # Маршрут Python-fallback: PATH без timeout/gtimeout.
 FALLBACK_BIN="$TMP_DIR/fallback-bin"
 mkdir -p "$FALLBACK_BIN"
+# D-2: обёртки-скрипты вместо symlink — на Windows без привилегии `ln -s` отказывает,
+# а смысл стенда (урезанный PATH без timeout/gtimeout) symlink не требует.
+fallback_wrapper() { # fallback_wrapper <имя> <абсолютный путь>
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$2" > "$FALLBACK_BIN/$1"
+  chmod +x "$FALLBACK_BIN/$1"
+}
 for tool in sh cat sleep env; do
-  [ -x "/bin/$tool" ] && ln -s "/bin/$tool" "$FALLBACK_BIN/$tool"
+  if [ -x "/bin/$tool" ]; then fallback_wrapper "$tool" "/bin/$tool"; fi
 done
-PYTHON_BIN="$(command -v python3 || command -v python)"
-ln -s "$PYTHON_BIN" "$FALLBACK_BIN/python3"
+PYTHON_BIN=''
+for python_candidate in python3 python; do
+  python_path="$(command -v "$python_candidate" 2>/dev/null)" || continue
+  if "$python_path" -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    PYTHON_BIN="$python_path"
+    break
+  fi
+done
+[ -n "$PYTHON_BIN" ] || fail "стенд fallback нашёл исправный Python 3"
+fallback_wrapper python3 "$PYTHON_BIN"
 if PATH="$FALLBACK_BIN" command -v timeout >/dev/null 2>&1 || \
     PATH="$FALLBACK_BIN" command -v gtimeout >/dev/null 2>&1; then
   fail "стенд fallback обязан быть без нативного timeout"
@@ -63,17 +77,24 @@ printf '%s\n' \
 chmod +x "$NATIVE_BIN/timeout"
 
 elapsed_seconds() { # elapsed_seconds <окружение…> -- <команда…>
-  "$PYTHON_RUNNER" - "$@" <<'PYX'
+  "$PYTHON_RUNNER" - "$ROOT" "$@" <<'PYX'
 import subprocess
 import sys
 import time
 
-argv = sys.argv[1:]
+argv = sys.argv[2:]
 split = argv.index("--")
 env_pairs = argv[:split]
 command = argv[split + 1:]
 
 import os
+
+# D-8: на Windows CreateProcess не исполняет shell-скрипт (WinError 193) — замер был
+# пуст. Скрипт запускается нативным Git Bash, как его исполнил бы агент.
+if os.name == "nt" and command[0].endswith(".sh"):
+    sys.path.insert(0, os.path.join(sys.argv[1], "scripts", "tests", "lib"))
+    from claude_hooks import native_bash
+    command = [native_bash(), *command]
 
 env = dict(os.environ)
 for pair in env_pairs:

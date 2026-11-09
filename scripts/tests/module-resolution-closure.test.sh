@@ -78,6 +78,8 @@ PUB_BIN="$TMP_DIR/pub-bin"
 mkdir -p "$PUB_BIN"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$PUB_BIN/gh"
 chmod +x "$PUB_BIN/gh"
+# D-8: нативный publisher на Windows видит только gh.exe (CreateProcess), иначе — настоящий gh.
+"$PYTHON_RUNNER" "$ROOT/scripts/tests/lib/command_stub.py" "$PUB_BIN" gh || fail "заглушка gh.exe не создана"
 
 # Публикатор принимает тело только из репозитория, поэтому копия дерева — сама
 # репозиторий, и тело лежит в ней.

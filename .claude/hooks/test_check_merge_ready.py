@@ -1097,6 +1097,10 @@ TESTS = [
 
 
 def main() -> int:
+    # D-3: отчёт печатает ✓/✗ и русский текст; на Windows stdout по ANSI code page
+    # (cp1251/cp1252) их не кодирует. Собственный вывод теста — явно UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     failures = []
     for cmd, expected, description in TESTS:
         # Исторические записи использовали 1 как абстрактный признак block.

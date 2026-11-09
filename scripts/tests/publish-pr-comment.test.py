@@ -66,6 +66,22 @@ def merge_ready_wrapper() -> str:
 # Номер PR, который этот тест подаёт публикатору.
 TEST_PR = "645"
 
+sys.path.insert(0, str(ROOT / "scripts" / "tests" / "lib"))
+from command_stub import exe_stub  # noqa: E402
+
+
+def symlink_or_skip(test: unittest.TestCase, link: Path, target: Path) -> None:
+    """D-2: кейс отказа на symlink без привилегии Windows — явный SKIP с причиной.
+
+    В Windows CI (runner с привилегией) и на macOS/Linux кейс исполняется.
+    """
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            test.skipTest("SKIP: нет привилегии создания symlink (WinError 1314); кейс исполняется в Windows CI")
+        raise
+
 
 
 class PublisherTest(unittest.TestCase):
@@ -113,8 +129,7 @@ class PublisherTest(unittest.TestCase):
         self.legacy_python_bin.mkdir()
         shutil.copy2(fake_python, self.legacy_python_bin / "python3")
         fake_gh = self.fake_bin / "gh"
-        fake_gh.write_text(
-            f"#!{sys.executable}\n"
+        fake_gh_source = (
             "import json, os, pathlib, sys\n"
             "args = sys.argv[1:]\n"
             "if args[:2] == ['pr', 'view']:\n"
@@ -127,10 +142,12 @@ class PublisherTest(unittest.TestCase):
             "pathlib.Path(os.environ['FAKE_GH_ARGS']).write_text(json.dumps(args))\n"
             "pathlib.Path(os.environ['FAKE_GH_TOKEN']).write_text("
             "os.environ.get('FINALIZE_PR_TOKEN', ''))\n"
-            "raise SystemExit(int(os.environ.get('FAKE_GH_EXIT', '0')))\n",
-            encoding="utf-8",
+            "raise SystemExit(int(os.environ.get('FAKE_GH_EXIT', '0')))\n"
         )
+        fake_gh.write_text(f"#!{sys.executable}\n" + fake_gh_source, encoding="utf-8")
         fake_gh.chmod(0o755)
+        # D-5: нативный publisher зовёт gh через CreateProcess, который видит только gh.exe.
+        exe_stub(self.fake_bin, "gh", fake_gh_source)
         self.old_cwd = Path.cwd()
         os.chdir(self.repo)
 
@@ -232,7 +249,7 @@ class PublisherTest(unittest.TestCase):
         tool = self.load_tool()
         outside = self.sandbox / "outside.md"
         outside.write_text("нейтральный отчёт\n", encoding="utf-8")
-        self.body_path.symlink_to(outside)
+        symlink_or_skip(self, self.body_path, outside)
 
         with self.gh_environment(), self.assertRaises(tool.PublishError):
             tool.publish_comment(TEST_PR, str(self.body_path))
@@ -244,7 +261,7 @@ class PublisherTest(unittest.TestCase):
         tool = self.load_tool()
         target = self.repo / "inside.md"
         target.write_text("нейтральный отчёт\n", encoding="utf-8")
-        self.body_path.symlink_to(target)
+        symlink_or_skip(self, self.body_path, target)
 
         with (
             self.gh_environment(),
