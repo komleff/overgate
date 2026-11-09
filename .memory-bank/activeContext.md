@@ -2,14 +2,21 @@
 
 ## og-bo6 rc.5.1 — точка входа оператора (приоритет P0, 2026-11-09)
 
-Ветка `fix/og-bo6-operator-guide` от `9addb79` (tag v4.0.0-rc.5), CRITICAL, план
-`docs/plans/2026-11-09-v4.0.0-rc.5.1-operator-guide.md` v0.2: PLAN_READY (Plan Review 1/6,
-F1 решён вариантом b — GD ставится всегда, использование необязательно). Причина: с
-`3766036` (PR #7, rc.1) `HOW_TO_USE.md` без промптов ролей; GD в OverGate не было.
-Реализация: шпаргалка в начале HOW_TO_USE, generic GD (`preserve`), GUIDE-001/002,
-указатели в QUICKSTART/AGENTS template, ADR §3.36. QA/Code Review/CI/trusted finalize
-из `9addb79` pending. Обновление других проектов komleff — только после merge и по
-согласованию с оператором, по каждому проекту отдельно.
+PR #18, ветка `fix/og-bo6-operator-guide` от `9addb79` (tag v4.0.0-rc.5), CRITICAL, план
+`docs/plans/2026-11-09-v4.0.0-rc.5.1-operator-guide.md` v0.3. Причина: с `3766036` (PR #7,
+rc.1) `HOW_TO_USE.md` без промптов ролей; GD в OverGate не было. Решение PM (вариант b):
+generic GD ставится всегда (`preserve`), использование необязательно; ADR §3.36.
+og-cfx (блокер): гейт коммита Claude не проходил (полный reference ~20 мин > 570 с);
+`verify-reference.sh --commit-tier` (432 с, 34 шага) для `.agents/project/verify.sh`,
+полный набор — `/verify` и required CI; ADR §3.37. Коммиты `0d9b644`, `d858dfd`, `39db72b`
+прошли гейт. Evidence: Plan Review 1/6 PLAN_READY (v0.2, v0.3), QA 2/6 PASS, Code Review 3/6
+APPROVED + scoped re-reviews APPROVED; полный verify на `d858dfd` PASS, CI Linux/macOS SUCCESS.
+Pending: CI на final HEAD (включая Windows), trusted `/finalize-pr` из `9addb79`, operator
+merge, затем release `v4.0.0-rc.5.1` (prerelease, not Latest). Beads snapshot не опубликован:
+legacy sync изолирует git config, нужен repo-local credential helper (оператор, команда в PR).
+Отложено: `og-1lg` (запас commit tier/Windows, строгость ROLE, C1 парсер шагов).
+Обновление других проектов komleff — только после merge и по согласованию с оператором,
+по каждому проекту отдельно; у установленных проектов `AGENTS.md` (preserve) указатель не получит.
 
 ## WI-1 rc.4 — implementation candidate, acceptance pending
 
