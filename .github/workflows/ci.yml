@@ -156,3 +156,125 @@ jobs:
           if (-not $env:OG_BD_NATIVE_BIN) { throw 'qualified native bd.exe not exported' }
           python scripts/tests/install-distribution.test.py InstallTests.test_wib_native_postmerge_activation_peer_and_lifecycle
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  windows-commit-tier:
+    name: windows-commit-tier
+    # Условия оператора (ADR §3.38): Git Bash, Python 3.14, ANSI code page runner без
+    # PYTHONUTF8/PYTHONIOENCODING, временный каталог на D: с кириллицей, апострофом и пробелом.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PY_PYTHON: '3.14'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Temporary directory on D with Cyrillic, apostrophe and space
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Нет D: — FAIL, а не тихий переход на C:.
+          if (-not (Test-Path -LiteralPath 'D:\')) { throw 'D: drive is required for windows-commit-tier' }
+          $name = 'og-' + [char]0x0442 + [char]0x0435 + [char]0x0441 + [char]0x0442 + "'s tmp"
+          $native = Join-Path 'D:\' $name
+          New-Item -ItemType Directory -Force -Path $native | Out-Null
+          $msys = '/d/' + $name
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "TMPDIR=$msys"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "TEMP=$native"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "TMP=$native"
+          Write-Output "TMPDIR=$msys TEMP=$native"
+      - name: Environment, encoding and symlink privilege
+        shell: bash
+        run: |
+          set -u
+          printf 'PYTHONUTF8=[%s] PYTHONIOENCODING=[%s] TMPDIR=[%s] TEMP=[%s]\n' "${PYTHONUTF8-}" "${PYTHONIOENCODING-}" "$TMPDIR" "$TEMP"
+          if [ -n "${PYTHONUTF8-}" ] || [ -n "${PYTHONIOENCODING-}" ]; then echo 'UTF-8 override must be absent' >&2; exit 1; fi
+          case "$TMPDIR" in /d/*) ;; *) echo 'TMPDIR must be on D:' >&2; exit 1 ;; esac
+          bash --version | head -1
+          git --version
+          node --version
+          jq --version
+          py -3 --version
+          py -3 -c "import locale, sys, tempfile; print('preferred', locale.getpreferredencoding(), 'stdout', sys.stdout.encoding, 'tmp', tempfile.gettempdir())"
+          cmd //c where bash
+          cmd //c where git
+          # Привилегия создания symlink печатается явно: от неё зависят SKIP-кейсы D-2.
+          whoami //priv | grep -i SeCreateSymbolicLinkPrivilege || echo 'SeCreateSymbolicLinkPrivilege: absent'
+          probe="$(mktemp -d)"
+          py -3 -c "import os, sys; os.symlink(os.path.join(sys.argv[1], 'missing'), os.path.join(sys.argv[1], 'link')); print('python os.symlink: available')" "$probe" || echo 'python os.symlink: unavailable'
+          # Диагностика MSYS-преобразования argv нативному git.exe по форме пути.
+          plain="$(cygpath -u "$RUNNER_TEMP")/og-plain-probe"
+          for dir in "$plain" "$probe/plain" "$probe/Проект's (QA) space"; do
+            mkdir -p "$dir"
+            if git -C "$dir" init -q >/dev/null 2>&1; then echo "msys argv ok: $dir"; else echo "msys argv FAIL: $dir"; fi
+          done
+          rm -rf "$probe" "$plain"
+      - name: Commit tier (verify.sh)
+        shell: bash
+        run: |
+          start=$SECONDS
+          rc=0
+          bash .agents/project/verify.sh || rc=$?
+          echo "verify.sh wall time: $((SECONDS-start)) s"
+          exit $rc
+      - name: Steps outside commit tier (former commit tier)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -u
+          PY=.claude/tools/run-python.sh
+          LOG="$(mktemp -d)"
+          failed=''
+          step() {
+            local label="$1" start=$SECONDS rc=0
+            shift
+            "$@" >"$LOG/$label.log" 2>&1 || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              printf 'PASS %s (%s s)\n' "$label" "$((SECONDS-start))"
+            else
+              printf 'FAIL %s (exit %s, %s s)\n' "$label" "$rc" "$((SECONDS-start))"
+              tail -n 80 "$LOG/$label.log"
+              failed="$failed $label"
+            fi
+          }
+          step structure "$PY" scripts/check-reference.py
+          step structural-mutations "$PY" scripts/tests/check-reference.test.py
+          step closure-mutations "$PY" scripts/tests/reference-closure.test.py
+          step pre-bash-dispatch "$PY" scripts/tests/pre-bash-dispatch.test.py
+          step portability-names "$PY" scripts/tests/portability-names.test.py
+          step activation bash scripts/tests/activation-routing.test.sh
+          step mutation-guard bash scripts/tests/repository-mutation-guard.test.sh
+          step classifier bash scripts/tests/commit-command-classifier.test.sh
+          step commit-gate "$PY" scripts/tests/commit-gate.test.py
+          step readiness "$PY" .claude/hooks/test_check_merge_ready.py
+          step python-launcher bash scripts/tests/python-launcher.test.sh
+          step verify-tiers "$PY" scripts/tests/verify-tiers.test.py
+          step publisher "$PY" scripts/tests/publish-pr-comment.test.py
+          step with-timeout bash scripts/tests/with-timeout.test.sh
+          step with-timeout-transparency bash scripts/tests/with-timeout-transparency.test.sh
+          step merge-gate-script-run-parity bash scripts/tests/merge-gate-script-run-parity.test.sh
+          step merge-gate-parse-completeness bash scripts/tests/merge-gate-parse-completeness.test.sh
+          step merge-gate-parse-budget bash scripts/tests/merge-gate-parse-budget.test.sh
+          step gate-arithmetic-expansion bash scripts/tests/gate-arithmetic-expansion.test.sh
+          step gate-heredoc-delimiter bash scripts/tests/gate-heredoc-delimiter.test.sh
+          step gate-line-continuation-parity bash scripts/tests/gate-line-continuation-parity.test.sh
+          step shell-grammar-single-source bash scripts/tests/shell-grammar-single-source.test.sh
+          step module-resolution-closure bash scripts/tests/module-resolution-closure.test.sh
+          step finalize-triage-parse bash scripts/tests/finalize-triage-parse.test.sh
+          step finalize-gate-script bash scripts/tests/finalize-gate-script.test.sh
+          step bd-node-path bash scripts/tests/bd-node-path.test.sh
+          step bd-read bash scripts/tests/bd-read.test.sh
+          step bd-wt bash scripts/tests/bd-wt.test.sh
+          step merge-gate-parse-complexity "$PY" scripts/tests/merge-gate-parse-complexity.test.py
+          step readiness-declaration-corpus "$PY" scripts/tests/readiness-declaration-corpus.test.py
+          step readiness-policy-complexity "$PY" scripts/tests/readiness-policy-complexity.test.py
+          step shell-nonascii-expansion "$PY" scripts/tests/shell-nonascii-expansion.test.py
+          step finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate_review_pass.sh
+          step finalize-no-beads "$PY" scripts/tests/finalize-no-beads.test.py
+          if [ -n "$failed" ]; then echo "FAILED:$failed" >&2; exit 1; fi
