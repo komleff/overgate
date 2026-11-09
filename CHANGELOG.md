@@ -3,9 +3,36 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
-## [Unreleased] — v4.0.0-rc.5.1 candidate (og-bo6)
+## [Unreleased] — v4.0.0-rc.5.2 candidate (og-5l6, og-0pu, og-1lg п.1)
 
-Hotfix точки входа оператора. Выпуск — после приёмки и merge оператором; Stable/Latest
+Hotfix защиты репозитория и гейта коммита на Windows (PR #19; `og-4py` — отдельный PR #20).
+Выпуск — после приёмки и merge оператором; Stable/Latest остаётся v3.9.0.
+
+### Security
+- Guard репозитория блокирует git-alias при явном `--git-dir`/`GIT_DIR`/`GIT_COMMON_DIR`,
+  который git не открывает: раньше lookup отвечал «нет alias» и команда проходила (`og-5l6`).
+- На Windows guard ищет alias через Git Bash той же установки Git for Windows, что исполняет
+  команды агента (`.claude/hooks/git_bash_route.py`): MSYS-пути (`/d/...`) в `-C`, `--git-dir`,
+  `GIT_CONFIG_GLOBAL`, `HOME`, `XDG_CONFIG_HOME`, `include.path`, `GIT_CONFIG_KEY_n` видны так же,
+  как при реальном запуске. **Поддерживается только Git Bash из Git for Windows**: WSL, Cygwin,
+  отдельный MSYS2 или bash другой установки дают блок (ADR §3.38).
+
+### Changed
+- Commit tier гейта коммита — ядро из 12 шагов; publisher, with-timeout, gate/merge-gate,
+  finalize, bd и complexity-наборы идут в полном `bash scripts/verify-reference.sh` и CI.
+  Каждый шаг печатает своё время, commit tier — сумму (ADR §3.38, `og-1lg` п.1).
+
+### Added
+- CI-джоба `windows-commit-tier`: Git Bash, Python 3.14 без UTF-8 override, временный каталог
+  на `D:` с кириллицей и пробелом; commit tier и все вынесенные из него шаги.
+
+### Fixed
+- Тесты на Windows: Git Bash вместо WSL-заглушки, UTF-8 вывод, обёртки вместо symlink,
+  заглушка `gh.exe` для нативного Python, PATH фикстур с git/jq, пути с апострофом (`og-0pu`).
+
+## [v4.0.0-rc.5.1] — 2026-11-10 (og-bo6)
+
+Hotfix точки входа оператора (PR #18, merge `b04b21c`). Prerelease; Stable/Latest
 остаётся v3.9.0. `manifest.version` остаётся `4.0.0-rc.5`, версию различает `source_sha`.
 
 ### Fixed
