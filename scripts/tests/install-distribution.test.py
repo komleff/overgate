@@ -1085,11 +1085,14 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.call('rollback','--target',self.target,'--backup',self.backup())
         self.assertEqual(snapshot(self.target),before)
 
-    def install_tag(self,sha,name):
+    def install_tag(self,sha,name,lf=False):
         # Точная установка прежнего RC: отдельный clone источника на exact SHA тега, тот же
         # installer этого RC и тот же PLAN_READY binding, что у реального проекта.
+        # lf=True: installer rc.5+ отказывает «грязному» source, а Windows runner по умолчанию
+        # делает CRLF checkout; источник создаётся LF checkout, как требует QUICKSTART (og-bo6).
         clone=self.root/name
-        subprocess.check_call(['git','clone','-q','--shared','--no-checkout',str(ROOT),str(clone)],
+        lf_config=['-c','core.autocrlf=false'] if lf else []
+        subprocess.check_call(['git','clone','-q',*lf_config,'--shared','--no-checkout',str(ROOT),str(clone)],
                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         git(clone,'checkout','-q','--detach',sha)
         installer=clone/'scripts/install-overgate.py'
@@ -1174,9 +1177,9 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.assertIn('bd 1.2.2',rule)
         self.assertNotIn('bd 1.0.2',rule)
 
-    def check_exact_rc_upgrade(self,sha,name):
+    def check_exact_rc_upgrade(self,sha,name,lf=False):
         # AC-02 + AC-04 + AC-07: точная установка тега без overrides → upgrade → source rc.3.
-        self.install_tag(sha,name);before=snapshot(self.target)
+        self.install_tag(sha,name,lf=lf);before=snapshot(self.target)
         self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
         self.assertEqual(plan['conflicts'],[])
         self.approve();self.apply()
@@ -1217,10 +1220,10 @@ fs.rmSync(root,{recursive:true,force:true});'''
                 self.assertFalse(gd.exists());self.assertEqual(snapshot(self.target),before)
 
     def test_og_bo6_rc5_exact_install_upgrade_is_byte_exact(self):
-        self.check_exact_rc_upgrade(RC5_SHA,'source-rc5')
+        self.check_exact_rc_upgrade(RC5_SHA,'source-rc5',lf=True)
 
     def test_og_bo6_rc5_upgrade_preserves_project_gd_role(self):
-        self.install_tag(RC5_SHA,'source-rc5-gd')
+        self.install_tag(RC5_SHA,'source-rc5-gd',lf=True)
         custom='# Game Designer проекта\n\nСобственный маршрут к канону.\n'.encode('utf-8')
         (self.target/'.agents/GD_ROLE.md').write_bytes(custom)
         self.make_plan();plan=json.loads(self.plan.read_text(encoding='utf-8'))
