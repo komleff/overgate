@@ -249,6 +249,13 @@ class TransportTests(unittest.TestCase):
         output = self.run_script([], "env").decode("utf-8", "replace")
         self.assertNotIn("OVERGATE_GUARD_GIT_", output)
 
+    @unittest.skipIf(os.name == "nt", "на Windows OSTYPE Git Bash — msys/cygwin")
+    def test_default_ostype_filter_rejects_non_msys_shell(self):
+        # Фильтр по умолчанию (msys*|cygwin*) отвергает bash Linux/macOS/WSL (linux-gnu, darwin).
+        result = REAL_RUN([native_bash(), "-s"], input=ROUTE.bash_script(program="true"),
+                          env=ROUTE.bash_environment([], os.environ), stdout=subprocess.PIPE, text=True)
+        self.assertEqual(result.returncode, ROUTE.EXIT_NOT_MSYS)
+
     def test_foreign_shell_is_refused(self):
         script = ROUTE.bash_script(program="true", ostype="og-no-such-ostype")
         result = REAL_RUN([native_bash(), "-s"], input=script, env=ROUTE.bash_environment([], os.environ),
