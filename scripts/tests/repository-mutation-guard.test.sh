@@ -487,8 +487,10 @@ MERGE_REASON="contains protected repository mutation"
 git -C "$ALIAS_REPO" config alias.ship 'push origin main'
 git -C "$ALIAS_REPO" config alias.envship "!env 'A%B=1' git ship"
 git -C "$ALIAS_REPO" config alias.envland "!env -- 'A%B=1' git land"
-git -C "$ALIAS_REPO" config alias.cfgship '!GIT_CONFIG=/dev/null git ship'
-git -C "$ALIAS_REPO" config alias.cfgouter '!GIT_CONFIG=/dev/null git outer'
+# Значение с `=/путь` пишется байтами прямо в config: argv нативного git.exe на Windows
+# MSYS преобразует (`/dev/null` → путь Windows с пробелом), и alias был бы другим.
+printf '[alias]\n\tcfgship = "!GIT_CONFIG=/dev/null git ship"\n\tcfgouter = "!GIT_CONFIG=/dev/null git outer"\n' \
+  >> "$ALIAS_REPO/.git/config"
 EMPTY_CFG="$GUARD_TEST_TMP/empty.cfg"
 : > "$EMPTY_CFG"
 # Опасный alias только в файле GIT_CONFIG: реальный `git cfgonly` его не видит, но
