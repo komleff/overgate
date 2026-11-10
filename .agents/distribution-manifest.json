@@ -234,6 +234,11 @@
       "policy": "managed"
     },
     {
+      "source": ".claude/hooks/git_bash_route.py",
+      "target": ".claude/hooks/git_bash_route.py",
+      "policy": "managed"
+    },
+    {
       "source": ".claude/tools/run-python.sh",
       "target": ".claude/tools/run-python.sh",
       "policy": "managed"

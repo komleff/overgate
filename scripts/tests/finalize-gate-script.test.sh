@@ -6,6 +6,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 from pathlib import Path
 import re
 import sys
+# D-3: отчёт и сообщения проверок по-русски — собственный stdio теста явно UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding='utf-8')
 root = Path(sys.argv[1])
 gate = root / '.claude/skills/finalize-pr/finalize-gate.sh'
 assert gate.is_file(), 'AC-01: finalize-gate.sh отсутствует'
@@ -192,8 +195,10 @@ else: raise AssertionError(args)
 ''', encoding='utf-8')
     binpath=temp/'bin';binpath.mkdir()
     launcher=(root/'.claude/tools/run-python.sh').as_posix()
-    if os.name=='nt':
-        (binpath/'gh.cmd').write_text('@"'+sys.executable+'" "'+str(driver)+'" %*\r\n',encoding='utf-8')
+    # D-5: publisher (нативный Python) зовёт `gh` через CreateProcess, который ищет только
+    # gh.exe; ни shell-заглушка, ни gh.cmd вызов не перехватывали, и шёл настоящий gh.
+    from command_stub import exe_stub
+    exe_stub(binpath,'gh','import subprocess, sys\nraise SystemExit(subprocess.call([sys.executable, '+repr(str(driver))+', *sys.argv[1:]]))\n')
     for name in ['gh','bd','cp']:
         stub=binpath/name
         stub.write_text('#!/usr/bin/env bash\nexec "'+launcher+'" "'+driver.as_posix()+'" '+('' if name=='gh' else name+' ')+ '"$@"\n',encoding='utf-8');stub.chmod(0o755)
@@ -224,7 +229,8 @@ else: raise AssertionError(args)
     argbin=temp/'arg-bin';argbin.mkdir()
     argtrace=temp/'arg-tools'
     for tool in ['git','dirname']:
-        path=argbin/tool;path.write_text('#!/usr/bin/env bash\necho '+tool+' >> "'+argtrace.as_posix()+'"\nexit 77\n');path.chmod(0o755)
+        # D-3: путь временного каталога может быть не-ASCII; скрипт-заглушка — UTF-8 с LF.
+        path=argbin/tool;path.write_text('#!/usr/bin/env bash\necho '+tool+' >> "'+argtrace.as_posix()+'"\nexit 77\n',encoding='utf-8',newline='\n');path.chmod(0o755)
     for args in [[],['13'],['bad','--check'],['13','--check','--publish'],['13','--check','--check'],['13','--publish','--check'],['13','--publish','--publish'],['13','--unknown'],['13','--publish','--unknown'],['13','--publish']]:
         invoke(args, expected=2, contains=b'usage: bash finalize-gate.sh <PR_NUMBER>', no_network=True)
         assert not events.read_bytes(), 'usage invokes no external tools'
@@ -236,7 +242,7 @@ else: raise AssertionError(args)
     if os.name!='nt':
         assert ('GATE_TREE='+trusted.resolve().as_posix()).encode() in result.stdout
     gitbin=temp/'git-failure';gitbin.mkdir()
-    failing=gitbin/'git';failing.write_text('#!/usr/bin/env bash\nexit 23\n');failing.chmod(0o755)
+    failing=gitbin/'git';failing.write_text('#!/usr/bin/env bash\nexit 23\n',encoding='utf-8',newline='\n');failing.chmod(0o755)
     events.write_bytes(b'')
     require(run([bash,entry,'13','--check'],work,dict(env,PATH=str(gitbin)+os.pathsep+env['PATH'])),1,'WORK_TREE git tool failure', 'отказ git'.encode())
     assert not events.read_bytes(), 'WORK_TREE failure must precede network'
@@ -276,7 +282,7 @@ else: raise AssertionError(args)
     trap=temp/'trap'
     for rel in ['.claude/tools/with-timeout.sh','.claude/tools/run-python.sh','.claude/tools/publish-pr-comment.py','scripts/lib/bd-env.sh','scripts/bd-wt.sh','scripts/bd-read.sh','scripts/lib/bd-read-engine.mjs']:
         path=work/rel;path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text('echo trap >> "'+trap.as_posix()+'"\nexit 99\n');path.chmod(0o755)
+        path.write_text('echo trap >> "'+trap.as_posix()+'"\nexit 99\n',encoding='utf-8',newline='\n');path.chmod(0o755)
     invoke(['13','--check'],'defer',contains=b'GATE_RESULT=PASS');assert not trap.exists()
     body.write_bytes(valid+b'\n');invoke(['13','--publish',body]);assert output.read_bytes()==valid+b'\n';assert not trap.exists()
     snapshot=work/'beads-fixture.jsonl';snapshot.write_text(json.dumps({'id':'og-abcd','title':'Fixture','status':'open','priority':2,'issue_type':'task'})+'\n',encoding='utf-8')

@@ -1,6 +1,17 @@
 # Active Context
 
-## og-bo6 rc.5.1 — точка входа оператора (приоритет P0, 2026-11-09)
+## rc.5.2 — Windows-гейт и fail-closed guard (P0, 2026-11-10)
+
+PR #18 влит (`b04b21c`), `v4.0.0-rc.5.1` выпущен 2026-11-10 (prerelease). rc.5.2 = PR #19
+(`fix/og-5l6-windows-gate`, план `docs/plans/2026-11-10-v4.0.0-rc.5.2-windows-gate.md` v0.6,
+PLAN_READY) + PR #20 (`og-4py`, вход Beads без ручной настройки) — оба в работе, CRITICAL.
+PR #19: guard блокирует alias lookup при недоступном `--git-dir`/`GIT_DIR`/`GIT_COMMON_DIR`;
+на Windows git идёт через Git Bash той же установки Git for Windows (`git_bash_route.py`);
+commit tier — ядро из 12 шагов, остальные 22 — full и CI-джоба `windows-commit-tier`
+(ADR §3.38). Pending: Windows CI на final HEAD, QA (живой Windows оператора, AC-05 ≤ 450 с),
+Code Review, trusted `/finalize-pr` из `b04b21c`, operator merge, release.
+
+## og-bo6 rc.5.1 — точка входа оператора (влит, выпущен 2026-11-10)
 
 PR #18, ветка `fix/og-bo6-operator-guide` от `9addb79` (tag v4.0.0-rc.5), CRITICAL, план
 `docs/plans/2026-11-09-v4.0.0-rc.5.1-operator-guide.md` v0.3. Причина: с `3766036` (PR #7,

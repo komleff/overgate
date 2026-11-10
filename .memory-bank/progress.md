@@ -1,11 +1,17 @@
 # Progress
 
-## og-bo6 + og-cfx rc.5.1 — готово к финализации (2026-11-09)
+## og-5l6 + og-0pu + og-1lg п.1 rc.5.2 — реализация (2026-11-10)
 
-PR #18. Шпаргалка оператора, generic GD, GUIDE-001/002, commit tier для гейта коммита Claude
-(первые коммиты Claude в overgate прошли гейт). PLAN_READY, QA PASS, Code Review APPROVED,
-полный verify PASS. Pending: CI final HEAD, trusted finalize, operator merge, release rc.5.1,
-публикация Beads snapshot, согласованное обновление проектов.
+PR #19. Fail-closed guard при недоступном репозиторном контексте и Git Bash route на Windows;
+commit tier — ядро 12 шагов с временем шагов; джоба `windows-commit-tier` в условиях
+оператора; фикстуры D-1…D-8. ADR §3.38. `og-4py` — отдельный PR #20. Pending: Windows CI,
+QA, Code Review, finalize, merge, release rc.5.2.
+
+## og-bo6 + og-cfx rc.5.1 — влит и выпущен (2026-11-10)
+
+PR #18 влит (`b04b21c`), prerelease `v4.0.0-rc.5.1`. Шпаргалка оператора, generic GD,
+GUIDE-001/002, commit tier для гейта коммита Claude. Pending: публикация Beads snapshot,
+согласованное обновление проектов.
 
 ## WI-1 rc.4 — implementation candidate, acceptance pending
 

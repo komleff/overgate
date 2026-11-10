@@ -20,6 +20,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$ROOT/scripts/tests/lib/assert.sh"
 
 PYTHON_RUNNER="$ROOT/.claude/tools/run-python.sh"
+# D-8: обработчики читают payload из stdin. В сессии Claude stdio Python — UTF-8
+# (`.claude/settings.json` env PYTHONIOENCODING); без этого на Windows stdin декодируется
+# по ANSI code page, «Готов к merge» искажается и гейт публикации пропускал тело (код 0).
+export PYTHONIOENCODING=utf-8
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -78,6 +82,8 @@ PUB_BIN="$TMP_DIR/pub-bin"
 mkdir -p "$PUB_BIN"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$PUB_BIN/gh"
 chmod +x "$PUB_BIN/gh"
+# D-8: нативный publisher на Windows видит только gh.exe (CreateProcess), иначе — настоящий gh.
+"$PYTHON_RUNNER" "$ROOT/scripts/tests/lib/command_stub.py" "$PUB_BIN" gh || fail "заглушка gh.exe не создана"
 
 # Публикатор принимает тело только из репозитория, поэтому копия дерева — сама
 # репозиторий, и тело лежит в ней.
@@ -159,6 +165,17 @@ GUARD_MISSING_OUT="$(printf '%s' "$SAFE_PAYLOAD" | \
 assert_eq "$?" "2" "repository guard: отсутствие sibling parser блокирует fail-secure"
 assert_contains "$GUARD_MISSING_OUT" "parser package not loaded" \
   "repository guard: причина missing sibling видна"
+
+# og-5l6: маршрут git (Git Bash на Windows) грузится по явному пути на любой ОС;
+# без него guard не продолжает с неполным набором.
+GUARD_ROUTE_MISSING="$TMP_DIR/repository-guard-route-missing"
+build_tree "$GUARD_ROUTE_MISSING" current
+rm -f "$GUARD_ROUTE_MISSING/.claude/hooks/git_bash_route.py"
+GUARD_ROUTE_OUT="$(printf '%s' "$SAFE_PAYLOAD" | \
+  "$PYTHON_RUNNER" "$GUARD_ROUTE_MISSING/.claude/hooks/check-repository-mutation.py" 2>&1 >/dev/null)"
+assert_eq "$?" "2" "repository guard: отсутствие маршрута git блокирует fail-secure"
+assert_contains "$GUARD_ROUTE_OUT" "git route not loaded" \
+  "repository guard: причина отсутствия маршрута git видна"
 
 # --- 3. Гейт публикации: тот же инвариант, тот же сосед ------------------------
 

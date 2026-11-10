@@ -126,6 +126,57 @@ expect_block "env clear removes inherited Git context" "GIT_DIR='$SAFE_REPO/.git
 expect_block "env dynamic Git context" 'env GIT_DIR="$REPO/.git" sh -c "git outer"'
 expect_block "dynamic git context path" 'git -C "$REPO" outer'
 expect_block "dynamic git environment path" 'GIT_DIR="$REPO/.git" git outer'
+
+# --- og-5l6 (AC-01): явный репозиторный контекст, который git не открывает ------
+# Недоступный --git-dir/GIT_DIR/GIT_COMMON_DIR git пропускает молча: lookup alias
+# отвечал кодом 1 («нет alias»), и guard пропускал команду. Теперь — блок.
+MISSING_CTX="$GUARD_TEST_TMP/missing-repo"
+OUTSIDE_DIR="$GUARD_TEST_TMP/outside"
+mkdir -p "$OUTSIDE_DIR"
+CTX_REASON="git cannot open the explicit repository context"
+expect_block_reason "unreachable --git-dir alias lookup" "git --git-dir='$MISSING_CTX/.git' outer" "$CTX_REASON"
+expect_block_reason "unreachable --git-dir separate value" "git --git-dir '$MISSING_CTX/.git' outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_DIR alias lookup" "GIT_DIR='$MISSING_CTX/.git' git outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_DIR via env wrapper" "env GIT_DIR='$MISSING_CTX/.git' git outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_COMMON_DIR alias lookup" "GIT_COMMON_DIR='$MISSING_CTX' git -C '$ALIAS_REPO' outer" "$CTX_REASON"
+expect_block_reason "unreachable GIT_DIR shell wrapper" "GIT_DIR='$MISSING_CTX/.git' sh -c 'git outer'" "$CTX_REASON"
+# Регрессия: недоступные -C и --work-tree блокировались и раньше.
+expect_block "unreachable -C alias lookup" "git -C '$MISSING_CTX' outer"
+expect_block "unreachable --work-tree alias lookup" "git --work-tree='$MISSING_CTX' -C '$ALIAS_REPO' outer"
+# Без ложного блока: валидный контекст, builtin, -c/HOME вне репозитория.
+expect_allow "valid --git-dir safe alias" "git --git-dir='$ALIAS_REPO/.git' safe"
+expect_allow "valid GIT_DIR safe alias" "GIT_DIR='$ALIAS_REPO/.git' git safe"
+expect_allow "unreachable --git-dir builtin" "git --git-dir='$MISSING_CTX/.git' status --short"
+expect_allow "unreachable GIT_DIR builtin" "GIT_DIR='$MISSING_CTX/.git' git log -1"
+expect_allow "-c outside repository" "git -C '$OUTSIDE_DIR' -c user.name=x og-no-such-ext"
+expect_allow "HOME outside repository" "HOME='$MISSING_CTX' git -C '$OUTSIDE_DIR' og-no-such-ext"
+
+# --- og-5l6 (AC-02): alias из каждого класса источников конфигурации -------------
+# На Windows пути здесь — MSYS (`/d/...`); guard обязан видеть alias так же, как
+# реальный запуск из Git Bash. На macOS/Linux — регрессия того же поведения.
+CFG_DIR="$GUARD_TEST_TMP/config-sources"
+mkdir -p "$CFG_DIR/home" "$CFG_DIR/xdg/git"
+printf '[alias]\n\tcfgland = !gh pr merge 756 --squash\n\tcfgsafe = !git status --short\n' > "$CFG_DIR/aliases"
+cp "$CFG_DIR/aliases" "$CFG_DIR/home/.gitconfig"
+cp "$CFG_DIR/aliases" "$CFG_DIR/xdg/git/config"
+CFG_CLASSES=(
+  "GIT_CONFIG_GLOBAL|GIT_CONFIG_GLOBAL='$CFG_DIR/aliases' git"
+  "HOME|HOME='$CFG_DIR/home' git"
+  "XDG_CONFIG_HOME|XDG_CONFIG_HOME='$CFG_DIR/xdg' git"
+  "-c include.path|git -c include.path='$CFG_DIR/aliases'"
+  "GIT_CONFIG_KEY_n include.path|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0='$CFG_DIR/aliases' git"
+  "--git-dir|git --git-dir='$ALIAS_REPO/.git'"
+  "GIT_DIR|GIT_DIR='$ALIAS_REPO/.git' git"
+  "-C|git -C '$ALIAS_REPO'"
+)
+git -C "$ALIAS_REPO" config alias.cfgland '!gh pr merge 756 --squash'
+git -C "$ALIAS_REPO" config alias.cfgsafe '!git status --short'
+for entry in "${CFG_CLASSES[@]}"; do
+  class="${entry%%|*}"
+  prefix="${entry#*|}"
+  expect_block "config source $class: dangerous alias" "$prefix cfgland"
+  expect_allow "config source $class: safe alias" "$prefix cfgsafe"
+done
 PERSISTENT_ALIAS_OUT="$(payload "git land" | \
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.land \
   GIT_CONFIG_VALUE_0='!gh pr merge 756 --squash' \
@@ -425,6 +476,108 @@ PY
 rc=$?
 if [ "$rc" -eq 0 ]; then printf 'PASS Claude deny parity\n'; pass=$((pass+1))
 else printf 'FAIL Claude deny parity\n' >&2; fail=$((fail+1)); fi
+
+# --- CP-6 (AC-08): обход alias через `env` и `GIT_CONFIG` ------------------------
+# env(1) считает присваиванием любое слово `ИМЯ=значение` до команды, а не только имя-
+# идентификатор; `GIT_CONFIG` меняет только `git config`, но не разрешение alias у
+# `git <alias>`. Оба пути раньше прятали опасный alias от guard.
+PUSH_REASON="direct update of protected branch"
+# Раскрытие `land` (`!gh pr merge …`) блокирует проверка текста !alias на мутацию.
+MERGE_REASON="contains protected repository mutation"
+git -C "$ALIAS_REPO" config alias.ship 'push origin main'
+git -C "$ALIAS_REPO" config alias.envship "!env 'A%B=1' git ship"
+git -C "$ALIAS_REPO" config alias.envland "!env -- 'A%B=1' git land"
+git -C "$ALIAS_REPO" config alias.cfgship '!GIT_CONFIG=/dev/null git ship'
+git -C "$ALIAS_REPO" config alias.cfgouter '!GIT_CONFIG=/dev/null git outer'
+EMPTY_CFG="$GUARD_TEST_TMP/empty.cfg"
+: > "$EMPTY_CFG"
+# Опасный alias только в файле GIT_CONFIG: реальный `git cfgonly` его не видит, но
+# прежний lookup с GIT_CONFIG находил — блок сохраняется (только ужесточение).
+ONLY_CFG="$GUARD_TEST_TMP/only.cfg"
+printf '[alias]\n\tcfgonly = push origin main\n' > "$ONLY_CFG"
+AR="git -C '$ALIAS_REPO'"
+# (а) env(1): присваивание с неидентификаторным именем.
+for target in ship land; do
+  reason="$PUSH_REASON"; [ "$target" = land ] && reason="$MERGE_REASON"
+  expect_block_reason "env non-identifier assignment $target" "env 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env BASH_FUNC assignment $target" "env 'BASH_FUNC_x%%=() { :; }' $AR $target" "$reason"
+  expect_block_reason "env -- assignment $target" "env -- 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env -i assignment $target" "env -i 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env -u NAME assignment $target" "env -u FOO 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env -S assignment $target" "env -S \"A%B=1 $AR $target\"" "$reason"
+  expect_block_reason "env -- after -i assignment $target" "env -i -- 'A%B=1' 'C-D=2' $AR $target" "$reason"
+  expect_block_reason "sh -c env assignment $target" "sh -c \"env 'A%B=1' $AR $target\"" "$reason"
+  expect_block_reason "sh -c env -S assignment $target" "sh -c \"env -S \\\"A%B=1 $AR $target\\\"\"" "$reason"
+  expect_block_reason "env assignment wraps sh -c $target" "env 'A%B=1' sh -c \"$AR $target\"" "$reason"
+  expect_block_reason "nested env assignment $target" "env FOO=1 env 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "bash -c sh -c env assignment $target" "bash -c \"sh -c \\\"env A%B=1 $AR $target\\\"\"" "$reason"
+done
+expect_block_reason "shell alias env assignment ship" "$AR envship" "$PUSH_REASON"
+expect_block_reason "shell alias env -- assignment land" "$AR envland" "$MERGE_REASON"
+# (б) GIT_CONFIG: lookup по реальной семантике (без GIT_CONFIG) и в прежнем env.
+for cfg in /dev/null "$EMPTY_CFG"; do
+  expect_block_reason "GIT_CONFIG=$cfg ship" "GIT_CONFIG='$cfg' $AR ship" "$PUSH_REASON"
+  expect_block_reason "GIT_CONFIG=$cfg land" "GIT_CONFIG='$cfg' $AR land" "$MERGE_REASON"
+  expect_block_reason "env GIT_CONFIG=$cfg ship" "env GIT_CONFIG='$cfg' $AR ship" "$PUSH_REASON"
+  expect_block_reason "GIT_CONFIG=$cfg sh -c ship" "GIT_CONFIG='$cfg' sh -c \"$AR ship\"" "$PUSH_REASON"
+  expect_block_reason "GIT_CONFIG=$cfg nested shell alias" "GIT_CONFIG='$cfg' $AR outer" "$MERGE_REASON"
+done
+expect_block_reason "GIT_CONFIG inside shell alias ship" "$AR cfgship" "$PUSH_REASON"
+expect_block_reason "GIT_CONFIG inside shell alias nested" "$AR cfgouter" "$MERGE_REASON"
+# Регрессии: неразбираемое имя присваивания env и неизвестная опция — block.
+expect_block_reason "env empty assignment name" "env '=x' $AR safe" "env assignment with empty name"
+expect_block_reason "env dynamic assignment name" "env \"\$N=1\" $AR safe" "dynamic env assignment name"
+expect_block_reason "env dynamic -S assignment name" "env -S '\${N}=1 git status'" "dynamic env split-string"
+expect_block_reason "env leading dash name before --" "env -A=1 $AR safe" "unknown env option"
+expect_block_reason "env unknown option -P" "env -P /usr/bin $AR ship" "unknown env option"
+expect_block "GIT_CONFIG-only dangerous alias" "GIT_CONFIG='$ONLY_CFG' $AR cfgonly"
+# Голый shell-префикс без env — команда `A%B=1`, не присваивание: поведение прежнее.
+expect_allow "bare non-identifier prefix unchanged" "A%B=1 $AR ship"
+# Без ложного блока: безопасный alias и обычные команды.
+expect_allow "env non-identifier assignment safe alias" "env 'A%B=1' $AR safe"
+expect_allow "env -- assignment safe alias" "env -- 'A%B=1' $AR safe"
+expect_allow "env -i assignment builtin" "env -i 'A%B=1' git status --short"
+expect_allow "env -S assignment safe alias" "env -S \"A%B=1 $AR safe\""
+expect_allow "env assignment only" "env 'A%B=1'"
+expect_allow "GIT_CONFIG safe alias" "GIT_CONFIG=/dev/null $AR safe"
+expect_allow "GIT_CONFIG builtin" "GIT_CONFIG='$EMPTY_CFG' $AR status --short"
+expect_allow "GIT_CONFIG git config read" "GIT_CONFIG='$ONLY_CFG' git config --get alias.cfgonly"
+
+# --- CP-4 (AC-02 edge): вывод git — строгий UTF-8, не ANSI code page ----------------
+# Кириллица и пробел в пути проекта и в имени ветки не дают ложного блока; невалидный
+# UTF-8 в выводе git — блок. На macOS/Linux ANSI-условие Windows задаётся локалью C без
+# UTF-8 mode и без принуждения локали (на Windows оно действует само).
+CYR_REPO="$GUARD_TEST_TMP/репо с пробелом"
+git init -q "$CYR_REPO"
+git -C "$CYR_REPO" symbolic-ref HEAD refs/heads/ветка-проверки
+git -C "$CYR_REPO" config alias.safe '!git status --short'
+git -C "$CYR_REPO" config alias.ship 'push origin main'
+# Невалидный UTF-8 пишется байтами прямо в файлы git: argv нативного git.exe на Windows
+# перекодируется и такие байты не доносит.
+printf '[alias]\n\tbadutf8 = st\377\n' >> "$CYR_REPO/.git/config"
+ansi_hook() { # ansi_hook <имя> <ожидаемый код> <команда>
+  local name="$1" expected="$2" command="$3" out rc
+  out="$(cd "$CYR_REPO" && payload "$command" | env -u PYTHONIOENCODING LC_ALL=C LANG=C \
+    PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 "$RUNNER" "$HOOK" 2>&1)"; rc=$?
+  if [ "$rc" -eq "$expected" ]; then printf 'PASS ANSI locale: %s\n' "$name"; pass=$((pass+1))
+  else printf 'FAIL ANSI locale: %s (rc=%s, ожидался %s, out=%s)\n' "$name" "$rc" "$expected" "$out" >&2; fail=$((fail+1)); fi
+}
+ansi_hook "push from Cyrillic branch" 0 "git push"
+ansi_hook "safe shell alias in Cyrillic path" 0 "git safe"
+# Путь в argv: на Linux локаль C делает кодировку файловой системы Python ASCII, и такой
+# argv не кодируется вовсе — это не условие Windows (там argv UTF-16), кейс без локали C.
+expect_allow "safe shell alias via -C Cyrillic path" "git -C '$CYR_REPO' safe"
+ansi_hook "dangerous alias in Cyrillic path" 2 "git ship"
+ansi_hook "invalid UTF-8 alias value" 2 "git badutf8"
+printf 'ref: refs/heads/b\377\n' > "$CYR_REPO/.git/HEAD"
+ansi_hook "invalid UTF-8 current branch" 2 "git push"
+
+# og-5l6 (AC-02): маршрут `nt` и выбор Git Bash — модульный тест того же шага.
+if "$RUNNER" "$ROOT/scripts/tests/guard-git-bash-route.test.py"; then
+  printf 'PASS guard git route (nt) unit tests\n'; pass=$((pass+1))
+else
+  printf 'FAIL guard git route (nt) unit tests\n' >&2; fail=$((fail+1))
+fi
 
 printf 'repository mutation guard: %d pass, %d fail\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

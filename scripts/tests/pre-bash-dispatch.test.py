@@ -74,7 +74,10 @@ def run(command_text: str, payload_command: str, cwd: Path | str, project_dir: s
         env["CLAUDE_PROJECT_DIR"] = project_dir
     if extra_env:
         env.update(extra_env)
-    payload = json.dumps({"tool_input": {"command": payload_command}, "cwd": str(cwd)})
+    # Claude Code передаёт payload без \u-экранирования (JSON.stringify): диспетчер сверяет
+    # команду восстановления с корнем буквально, и с кириллицей в пути экранирование
+    # фикстуры давало бы ложное расхождение.
+    payload = json.dumps({"tool_input": {"command": payload_command}, "cwd": str(cwd)}, ensure_ascii=False)
     proc = subprocess.run([BASH, "-c", command_text], input=payload, cwd=str(cwd), env=env,
                           capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=timeout)
