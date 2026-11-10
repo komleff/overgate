@@ -1,5 +1,14 @@
 # Progress
 
+## og-4py rc.5.2 — обычный вход в Git для Beads, реализация (2026-11-10)
+
+PR #20, ветка `fix/og-4py-beads-credentials`, план v0.5 PLAN_READY. Сетевые вызовы Beads
+(legacy sync, reader, bd-wt, managed publisher, activation, upgrade, installer) получают
+перенос `credential.*`/`user.*` из пользовательского config; прочее — полная изоляция
+(ADR §3.39). RED → GREEN тестами `bd-network-git`, preflight, B-09 chains. Pending: QA
+(живые B-01/B-01a на Mac, B-08 на Windows через диагностический режим), Code Review, CI,
+finalize, merge, release rc.5.2 вместе с PR #19.
+
 ## og-bo6 + og-cfx rc.5.1 — готово к финализации (2026-11-09)
 
 PR #18. Шпаргалка оператора, generic GD, GUIDE-001/002, commit tier для гейта коммита Claude

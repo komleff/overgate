@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { canonical } from './lib/bd-managed-contract.mjs';
 import { qualifyBinary } from './lib/bd-managed-cli.mjs';
-import { cleanGitEnvironment, cleanBeadsEnvironment } from './lib/bd-git-environment.mjs';
+import { cleanGitEnvironment, cleanBeadsEnvironment, networkGitEnvironment, credentialHelpersFor, residualHint, exitOnNetworkSignal } from './lib/bd-git-environment.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 function fileSha256(name) {
@@ -36,6 +36,17 @@ function git(cwd, args, { encoding = 'utf8', input } = {}) {
 function optionalGit(cwd, args) {
   try { return git(cwd, args).trim(); } catch (error) { if (error.status === 1) return null; throw error; }
 }
+// Сетевой вызов с обычным входом пользователя (og-4py, ADR §3.39).
+function networkGit(cwd, args) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024,
+      env: networkGitEnvironment(cwd), stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (error) {
+    exitOnNetworkSignal(error);
+    if (typeof error.status === 'number') error.message += residualHint(cwd);
+    throw error;
+  }
+}
 function inside(child, parent) {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
@@ -59,24 +70,30 @@ function localConfigValues(root, key) {
     return raw;
   } catch (error) { if (error.status === 1) return []; throw error; }
 }
+// og-4py (ADR §3.39): identity и HTTPS helper проверяются в том окружении, в котором маршрут
+// публикует (repo-local + перенесённый allowlist пользовательского config), по правилам git.
+const IDENTITY_UNAVAILABLE = 'publisher Git identity unavailable; set user.name/user.email in your Git config (global or repo-local) or explicit service author/committer identity';
 export function assertPublisherIdentityAndAuth(root, origin) {
-  const localName = localConfigValues(root, 'user.name'), localEmail = localConfigValues(root, 'user.email');
-  const localIdentity = localName.length === 1 && localName[0].trim() && localEmail.length === 1 && localEmail[0].trim();
+  const env = networkGitEnvironment(root);
+  const effective = key => {
+    try { return execFileSync('git', ['config', '--get', key], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
+    catch (error) { if (error.status === 1) return ''; throw new Error(`publisher Git config unavailable: ${key}`); }
+  };
+  const configIdentity = Boolean(effective('user.name') && effective('user.email'));
   const serviceIdentity = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']
     .every(name => typeof process.env[name] === 'string' && process.env[name].trim());
-  requireThat(localIdentity || serviceIdentity,
-    'publisher Git identity unavailable under isolated config; set repo-local user.name/user.email or explicit service author/committer identity');
+  requireThat(configIdentity || serviceIdentity, IDENTITY_UNAVAILABLE);
   for (const identity of ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT']) {
-    try { requireThat(git(root, ['var', identity]).trim(), `publisher ${identity} unavailable`); }
-    catch { throw new Error('publisher Git identity unavailable under isolated config; set repo-local user.name/user.email or explicit service author/committer identity'); }
+    try { requireThat(execFileSync('git', ['var', identity], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(), `publisher ${identity} unavailable`); }
+    catch { throw new Error(IDENTITY_UNAVAILABLE); }
   }
-  const helpers = localConfigValues(root, 'credential.helper').filter(Boolean);
   for (const destination of origin.push) {
     if (/^https:\/\//i.test(destination)) {
-      requireThat(helpers.length > 0, 'publisher HTTPS authentication unavailable under isolated config; configure a trusted repo-local credential.helper or use SSH agent origin');
+      requireThat(credentialHelpersFor(root, destination, env).length > 0,
+        'publisher HTTPS authentication unavailable: no credential.helper applies to the HTTPS push URL in your Git config; sign in for ordinary git push (for example gh auth setup-git or Git Credential Manager) or use SSH agent origin');
     } else if (/^(ssh:\/\/|[^/\s]+@[^/:\s]+:)/i.test(destination)) {
       requireThat(typeof process.env.SSH_AUTH_SOCK === 'string' && process.env.SSH_AUTH_SOCK.length > 0,
-        'publisher SSH authentication unavailable; start SSH agent or configure trusted repo-local HTTPS credential.helper');
+        'publisher SSH authentication unavailable; start SSH agent or use an HTTPS origin with your ordinary Git credential helper');
     } else requireThat(path.isAbsolute(destination) || destination.startsWith('file://'),
       'publisher push origin transport unsupported under isolated config');
   }
@@ -164,7 +181,7 @@ function sourceInventory(root) {
 function trustedMain(info) {
   requireThat(git(info.root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).trim() === 'main', `${info.label} requires exact main branch`);
   const head = git(info.root, ['rev-parse', 'HEAD']).trim();
-  const remote = git(info.root, ['ls-remote', '--exit-code', '--heads', 'origin', 'refs/heads/main']).trim();
+  const remote = networkGit(info.root, ['ls-remote', '--exit-code', '--heads', 'origin', 'refs/heads/main']).trim();
   requireThat(remote === `${head}\trefs/heads/main`, `${info.label} must be exact trusted origin/main`);
   return head;
 }

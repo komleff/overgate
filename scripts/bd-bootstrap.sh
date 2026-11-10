@@ -37,14 +37,20 @@ fi
 if [ -e "$ROOT/.beads/metadata.json" ] && { [ -e "$ROOT/.beads/embeddeddolt" ] || [ -e "$ROOT/.beads/dolt" ]; }; then
   bd_env_resolve_main_db "$ROOT" || { echo 'STOP: existing Beads database unavailable; no auto-start/overwrite.' >&2; exit 1; }
 fi
-"$ROOT/.claude/tools/run-python.sh" -I - "$ROOT" <<'PY'
+# og-4py (ADR §3.39): сетевые вызовы Python-части получают обычный вход пользователя через
+# приватный файл переноса; путь передаётся аргументом, не окружением, поэтому дочерние
+# bd-sync-*.sh его не наследуют и готовят свой. Файл удаляет EXIT-ловушка этого shell.
+bd_env_network_prepare "$ROOT" || { echo 'STOP: network Git environment unavailable (fail-closed).' >&2; exit 1; }
+"$ROOT/.claude/tools/run-python.sh" -I - "$ROOT" "$BD_ENV_NETWORK_CONFIG" <<'PY'
 import hashlib,json,os,re,shutil,stat,subprocess,sys,tempfile
 from pathlib import Path
 root=Path(sys.argv[1])
+network_config=sys.argv[2]
 def call(*args,env=None):
     r=subprocess.run([shutil.which(args[0]) or args[0],*args[1:]],capture_output=True,text=True,encoding='utf-8',env=env)
     if r.returncode:raise RuntimeError('command failed: '+' '.join(args[:4])+'; '+r.stderr.strip())
     return r.stdout
+def net(*args):return call('git',*args,env=dict(os.environ,GIT_CONFIG_GLOBAL=network_config,GIT_CONFIG_NOSYSTEM='1'))
 def bash_command():
     if os.name!='nt':return 'bash'
     candidates=[Path(p)/'bash.exe' for p in os.environ.get('PATH','').split(os.pathsep)]
@@ -142,16 +148,16 @@ def clone_recovery():
     if expected_r and not re.fullmatch(r'[0-9a-f]{40}',expected_r):
         raise RuntimeError('expected beads-backup SHA invalid')
     def remote_tip():
-        remote=call('git','ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup').strip()
+        remote=net('ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup').strip()
         match=re.fullmatch(r'([0-9a-f]{40})\s+refs/heads/beads-backup',remote)
         if not match:raise RuntimeError('frozen beads-backup SHA unavailable')
         return match[1]
     base=remote_tip()
     if expected_r and base!=expected_r:
         raise RuntimeError('frozen beads-backup SHA missing or advanced; no init')
-    if call('git','ls-remote','origin','refs/dolt/data').strip():
+    if net('ls-remote','origin','refs/dolt/data').strip():
         raise RuntimeError('unexpected Dolt remote history; no JSONL clone init')
-    call('git','fetch','-q','origin','+refs/heads/beads-backup:refs/remotes/origin/beads-backup')
+    net('fetch','-q','origin','+refs/heads/beads-backup:refs/remotes/origin/beads-backup')
     if call('git','rev-parse','refs/remotes/origin/beads-backup').strip()!=base:
         raise RuntimeError('beads-backup changed during fetch; no init')
     snapshot=call('git','show',base+':.beads/issues.jsonl')
@@ -230,7 +236,7 @@ try:
         clone_recovery();sys.exit(0)
     if not (root/'.beads/metadata.json').exists():
         # --remote '' исключает авто-Dolt origin; sandbox блокирует побочную auto-push публикацию.
-        if call('git','ls-remote','--heads','origin','beads-backup').strip() or call('git','ls-remote','origin','refs/dolt/data').strip():
+        if net('ls-remote','--heads','origin','beads-backup').strip() or net('ls-remote','origin','refs/dolt/data').strip():
             raise RuntimeError('remote Beads state exists; fresh init would create competing local state')
         prefix=fresh_prefix(root.name)
         init_args=['init','--skip-agents','--skip-hooks','--non-interactive','--remote','']
@@ -243,7 +249,7 @@ try:
         for remote in remotes():bd('dolt','remote','remove',remote['name'])
         pin_fresh_prefix(prefix)
     postcondition()
-    published=call('git','ls-remote','--heads','origin','beads-backup').strip()
+    published=net('ls-remote','--heads','origin','beads-backup').strip()
     if published:
         seen=subprocess.run(['git','config','--local','--get','beads-sync.lastSeen'],capture_output=True,text=True,encoding='utf-8')
         if seen.returncode not in (0,1) or not seen.stdout.strip():
@@ -252,7 +258,7 @@ try:
         publication=True
         call(bash_command(),'scripts/bd-sync-export.sh')
     postcondition()
-    if not call('git','ls-remote','--heads','origin','beads-backup').strip():raise RuntimeError('origin/beads-backup missing after export')
+    if not net('ls-remote','--heads','origin','beads-backup').strip():raise RuntimeError('origin/beads-backup missing after export')
     print('Beads: ready; origin/beads-backup exists')
 except (OSError,ValueError,KeyError,TypeError,RuntimeError) as error:
     print('STOP: '+str(error)+('; publication may already have occurred; inspect remote, no automatic rollback' if publication else '; snapshot not published by bootstrap'),file=sys.stderr)

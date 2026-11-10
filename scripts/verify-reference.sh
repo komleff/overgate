@@ -71,4 +71,5 @@ run bd-managed-two-clone node scripts/tests/bd-managed-two-clone.test.mjs
 run bd-publisher-guard node scripts/tests/bd-publisher-guard.test.mjs
 run bd-publisher-setup node scripts/tests/bd-publisher-setup.test.mjs
 run bd-managed-routes node scripts/tests/bd-managed-routes.test.mjs
+run bd-network-git node scripts/tests/bd-network-git.test.mjs
 printf 'PASS verify-reference; full logs: %s\n' "$LOG_DIR"

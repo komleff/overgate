@@ -190,10 +190,15 @@ preservation; новый clone не переносит task state. Подроб�
 После merge fresh install PR оператор запускает `bash scripts/bd-activate.sh` из
 чистого trusted `main`, указывая publisher и peer checkout, фактический project prefix,
 qualified `bd`, UUID actor, название реальной задачи и новый private `--work-dir`.
-До запуска в publisher repo-local Git config должны быть `user.name` и `user.email`
-(либо явно заданные service author/committer). Для HTTPS нужен доверенный repo-local
-`credential.helper`; для SSH — доступный `SSH_AUTH_SOCK`. Унаследованные global/system
-Git config и `GIT_CONFIG_*` не используются для идентичности remote и публикации.
+Отдельно настраивать Git для Beads не нужно: если обычный `git push` в проект у вас
+работает, синхронизация и публикация задач используют тот же вход (osxkeychain,
+`gh auth setup-git`, Git Credential Manager) и ваши `user.name`/`user.email` из Git config
+(либо явно заданные service author/committer). Из вашего global/system Git config маршрут
+берёт только `credential.*`, `user.name` и `user.email`; адрес origin — только из repo-local
+config, а `url.*.insteadOf`, alias, hooks и `GIT_CONFIG_*` вызывающего не действуют. Для SSH
+origin нужен доступный `SSH_AUTH_SOCK`. Если вход не найден, preflight останавливается с
+`HTTPS authentication unavailable` до записи задач. Проверка без вывода секретов:
+`bash scripts/lib/bd-env.sh --diagnose ls-remote` (ключи и их источник, без значений).
 Секреты не записывайте в project config, очередь или PR evidence.
 
 Если preflight остановился до checkpoint, устраните причину и начните новый запуск:

@@ -400,6 +400,84 @@ overgate вызывает этот уровень. Полный набор бе�
 - *Выбор тестов по изменённым файлам.* Отклонено: недетерминированная полнота и сложность
   без доказанной пользы.
 
+### 3.39 Обычный вход пользователя в Git для сетевых вызовов Beads (2026-11-10)
+
+**Статус:** proposed для rc.5.2 (`og-4py`, PR #20). Дополняет §3.34: снимает требование
+repo-local `credential.helper` и repo-local identity для publisher, legacy sync и installer.
+Полная изоляция Git config остаётся поведением по умолчанию.
+
+**Контекст.** На Mac оператора `bash scripts/bd-sync-export.sh` падал с «could not read
+Username for https://github.com: terminal prompts disabled», хотя обычный `git push` из того
+же checkout проходил: маршрут обнулял global/system config, а вместе с ним osxkeychain
+(встроенный config Apple Git, scope `unknown`), `gh auth setup-git` и GCM (system config Git
+for Windows). Оператор 2026-11-10: ручная настройка входа ради синхронизации задач — дефект
+автоматического пайплайна для коллег.
+
+**Решение.**
+
+1. `cleanGitEnvironment` (mjs), `bd_env_sanitize_git` (shell) и `git_environment` (python)
+   остаются чистой изоляцией для всех Git-вызовов.
+2. Только сетевые вызовы (`ls-remote`, `fetch`, `push`) и `commit-tree` снимка получают
+   перенос allowlist: `credential.*` (включая `credential.<url>.*`), `user.name`, `user.email`.
+   Функции: `networkGitEnvironment(root)` в `scripts/lib/bd-git-environment.mjs`,
+   `bd_env_network_git <root>` в `scripts/lib/bd-env.sh`, `network_git_environment(root)` и
+   `net_git` в `scripts/install-overgate.py` (их используют activation, upgrade и installer).
+3. Источник читается один раз на процесс маршрута, лениво, из корня репозитория:
+   `git config --show-scope --includes -z --get-regexp '<allowlist>'` без флага scope и без
+   caller `GIT_*`, включая унаследованный `GIT_CONFIG_NOSYSTEM` родительского маршрута.
+   Переносятся записи scope `system`, `global`, `unknown` в порядке вывода; `local`, `worktree`,
+   `command` отбрасываются (local git читает сам). Учитываются `include` и `includeIf`
+   (`gitdir`, `hasconfig:remote.*.url`). Код возврата не из {0, 1}, Git без `--show-scope`
+   (< 2.26) и некорректный фрейминг — fail-closed.
+4. Записи пишутся в приватный временный файл (каталог 0700, файл 0600, вне repo) по одной
+   секции на запись в порядке вывода reader (экранирование `\`, `"`, `\n`, `\t`, `\b`; ключ
+   без значения — без `=`), затем read-back `git config --file <tmp> -z --list` сверяет
+   перенос с записями reader, расхождение — fail-closed. `git config --add` не используется:
+   он дописывает ключ в существующую одноимённую секцию и меняет порядок списка helper.
+   Файл подключается как `GIT_CONFIG_GLOBAL`;
+   `GIT_CONFIG_NOSYSTEM=1` остаётся. Однозначные ключи: побеждает local, как у обычного git;
+   список `credential.helper`: порядок system → global/unknown → local и сброс пустым `helper =`.
+   `GIT_CONFIG_COUNT` не используется. На Windows путь — native-форма, ошибка — fail-closed.
+5. Жизненный цикл: shell — цепочка к существующим ловушкам EXIT/INT/TERM; в subshell и
+   pipeline файл живёт не дольше вызова; перед `exec` файл удаляется и в exec-окружение не
+   передаётся. Node — обработчики exit/SIGINT/SIGTERM с кодом сигнала; Python — atexit и
+   SIGTERM → `SystemExit`. Значения allowlist и residual не попадают в ошибки и логи.
+6. Preflight publisher (`bd-publisher-setup.mjs`) и activation (`bd-activate.py`): effective
+   `user.name`/`user.email` (или service identity) и непустой итоговый список helper для
+   каждого HTTPS push URL по правилам git (scheme, host с `*`, port, path-prefix, userinfo,
+   порядок, сброс). Одна спецификация для mjs и python; оракул теста — `git credential fill`
+   с fixture-helper. Без helper — прежнее `HTTPS authentication unavailable`.
+7. Seam тестов — переменная `OVERGATE_GIT_USER_CONFIG_FILE` (файл в формате вывода reader;
+   0 записей — валидный пустой источник). Диагностика без значений: `bash scripts/lib/bd-env.sh
+   --diagnose [ls-remote|push-dry-run]`, `node scripts/lib/bd-git-environment.mjs --diagnose
+   --probe …`, `python3 scripts/install-overgate.py network-diagnose --probe …`.
+
+**Граница доверия.** Пользовательский config (HOME/XDG, system, встроенный Apple Git) доверен
+**только** для allowlist. `!cmd` helper исполняется в trusted route так же, как при обычном
+`git push` пользователя; `GIT_TERMINAL_PROMPT=0` сохраняется, терминальный запрос пароля
+невозможен. `commit-tree` снимка получает тот же файл, включая `credential.*`, — безвредно:
+локальная запись объекта credentials не вызывает. `url.*.insteadOf`/`pushInsteadOf`,
+`alias.*`, `core.hooksPath`, `core.sshCommand` и прочие ключи вне allowlist не переносятся;
+URL origin и identity remote — только из repo-local config. Seam по силе равен контролю caller
+над HOME; отдельного тестового режима нет.
+
+**Residual (вне allowlist, отдельные задачи Beads).** `http.*` (proxy, CA,
+`sslBackend=schannel` в system config Git for Windows), global `url.<ssh>.insteadOf`,
+`core.sshCommand`, `author.*`/`committer.*`, обязательный `commit.gpgSign`. Если обычный push
+пользователя зависит от них, сетевой вызов маршрута падает с подсказкой, называющей только
+имена ключей и scope. Это ограничение охвата аудитории раскрывается оператору в PR.
+
+**Отклонённые варианты.**
+
+- *Ручной `git config --local credential.helper`.* Отклонено оператором: ручной шаг.
+- *Автоматически записывать helper/identity в repo-local config при setup.* Отклонено: снимок
+  устаревает при смене входа, меняет config пользователя без запроса, не покрывает legacy
+  route и installer.
+- *Снять изоляцию global/system целиком.* Отклонено: возвращает `insteadOf`, alias и hooks.
+- *`GIT_CONFIG_COUNT`.* Отклонено: command scope перекрывает local.
+- *Читать `git config --global`/`--system`.* Отклонено: теряет встроенный config Apple Git
+  (osxkeychain) и `includeIf hasconfig`/`gitdir` (проба Reviewer на Apple Git 2.50.1).
+
 ## 4. Ключевые решения
 
 ### 3.1 Пять ролей агентов
