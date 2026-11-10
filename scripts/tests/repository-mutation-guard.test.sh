@@ -498,7 +498,9 @@ ansi_hook() { # ansi_hook <имя> <ожидаемый код> <команда>
 }
 ansi_hook "push from Cyrillic branch" 0 "git push"
 ansi_hook "safe shell alias in Cyrillic path" 0 "git safe"
-ansi_hook "safe shell alias via -C Cyrillic path" 0 "git -C '$CYR_REPO' safe"
+# Путь в argv: на Linux локаль C делает кодировку файловой системы Python ASCII, и такой
+# argv не кодируется вовсе — это не условие Windows (там argv UTF-16), кейс без локали C.
+expect_allow "safe shell alias via -C Cyrillic path" "git -C '$CYR_REPO' safe"
 ansi_hook "dangerous alias in Cyrillic path" 2 "git ship"
 ansi_hook "invalid UTF-8 alias value" 2 "git badutf8"
 printf 'ref: refs/heads/b\377\n' > "$CYR_REPO/.git/HEAD"

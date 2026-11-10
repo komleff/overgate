@@ -449,7 +449,10 @@ class PublisherTest(unittest.TestCase):
             env = dict(os.environ)
         env.pop("FINALIZE_PR_TOKEN", None)
         env.pop("PYTHONIOENCODING", None)
-        if os.name != "nt":
+        if sys.platform == "darwin":
+            # macOS: кодировка ФС Python всегда UTF-8, а локаль C делает кодировку текста
+            # ASCII — ровно условие Windows (ANSI code page ≠ UTF-8). На Linux локаль C
+            # меняет и кодировку ФС, это уже другое окружение: там кейс идёт в штатной локали.
             env.update(LC_ALL="C", LANG="C", PYTHONCOERCECLOCALE="0", PYTHONUTF8="0")
         result = subprocess.run([sys.executable, str(TOOL), TEST_PR, str(body)], cwd=repo, env=env,
                                 capture_output=True)
