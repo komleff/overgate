@@ -29,6 +29,17 @@ Hotfix защиты репозитория и гейта коммита на Win
 ### Fixed
 - Тесты на Windows: Git Bash вместо WSL-заглушки, UTF-8 вывод, обёртки вместо symlink,
   заглушка `gh.exe` для нативного Python, PATH фикстур с git/jq, пути с апострофом (`og-0pu`).
+- `publish-pr-comment.py` и guard читают вывод git строгим UTF-8: на Windows репозиторий с
+  кириллицей и пробелом в пути больше не ломает publisher и не даёт ложного блока guard;
+  невалидный UTF-8 — отказ/блок, как прежде.
+
+### Known limitations
+- Windows: поддерживается только Git Bash из Git for Windows (WSL, Cygwin, отдельный MSYS2 —
+  блок guard).
+- Windows: апостроф в пути проекта или TEMP (`C:\Users\O'Brien\…`) — MSYS не преобразует такой
+  argv-путь для нативных программ, часть скриптов получит `/d/...` (`og-gcf`). Guard не ослаблен.
+- Windows: сигналы и группы процессов `with-timeout.sh` автоматическим тестом не покрыты
+  (POSIX-секции теста там явно пропускаются).
 
 ## [v4.0.0-rc.5.1] — 2026-11-10 (og-bo6)
 
