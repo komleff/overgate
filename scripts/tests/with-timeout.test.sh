@@ -55,7 +55,10 @@ run_and_capture() {
 # Windows фактически пропущенный набор обязан совпасть с ней (новый кейс не уходит в SKIP
 # молча); на Linux/macOS пропуск запрещён. Код 124 при истечении предела на Windows
 # проверяется без SKIP (выше и в with-timeout-transparency).
-POSIX_ONLY_SECTIONS="fallback-cancellation fallback-signal-harness native-timeout-double native-gtimeout"
+POSIX_ONLY_SECTIONS="fallback-signal-exit-code fallback-cancellation fallback-signal-harness native-timeout-double native-gtimeout"
+# Сообщения помощника по-русски: stdio Python — UTF-8, как в сессии Claude
+# (`.claude/settings.json` env PYTHONIOENCODING), а не ANSI code page Windows.
+export PYTHONIOENCODING=utf-8
 case "${OSTYPE-}" in
   msys*|cygwin*) NATIVE_WINDOWS=1 ;;
   *) NATIVE_WINDOWS=0 ;;
@@ -265,11 +268,15 @@ assert_eq "$ARGS_RC" "0" "fallback успешно передаёт аргуме�
 assert_eq "$(cat "$ARGS_OUTPUT")" $'<argument with spaces>\n<>\n<--flag>' \
   "fallback сохраняет пробелы, пустой аргумент и ведущий дефис"
 
+# Смерть команды от сигнала видна нативному Python fallback только на POSIX: на Windows
+# процесс MSYS, убитый TERM, отдаёт нативному родителю код без сигнала (CP-2).
+if posix_section fallback-signal-exit-code; then
 SIGNAL_OUTPUT="$TMP_DIR/signal.out"
 PATH="$FALLBACK_BIN" run_and_capture "$SIGNAL_OUTPUT" "$HELPER" 2 /bin/sh -c \
   'kill -TERM "$$"'
 SIGNAL_RC=$?
 assert_eq "$SIGNAL_RC" "143" "fallback переводит SIGTERM команды в shell-код 143"
+fi
 
 FALLBACK_RESERVED_OUTPUT="$TMP_DIR/fallback-reserved.out"
 PATH="$FALLBACK_BIN" run_and_capture "$FALLBACK_RESERVED_OUTPUT" "$HELPER" 2 \

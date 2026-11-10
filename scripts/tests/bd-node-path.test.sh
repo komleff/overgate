@@ -13,6 +13,9 @@ mkdir -p "$PROJECT/scripts/lib" "$TEMP/bin"
 project_git() { ( cd "$PROJECT" && git "$@" ); }
 git init -q --bare "$REMOTE"
 project_git init -q -b main
+# Фикстура проверяет пути модулей Node, а не концы строк: глобальный core.autocrlf=true
+# runner Windows делал проверку «tooling не изменён» зависимой от гонки stat (exit 6).
+project_git config core.autocrlf false
 project_git config user.name fixture
 project_git config user.email fixture@example.invalid
 project_git remote add origin "$REMOTE"

@@ -486,7 +486,9 @@ git init -q "$CYR_REPO"
 git -C "$CYR_REPO" symbolic-ref HEAD refs/heads/ветка-проверки
 git -C "$CYR_REPO" config alias.safe '!git status --short'
 git -C "$CYR_REPO" config alias.ship 'push origin main'
-git -C "$CYR_REPO" config alias.badutf8 "$(printf 'st\377')"
+# Невалидный UTF-8 пишется байтами прямо в файлы git: argv нативного git.exe на Windows
+# перекодируется и такие байты не доносит.
+printf '[alias]\n\tbadutf8 = st\377\n' >> "$CYR_REPO/.git/config"
 ansi_hook() { # ansi_hook <имя> <ожидаемый код> <команда>
   local name="$1" expected="$2" command="$3" out rc
   out="$(cd "$CYR_REPO" && payload "$command" | env -u PYTHONIOENCODING LC_ALL=C LANG=C \
@@ -499,7 +501,7 @@ ansi_hook "safe shell alias in Cyrillic path" 0 "git safe"
 ansi_hook "safe shell alias via -C Cyrillic path" 0 "git -C '$CYR_REPO' safe"
 ansi_hook "dangerous alias in Cyrillic path" 2 "git ship"
 ansi_hook "invalid UTF-8 alias value" 2 "git badutf8"
-git -C "$CYR_REPO" symbolic-ref HEAD "refs/heads/$(printf 'b\377')"
+printf 'ref: refs/heads/b\377\n' > "$CYR_REPO/.git/HEAD"
 ansi_hook "invalid UTF-8 current branch" 2 "git push"
 
 # og-5l6 (AC-02): маршрут `nt` и выбор Git Bash — модульный тест того же шага.
