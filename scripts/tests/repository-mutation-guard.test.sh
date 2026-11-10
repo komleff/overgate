@@ -477,6 +477,31 @@ rc=$?
 if [ "$rc" -eq 0 ]; then printf 'PASS Claude deny parity\n'; pass=$((pass+1))
 else printf 'FAIL Claude deny parity\n' >&2; fail=$((fail+1)); fi
 
+# --- CP-4 (AC-02 edge): вывод git — строгий UTF-8, не ANSI code page ----------------
+# Кириллица и пробел в пути проекта и в имени ветки не дают ложного блока; невалидный
+# UTF-8 в выводе git — блок. На macOS/Linux ANSI-условие Windows задаётся локалью C без
+# UTF-8 mode и без принуждения локали (на Windows оно действует само).
+CYR_REPO="$GUARD_TEST_TMP/репо с пробелом"
+git init -q "$CYR_REPO"
+git -C "$CYR_REPO" symbolic-ref HEAD refs/heads/ветка-проверки
+git -C "$CYR_REPO" config alias.safe '!git status --short'
+git -C "$CYR_REPO" config alias.ship 'push origin main'
+git -C "$CYR_REPO" config alias.badutf8 "$(printf 'st\377')"
+ansi_hook() { # ansi_hook <имя> <ожидаемый код> <команда>
+  local name="$1" expected="$2" command="$3" out rc
+  out="$(cd "$CYR_REPO" && payload "$command" | env -u PYTHONIOENCODING LC_ALL=C LANG=C \
+    PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 "$RUNNER" "$HOOK" 2>&1)"; rc=$?
+  if [ "$rc" -eq "$expected" ]; then printf 'PASS ANSI locale: %s\n' "$name"; pass=$((pass+1))
+  else printf 'FAIL ANSI locale: %s (rc=%s, ожидался %s, out=%s)\n' "$name" "$rc" "$expected" "$out" >&2; fail=$((fail+1)); fi
+}
+ansi_hook "push from Cyrillic branch" 0 "git push"
+ansi_hook "safe shell alias in Cyrillic path" 0 "git safe"
+ansi_hook "safe shell alias via -C Cyrillic path" 0 "git -C '$CYR_REPO' safe"
+ansi_hook "dangerous alias in Cyrillic path" 2 "git ship"
+ansi_hook "invalid UTF-8 alias value" 2 "git badutf8"
+git -C "$CYR_REPO" symbolic-ref HEAD "refs/heads/$(printf 'b\377')"
+ansi_hook "invalid UTF-8 current branch" 2 "git push"
+
 # og-5l6 (AC-02): маршрут `nt` и выбор Git Bash — модульный тест того же шага.
 if "$RUNNER" "$ROOT/scripts/tests/guard-git-bash-route.test.py"; then
   printf 'PASS guard git route (nt) unit tests\n'; pass=$((pass+1))

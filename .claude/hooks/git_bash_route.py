@@ -181,13 +181,17 @@ def run_git(
     Ошибка выбора bash или запуска — `RouteError`; код выхода git возвращается
     вызывающему (lookup alias трактует 1 как «нет alias», прочее — блок).
     """
+    # CP-4: вывод git — строгий UTF-8 (не ANSI code page Windows); кириллица в пути
+    # проекта не даёт ложного блока, невалидный UTF-8 — RouteError, guard блокирует.
     if os_name() != "nt":
         try:
             return _launch(
                 ["git", *argv], check=False, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
-                errors="surrogateescape", timeout=POSIX_TIMEOUT, env=dict(env), cwd=cwd,
+                errors="strict", timeout=POSIX_TIMEOUT, env=dict(env), cwd=cwd,
             )
+        except UnicodeDecodeError as exc:
+            raise RouteError(f"git output is not valid UTF-8: {exc}") from exc
         except (OSError, subprocess.SubprocessError) as exc:
             raise RouteError(f"git did not run: {exc}") from exc
     bash = _hook_bash()
@@ -195,9 +199,11 @@ def run_git(
         proc = _launch(
             [bash, "-s"], input=bash_script(), check=False, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
-            errors="surrogateescape", timeout=NT_TIMEOUT,
+            errors="strict", timeout=NT_TIMEOUT,
             env=bash_environment(argv, env), cwd=cwd,
         )
+    except UnicodeDecodeError as exc:
+        raise RouteError(f"git output is not valid UTF-8: {exc}") from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise RouteError(f"Git Bash {bash} did not run git: {exc}") from exc
     if proc.returncode == EXIT_NOT_MSYS:

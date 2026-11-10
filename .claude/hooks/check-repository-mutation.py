@@ -232,9 +232,15 @@ def _current_branch() -> str | None:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            # CP-4: вывод git — строгий UTF-8, а не ANSI code page Windows: кириллица в
+            # имени ветки не даёт ложного блока, невалидный UTF-8 — блок.
             text=True,
+            encoding="utf-8",
+            errors="strict",
             timeout=2,
         )
+    except UnicodeDecodeError as exc:
+        raise GuardError("current branch name from git is not valid UTF-8") from exc
     except (OSError, subprocess.SubprocessError):
         return None
     return proc.stdout.strip() if proc.returncode == 0 else None
