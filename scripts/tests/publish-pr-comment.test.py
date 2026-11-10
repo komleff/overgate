@@ -315,6 +315,20 @@ class PublisherTest(unittest.TestCase):
 
         self.assertFalse(self.capture_body.exists())
 
+    def test_ctrl_z_inside_body_is_rejected_not_truncated(self):
+        """CP-5: 0x1A — запрещённый C0-байт; отказ, а не публикация головы до него.
+
+        В текстовом режиме CRT Windows чтение обрывалось на 0x1A: проверка видела только
+        безобидную голову, и в gh уходило усечённое тело. Правила валидации не меняются.
+        """
+        tool = self.load_tool()
+        self.body_path.write_bytes("голова отчёта\n".encode() + b"\x1a" + "хвост\n".encode())
+
+        with self.gh_environment(), self.assertRaises(tool.PublishError):
+            tool.publish_comment(TEST_PR, str(self.body_path))
+
+        self.assertFalse(self.capture_body.exists())
+
     def test_allowed_control_bytes_reach_gh_unchanged(self):
         """Ломается, если фильтр C0 сузится и закроет табуляцию или возврат каретки.
 
