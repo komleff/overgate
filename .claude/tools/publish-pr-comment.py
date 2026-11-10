@@ -97,10 +97,16 @@ def _repository_root() -> str:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            # Вывод git — UTF-8 независимо от ANSI code page Windows (CP-1, AC-07):
+            # иначе путь с кириллицей падал или искажался, и publisher отказывал.
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
     except OSError as exc:
         raise PublishError("не удалось запустить git для определения корня") from exc
+    except UnicodeDecodeError as exc:
+        raise PublishError("корень репозитория от git не является строгим UTF-8") from exc
     if result.returncode != 0 or not result.stdout.strip():
         raise PublishError("текущая директория не принадлежит git-репозиторию")
     return os.path.realpath(result.stdout.strip())

@@ -432,6 +432,40 @@ class PublisherTest(unittest.TestCase):
         self.assertEqual(result, 37)
         self.assertEqual(self.capture_body.read_bytes(), self.body_path.read_bytes())
 
+    def test_repository_path_with_cyrillic_and_space_publishes(self):
+        """AC-07: ломается, если вывод git декодируется по ANSI code page, а не UTF-8.
+
+        Publisher запускается отдельным процессом в репозитории `репо с пробелом`.
+        На Windows действует ANSI code page (cp1252/cp1251); на macOS/Linux то же
+        условие задаётся локалью C без UTF-8 mode и без принуждения локали.
+        """
+        repo = self.sandbox / "репо с пробелом"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        body = repo / "review.md"
+        body.write_bytes("нейтральный отчёт\n".encode())
+        with self.gh_environment():
+            env = dict(os.environ)
+        env.pop("FINALIZE_PR_TOKEN", None)
+        env.pop("PYTHONIOENCODING", None)
+        if os.name != "nt":
+            env.update(LC_ALL="C", LANG="C", PYTHONCOERCECLOCALE="0", PYTHONUTF8="0")
+        result = subprocess.run([sys.executable, str(TOOL), TEST_PR, str(body)], cwd=repo, env=env,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", "replace"))
+        self.assertEqual(self.capture_body.read_bytes(), body.read_bytes())
+
+    def test_non_utf8_repository_root_fails_closed(self):
+        """AC-07: невалидный UTF-8 в выводе git — отказ publisher, не публикация."""
+        tool = self.load_tool()
+        self.body_path.write_text("нейтральный отчёт\n", encoding="utf-8")
+        failure = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with self.gh_environment(), mock.patch.object(tool.subprocess, "run", side_effect=failure):
+            with self.assertRaises(tool.PublishError):
+                tool.publish_comment(TEST_PR, str(self.body_path))
+        self.assertFalse(self.capture_body.exists())
+
     def test_invalid_pr_number_is_rejected_before_gh(self):
         """Ломается, если PR argument может превратиться в опцию gh."""
         tool = self.load_tool()
