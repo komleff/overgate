@@ -16,6 +16,9 @@ Hotfix защиты репозитория и гейта коммита на Win
   `GIT_CONFIG_GLOBAL`, `HOME`, `XDG_CONFIG_HOME`, `include.path`, `GIT_CONFIG_KEY_n` видны так же,
   как при реальном запуске. **Поддерживается только Git Bash из Git for Windows**: WSL, Cygwin,
   отдельный MSYS2 или bash другой установки дают блок (ADR §3.38).
+- Окружение команды не управляет процессом Git Bash на этом маршруте: bash получает только
+  allowlist системных переменных, а окружение команды доходит до git отдельно (`env -i`);
+  `BASH_ENV`, `SHELLOPTS`/`PS4`, `BASH_FUNC_*`, `OSTYPE` больше не могут скрыть alias.
 
 ### Changed
 - Commit tier гейта коммита — ядро из 12 шагов; publisher, with-timeout, gate/merge-gate,
@@ -35,7 +38,8 @@ Hotfix защиты репозитория и гейта коммита на Win
 
 ### Known limitations
 - Windows: поддерживается только Git Bash из Git for Windows (WSL, Cygwin, отдельный MSYS2 —
-  блок guard).
+  блок guard). Shim-установки git (Scoop, Chocolatey), стоящие в PATH раньше Git for Windows,
+  тоже дают блок (fail-closed): решающий признак — `git.exe` и bash из одной установки.
 - Windows: апостроф в пути проекта или TEMP (`C:\Users\O'Brien\…`) — MSYS не преобразует такой
   argv-путь для нативных программ, часть скриптов получит `/d/...` (`og-gcf`). Guard не ослаблен.
 - Windows: сигналы и группы процессов `with-timeout.sh` автоматическим тестом не покрыты

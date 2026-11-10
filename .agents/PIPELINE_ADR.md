@@ -503,6 +503,16 @@ shell-alias, CP-4) декодируется явным строгим UTF-8, а 
 fail-closed отказ (publisher) или блок (guard). `RESTORE_FILES` диспетчера без кавычек вокруг
 корня — вне scope (Beads `og-qr2`).
 
+**Изоляция окружения bash на маршруте `nt` (Code Review PR #19, BLOCKER 1).** Процесс Git Bash
+получает только allowlist системных переменных (PATH, SYSTEMROOT, SYSTEMDRIVE, WINDIR, COMSPEC,
+PATHEXT, TEMP, TMP, HOME, USERPROFILE, MSYSTEM) и транспорт argv и окружения команды; запускается с
+`--noprofile --norc -s`. Окружение команды применяется только к git: `exec /usr/bin/env -i <пары>
+PATH="$PATH" git "$@"`. Переменные стартовой обработки bash (`BASH_ENV`, `ENV`, `SHELLOPTS`,
+`BASHOPTS`, `PS4`, `BASH_XTRACEFD`, `POSIXLY_CORRECT`, `BASH_COMPAT`, `OSTYPE`, `BASH_FUNC_*`) до
+bash не доходят: иначе команда обрывала сборку argv, lookup отвечал «нет alias», и опасный alias
+проходил. Фильтр OSTYPE читает OSTYPE настоящего bash. Shim-установки git (Scoop, Chocolatey)
+раньше Git for Windows в PATH хука не проходят проверку установки — fail-closed блок.
+
 ## 4. Ключевые решения
 
 ### 3.1 Пять ролей агентов
