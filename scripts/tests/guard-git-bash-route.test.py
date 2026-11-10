@@ -145,8 +145,11 @@ class NtRouteGuardTests(unittest.TestCase):
         self.hook_env = {"PATH": GFW + "\\mingw64\\bin;" + GFW + "\\usr\\bin"}
         ROUTE._RESOLVED.clear()
         self.addCleanup(ROUTE._RESOLVED.clear)
-        for name, value in (("os_name", lambda: "nt"), ("_hook_environ", lambda: self.hook_env),
-                            ("_is_file", files(*GFW_FILES)), ("_launch", self.launch)):
+        patches = [("os_name", lambda: "nt"), ("_hook_environ", lambda: self.hook_env),
+                   ("_is_file", files(*GFW_FILES)), ("_launch", self.launch)]
+        if os.name != "nt":
+            patches.append(("GIT_BASH_OSTYPES", "*"))  # OSTYPE настоящего bash — darwin/linux-gnu
+        for name, value in patches:
             patcher = mock.patch.object(ROUTE, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -158,13 +161,10 @@ class NtRouteGuardTests(unittest.TestCase):
             raise OSError("launch failed")
         if self.behavior == "not-msys":
             return subprocess.CompletedProcess(args, ROUTE.EXIT_NOT_MSYS, "", None)
-        self.assertEqual(args[1:], ["-s"], "argv git не идёт командной строкой Windows")
-        self.assertIn('exec git "$@"', kwargs.get("input", ""))
-        count = int(env["OVERGATE_GUARD_GIT_ARGC"])
-        argv = [env[f"OVERGATE_GUARD_GIT_ARG_{index}"] for index in range(count)]
-        child_env = {key: value for key, value in env.items() if not key.startswith("OVERGATE_GUARD_GIT_")}
-        return REAL_RUN([GIT, *argv], env=child_env, cwd=kwargs.get("cwd"), stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+        self.assertEqual(args[-1], "-s", "argv git не идёт командной строкой Windows")
+        self.assertIn('git "$@"', kwargs.get("input", ""))
+        # Протокол исполняет настоящий bash (на Windows — Git Bash), подменён только путь.
+        return REAL_RUN([native_bash(), *args[1:]], **kwargs)
 
     def verdict(self, command):
         try:
@@ -196,8 +196,11 @@ class NtRouteGuardTests(unittest.TestCase):
                 self.calls.clear()
                 self.assertTrue(self.verdict(command).startswith("block"))
                 self.assertEqual(self.bash_paths(), {GFW + "\\bin\\bash.exe"})
-                # Окружение команды получает только запущенный bash для git.
-                self.assertEqual(self.calls[0][1].get("CLAUDE_CODE_GIT_BASH_PATH"), evil)
+                # Окружение команды доходит только до git (транспортом), не до процесса bash.
+                bash_env = self.calls[0][1]
+                self.assertNotIn("CLAUDE_CODE_GIT_BASH_PATH", bash_env)
+                self.assertIn(f"CLAUDE_CODE_GIT_BASH_PATH={evil}",
+                              [value for key, value in bash_env.items() if key.startswith("OVERGATE_GUARD_GIT_ENV_")])
 
     def test_hook_override_of_other_installation_blocks(self):
         self.hook_env["CLAUDE_CODE_GIT_BASH_PATH"] = "D:\\Git2\\bin\\bash.exe"
@@ -228,6 +231,113 @@ class NtRouteGuardTests(unittest.TestCase):
         self.hook_env["PATH"] = ""
         self.assertEqual(self.verdict("git status --short"), "allow")
         self.assertEqual(self.calls, [])
+
+
+@unittest.skipIf(GIT is None, "git is required")
+class NtRouteBashIsolationTests(unittest.TestCase):
+    """Code Review PR #19, BLOCKER 1: окружение команды не управляет процессом bash.
+
+    Маршрут `nt` исполняется настоящим bash (на macOS/Linux — локальным, на Windows —
+    Git Bash): launcher подменяет только путь к bash. Переменные стартовой обработки
+    bash из окружения команды не должны обрывать сборку argv: иначе lookup отвечал
+    «нет alias», и опасная команда проходила.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = os.path.join(self.tmp.name, "alias-repo")
+        REAL_RUN([GIT, "init", "-q", self.repo], check=True)
+        for name, value in (("land", "!gh pr merge 756 --squash"), ("safe", "!git status --short"),
+                            ("ship", "push origin main")):
+            REAL_RUN([GIT, "-C", self.repo, "config", f"alias.{name}", value], check=True)
+        self.bash_env = os.path.join(self.tmp.name, "bash-env.sh")
+        self.patches = [("os_name", lambda: "nt"), ("_hook_bash", lambda: GFW + "\\bin\\bash.exe"),
+                        ("_launch", self.launch)]
+        if os.name != "nt":
+            # OSTYPE настоящего bash здесь darwin/linux-gnu; фильтр проверяется отдельно.
+            self.patches.append(("GIT_BASH_OSTYPES", "*"))
+        for name, value in self.patches:
+            patcher = mock.patch.object(ROUTE, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def launch(self, args, **kwargs):
+        self.assertEqual(args[0], GFW + "\\bin\\bash.exe")
+        return REAL_RUN([native_bash(), *args[1:]], **kwargs)
+
+    def verdict(self, command):
+        try:
+            return "block" if GUARD._check_command(command) else "allow"
+        except GUARD.GuardError as exc:
+            return "block: " + str(exc)
+
+    def lookup(self, extra_env):
+        env = dict(os.environ, **extra_env)
+        return ROUTE.run_git(["-C", self.repo, "config", "--get", "alias.ship"], env=env, cwd=None)
+
+    def write_bash_env(self, text):
+        with open(self.bash_env, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+
+    def test_bash_env_exit_does_not_hide_alias(self):
+        self.write_bash_env("exit 1\n")
+        for alias in ("ship", "land"):
+            for command in (f"BASH_ENV='{self.bash_env}' git -C '{self.repo}' {alias}",
+                            f"env BASH_ENV='{self.bash_env}' git -C '{self.repo}' {alias}",
+                            f"ENV='{self.bash_env}' git -C '{self.repo}' {alias}"):
+                with self.subTest(command=command):
+                    self.assertTrue(self.verdict(command).startswith("block"))
+
+    def test_bash_env_cannot_reset_transport(self):
+        self.write_bash_env("OVERGATE_GUARD_GIT_ARGC=0\nOVERGATE_GUARD_GIT_ENVC=0\n")
+        self.assertTrue(self.verdict(f"BASH_ENV='{self.bash_env}' git -C '{self.repo}' ship").startswith("block"))
+
+    def test_xtrace_ps4_arithmetic_does_not_break_argv(self):
+        for ps4 in ("$((i=99))", "$((__overgate_i=99))"):
+            with self.subTest(ps4=ps4):
+                command = f"env SHELLOPTS=xtrace PS4='{ps4}' git -C '{self.repo}' ship"
+                self.assertTrue(self.verdict(command).startswith("block"))
+
+    def test_startup_variables_do_not_reach_bash(self):
+        self.write_bash_env("exit 1\n")
+        cases = (
+            {"BASH_ENV": self.bash_env},
+            {"POSIXLY_CORRECT": "1", "ENV": self.bash_env},
+            {"SHELLOPTS": "xtrace", "PS4": "$((__overgate_i=99))"},
+            {"SHELLOPTS": "xtrace", "PS4": "$((i=99))", "BASH_XTRACEFD": "1"},
+            {"BASHOPTS": "extdebug", "BASH_COMPAT": "31"},
+            {"BASH_FUNC_exec%%": "() { exit 1; }"},
+            {"BASH_FUNC_set%%": "() { exit 1; }"},
+            {"BASH_FUNC_[%%": "() { return 1; }"},
+        )
+        for hostile in cases:
+            with self.subTest(hostile=sorted(hostile)):
+                proc = self.lookup(hostile)
+                self.assertEqual((proc.returncode, proc.stdout.strip()), (0, "push origin main"))
+
+    def test_ostype_from_command_does_not_pass_filter(self):
+        if os.name == "nt":
+            self.skipTest("на Windows настоящий OSTYPE уже msys/cygwin; фильтр проверен на POSIX")
+        with mock.patch.object(ROUTE, "GIT_BASH_OSTYPES", "msys*|cygwin*"):
+            with self.assertRaises(ROUTE.RouteError):
+                self.lookup({"OSTYPE": "msys"})
+            self.assertIn("not Git Bash", self.verdict(f"OSTYPE=msys git -C '{self.repo}' safe"))
+
+    def test_safe_alias_allows_and_command_env_reaches_git(self):
+        self.assertEqual(self.verdict(f"git -C '{self.repo}' safe"), "allow")
+        config = os.path.join(self.tmp.name, "global.gitconfig")
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("[alias]\n\tcfgland = !gh pr merge 756 --squash\n\tcfgsafe = !git status --short\n")
+        self.assertTrue(self.verdict(f"GIT_CONFIG_GLOBAL='{config}' git -C '{self.repo}' cfgland").startswith("block"))
+        self.assertEqual(self.verdict(f"GIT_CONFIG_GLOBAL='{config}' git -C '{self.repo}' cfgsafe"), "allow")
+        self.assertEqual(self.verdict(f"git -C '{self.repo}' cfgland"), "allow")
+
+    def test_command_environment_reaches_git(self):
+        # Имена `name`/`i` (прежние служебные переменные скрипта) не мешают окружению git.
+        proc = ROUTE.run_git(["var", "GIT_EDITOR"], env=dict(os.environ, name="kept", i="kept",
+                                                            GIT_EDITOR="og-editor"), cwd=self.repo)
+        self.assertEqual(proc.stdout.strip(), "og-editor")
 
 
 class TransportTests(unittest.TestCase):

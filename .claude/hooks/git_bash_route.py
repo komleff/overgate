@@ -19,6 +19,11 @@ argv git передаётся через окружение, а не коман�
 разбирает командную строку нативного родителя сам (одинарные кавычки, обратные
 слэши, glob), и argv lookup мог бы отличаться от argv реального запуска. Скрипт
 читается bash со stdin и эквивалентен `exec git "$@"`.
+
+Окружение команды до процесса bash не доходит (Code Review PR #19, BLOCKER 1):
+`BASH_ENV`, `SHELLOPTS`+`PS4`, `BASH_FUNC_*`, `OSTYPE` и подобные меняли бы ход
+скрипта ещё до сборки argv, и lookup отвечал бы «нет alias». Bash получает только
+allowlist системных переменных, а окружение команды — транспортом и только для git.
 """
 
 from __future__ import annotations
@@ -34,6 +39,22 @@ _MINGW_PREFIXES = ("mingw64", "mingw32", "clangarm64", "clang64", "ucrt64")
 _WSL_STUB_DIRS = ("\\windows\\system32\\", "\\windows\\sysnative\\", "\\windowsapps\\")
 _ARGC = "OVERGATE_GUARD_GIT_ARGC"
 _ARG = "OVERGATE_GUARD_GIT_ARG_"
+_ENVC = "OVERGATE_GUARD_GIT_ENVC"
+_ENV = "OVERGATE_GUARD_GIT_ENV_"
+_TRANSPORT_PREFIX = "OVERGATE_GUARD_GIT_"
+# Окружение самого процесса bash — только этот allowlist из окружения команды
+# (имена без учёта регистра, как в Windows). Переменные стартовой обработки bash
+# (BASH_ENV, ENV, SHELLOPTS, BASHOPTS, PS4, BASH_XTRACEFD, POSIXLY_CORRECT,
+# BASH_COMPAT, OSTYPE, BASH_FUNC_*) до bash не доходят никогда: иначе команда
+# меняла бы ход скрипта сборки argv, и lookup отвечал бы «нет alias». Всё окружение
+# команды доходит до git отдельным транспортом через `env -i` (MSYS-преобразование
+# при запуске git.exe то же, что при реальном запуске).
+BASH_ENV_ALLOWLIST = frozenset(
+    name.upper() for name in (
+        "PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
+        "TEMP", "TMP", "HOME", "USERPROFILE", "MSYSTEM",
+    )
+)
 # Код выхода скрипта, если bash оказался не MSYS (Cygwin, WSL и т.п.).
 EXIT_NOT_MSYS = 125
 POSIX_TIMEOUT = 2
@@ -127,32 +148,58 @@ def resolve_bash(environ: Mapping[str, str], is_file: Callable[[str], bool]) -> 
 GIT_BASH_OSTYPES = "msys*|cygwin*"
 
 
-def bash_script(program: str = "git", ostype: str = GIT_BASH_OSTYPES) -> str:
-    """Скрипт для `bash -s`: собрать argv из окружения и выполнить `exec git "$@"`."""
+def bash_script(program: str = "git", ostype: str | None = None) -> str:
+    """Скрипт для `bash -s`: семантика `exec git "$@"` с окружением команды.
+
+    argv и окружение команды собираются из транспортных переменных; git запускается
+    через `env -i` только с окружением команды (PATH — в форме, преобразованной самим
+    bash). OSTYPE читается у настоящего bash: из окружения команды он не приходит.
+    Служебные имена уникальны и до git не доходят (`env -i`).
+    """
+    pattern = GIT_BASH_OSTYPES if ostype is None else ostype
     return (
-        f'case "$OSTYPE" in {ostype}) ;; *) exit {EXIT_NOT_MSYS} ;; esac\n'
+        f'case "$OSTYPE" in {pattern}) ;; *) exit {EXIT_NOT_MSYS} ;; esac\n'
         "set --\n"
-        "i=0\n"
-        f'while [ "$i" -lt "${{{_ARGC}:-0}}" ]; do\n'
-        f'  name="{_ARG}$i"\n'
-        '  set -- "$@" "${!name}"\n'
-        '  unset "$name"\n'
-        "  i=$((i + 1))\n"
+        "__overgate_i=0\n"
+        f'while [ "$__overgate_i" -lt "${{{_ARGC}:-0}}" ]; do\n'
+        f'  __overgate_n="{_ARG}$__overgate_i"\n'
+        '  set -- "$@" "${!__overgate_n}"\n'
+        "  __overgate_i=$((__overgate_i + 1))\n"
         "done\n"
-        f"unset {_ARGC} name i\n"
-        f'exec {program} "$@"\n'
+        "__overgate_env=()\n"
+        "__overgate_i=0\n"
+        f'while [ "$__overgate_i" -lt "${{{_ENVC}:-0}}" ]; do\n'
+        f'  __overgate_n="{_ENV}$__overgate_i"\n'
+        '  __overgate_env+=("${!__overgate_n}")\n'
+        "  __overgate_i=$((__overgate_i + 1))\n"
+        "done\n"
+        f'exec /usr/bin/env -i "${{__overgate_env[@]}}" PATH="$PATH" {program} "$@"\n'
     )
 
 
+def _bash_allowed(name: str) -> bool:
+    return name.upper() in BASH_ENV_ALLOWLIST
+
+
 def bash_environment(argv: Sequence[str], env: Mapping[str, str]) -> dict[str, str]:
+    """Окружение процесса bash: allowlist + транспорт argv и окружения команды."""
     result = {
         key: value
         for key, value in env.items()
-        if key != _ARGC and not key.startswith(_ARG)
+        if _bash_allowed(key) and not key.startswith(_TRANSPORT_PREFIX)
     }
     result[_ARGC] = str(len(argv))
     for index, value in enumerate(argv):
         result[f"{_ARG}{index}"] = value
+    # PATH до git доходит отдельно, уже преобразованным самим bash (иначе env не найдёт git).
+    pairs = [
+        f"{key}={value}"
+        for key, value in env.items()
+        if key.upper() != "PATH" and not key.startswith(_TRANSPORT_PREFIX)
+    ]
+    result[_ENVC] = str(len(pairs))
+    for index, pair in enumerate(pairs):
+        result[f"{_ENV}{index}"] = pair
     return result
 
 
@@ -197,7 +244,8 @@ def run_git(
     bash = _hook_bash()
     try:
         proc = _launch(
-            [bash, "-s"], input=bash_script(), check=False, stdout=subprocess.PIPE,
+            [bash, "--noprofile", "--norc", "-s"], input=bash_script(), check=False,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
             errors="strict", timeout=NT_TIMEOUT,
             env=bash_environment(argv, env), cwd=cwd,
