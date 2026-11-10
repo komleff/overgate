@@ -19,6 +19,11 @@ Hotfix защиты репозитория и гейта коммита на Win
 - Окружение команды не управляет процессом Git Bash на этом маршруте: bash получает только
   allowlist системных переменных, а окружение команды доходит до git отдельно (`env -i`);
   `BASH_ENV`, `SHELLOPTS`/`PS4`, `BASH_FUNC_*`, `OSTYPE` больше не могут скрыть alias.
+- Guard видит опасный git-alias за `env` с неидентификаторным присваиванием (`env 'A%B=1' git
+  ship`, `env 'BASH_FUNC_x%%=…'`, после `--`, с `-i`/`-u`/`-S`) и за `GIT_CONFIG=<файл> git ship`:
+  раньше `env` принимал такое слово за команду, а `GIT_CONFIG` прятал alias от lookup, хотя
+  `git ship` его находит. Пустое или динамическое имя присваивания `env` — блок (`og-5sm`,
+  ADR §3.38 п.6). Существовало до rc.5.2, на любой ОС.
 
 ### Changed
 - Commit tier гейта коммита — ядро из 12 шагов; publisher, with-timeout, gate/merge-gate,
