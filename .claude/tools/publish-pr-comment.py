@@ -163,7 +163,10 @@ def _read_validated_body(body_path: str) -> bytes:
     if stat.S_ISLNK(initial_path_stat.st_mode):
         raise PublishError("источник body не должен быть символической ссылкой")
 
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    # O_BINARY (только Windows, CP-5): иначе дескриптор CRT текстовый, и os.read
+    # превращает CRLF в LF и обрывает чтение на 0x1A — в gh ушли бы не те байты.
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+             | getattr(os, "O_BINARY", 0))
     descriptor = None
     try:
         descriptor = os.open(source_path, flags)
