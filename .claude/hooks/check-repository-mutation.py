@@ -352,6 +352,24 @@ def _leading_assignments(words: Sequence[str]) -> dict[str, str]:
     return result
 
 
+def _env_assignment(word: str) -> tuple[str, str] | None:
+    """Присваивание по семантике env(1): любое слово `ИМЯ=значение` до команды.
+
+    env(1), в отличие от shell-префикса, не требует имени-идентификатора: `A%B=1` и
+    `BASH_FUNC_x%%=…` — присваивания, а команда начинается после них (CP-6).
+    Неразбираемое имя (пустое, динамическое) — fail-closed.
+    """
+
+    name, separator, value = word.partition("=")
+    if not separator:
+        return None
+    if not name:
+        raise GuardError("env assignment with empty name cannot prove safety")
+    if parser._is_dynamic(name):
+        raise GuardError("dynamic env assignment name cannot prove safety")
+    return name, value
+
+
 def _unwrap_env(
     arguments: Sequence[str], inherited_env: dict[str, str], cwd: str | None,
 ) -> tuple[List[str], bool, dict[str, str], str | None]:
@@ -362,11 +380,17 @@ def _unwrap_env(
     env_updates = dict(inherited_env)
     explicit_assignments: dict[str, str] = {}
     env_cwd = cwd
+    options_done = False
     index = 0
     while index < len(expanded):
         word = expanded[index]
-        if parser._ASSIGNMENT.match(word):
-            name, value = word.split("=", 1)
+        # Слово с ведущим `-` до `--` — опция env (неизвестная — отказ ниже); после
+        # `--` и для прочих слов действует правило присваивания env(1).
+        if options_done or not word.startswith("-") or word == "-":
+            assignment = _env_assignment(word)
+            if assignment is None:
+                break
+            name, value = assignment
             if _git_context_assignment(word) and parser._is_dynamic(value):
                 raise GuardError("dynamic env Git context")
             env_updates[name] = value
@@ -375,10 +399,9 @@ def _unwrap_env(
             index += 1
             continue
         if word == "--":
+            options_done = True
             index += 1
-            break
-        if not word.startswith("-") or word == "-":
-            break
+            continue
         if parser._is_dynamic(word):
             raise GuardError("dynamic env option")
         if word in ("-S", "--split-string"):
@@ -730,14 +753,39 @@ def _check_git(
     git_cwd: str | None = None,
     depth: int = 0,
 ) -> str | None:
+    environment = dict(os.environ if env_overrides is None else env_overrides)
+    # CP-6: GIT_CONFIG подменяет файл только для `git config` (и для lookup guard), а
+    # `git <alias>` разрешает alias без него. Проверка идёт дважды — по реальной
+    # семантике (без GIT_CONFIG) и в прежнем окружении; блок, если блокирует любая.
+    # Имя сравнивается без учёта регистра: окружение Windows регистронезависимо.
+    config_names = [name for name in environment if name.upper() == "GIT_CONFIG"]
+    if not config_names:
+        return _check_git_once(args, context_override, environment, git_cwd, depth)
+    real_environment = {
+        name: value for name, value in environment.items() if name not in config_names
+    }
+    for variant in (real_environment, environment):
+        reason = _check_git_once(args, context_override, variant, git_cwd, depth)
+        if reason:
+            return reason
+    return None
+
+
+def _check_git_once(
+    args: Sequence[str],
+    context_override: bool,
+    environment: dict[str, str],
+    git_cwd: str | None,
+    depth: int,
+) -> str | None:
     subcommand, tail, shell_alias, context_changed = _git_invocation(
         args,
         context_override=context_override,
-        env_overrides=env_overrides,
+        env_overrides=environment,
         git_cwd=git_cwd,
     )
     if shell_alias is not None:
-        shell_env, shell_cwd = _git_shell_context(shell_alias[1], dict(os.environ if env_overrides is None else env_overrides), git_cwd)
+        shell_env, shell_cwd = _git_shell_context(shell_alias[1], dict(environment), git_cwd)
         return _check_command(shell_alias[0], git_env=shell_env, git_cwd=shell_cwd,
                               git_context_override=context_changed, depth=depth + 1, alias_shell=True)
     if subcommand == "push":

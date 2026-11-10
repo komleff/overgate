@@ -477,6 +477,72 @@ rc=$?
 if [ "$rc" -eq 0 ]; then printf 'PASS Claude deny parity\n'; pass=$((pass+1))
 else printf 'FAIL Claude deny parity\n' >&2; fail=$((fail+1)); fi
 
+# --- CP-6 (AC-08): обход alias через `env` и `GIT_CONFIG` ------------------------
+# env(1) считает присваиванием любое слово `ИМЯ=значение` до команды, а не только имя-
+# идентификатор; `GIT_CONFIG` меняет только `git config`, но не разрешение alias у
+# `git <alias>`. Оба пути раньше прятали опасный alias от guard.
+PUSH_REASON="direct update of protected branch"
+# Раскрытие `land` (`!gh pr merge …`) блокирует проверка текста !alias на мутацию.
+MERGE_REASON="contains protected repository mutation"
+git -C "$ALIAS_REPO" config alias.ship 'push origin main'
+git -C "$ALIAS_REPO" config alias.envship "!env 'A%B=1' git ship"
+git -C "$ALIAS_REPO" config alias.envland "!env -- 'A%B=1' git land"
+git -C "$ALIAS_REPO" config alias.cfgship '!GIT_CONFIG=/dev/null git ship'
+git -C "$ALIAS_REPO" config alias.cfgouter '!GIT_CONFIG=/dev/null git outer'
+EMPTY_CFG="$GUARD_TEST_TMP/empty.cfg"
+: > "$EMPTY_CFG"
+# Опасный alias только в файле GIT_CONFIG: реальный `git cfgonly` его не видит, но
+# прежний lookup с GIT_CONFIG находил — блок сохраняется (только ужесточение).
+ONLY_CFG="$GUARD_TEST_TMP/only.cfg"
+printf '[alias]\n\tcfgonly = push origin main\n' > "$ONLY_CFG"
+AR="git -C '$ALIAS_REPO'"
+# (а) env(1): присваивание с неидентификаторным именем.
+for target in ship land; do
+  reason="$PUSH_REASON"; [ "$target" = land ] && reason="$MERGE_REASON"
+  expect_block_reason "env non-identifier assignment $target" "env 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env BASH_FUNC assignment $target" "env 'BASH_FUNC_x%%=() { :; }' $AR $target" "$reason"
+  expect_block_reason "env -- assignment $target" "env -- 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env -i assignment $target" "env -i 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env -u NAME assignment $target" "env -u FOO 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "env -S assignment $target" "env -S \"A%B=1 $AR $target\"" "$reason"
+  expect_block_reason "env -- after -i assignment $target" "env -i -- 'A%B=1' 'C-D=2' $AR $target" "$reason"
+  expect_block_reason "sh -c env assignment $target" "sh -c \"env 'A%B=1' $AR $target\"" "$reason"
+  expect_block_reason "sh -c env -S assignment $target" "sh -c \"env -S \\\"A%B=1 $AR $target\\\"\"" "$reason"
+  expect_block_reason "env assignment wraps sh -c $target" "env 'A%B=1' sh -c \"$AR $target\"" "$reason"
+  expect_block_reason "nested env assignment $target" "env FOO=1 env 'A%B=1' $AR $target" "$reason"
+  expect_block_reason "bash -c sh -c env assignment $target" "bash -c \"sh -c \\\"env A%B=1 $AR $target\\\"\"" "$reason"
+done
+expect_block_reason "shell alias env assignment ship" "$AR envship" "$PUSH_REASON"
+expect_block_reason "shell alias env -- assignment land" "$AR envland" "$MERGE_REASON"
+# (б) GIT_CONFIG: lookup по реальной семантике (без GIT_CONFIG) и в прежнем env.
+for cfg in /dev/null "$EMPTY_CFG"; do
+  expect_block_reason "GIT_CONFIG=$cfg ship" "GIT_CONFIG='$cfg' $AR ship" "$PUSH_REASON"
+  expect_block_reason "GIT_CONFIG=$cfg land" "GIT_CONFIG='$cfg' $AR land" "$MERGE_REASON"
+  expect_block_reason "env GIT_CONFIG=$cfg ship" "env GIT_CONFIG='$cfg' $AR ship" "$PUSH_REASON"
+  expect_block_reason "GIT_CONFIG=$cfg sh -c ship" "GIT_CONFIG='$cfg' sh -c \"$AR ship\"" "$PUSH_REASON"
+  expect_block_reason "GIT_CONFIG=$cfg nested shell alias" "GIT_CONFIG='$cfg' $AR outer" "$MERGE_REASON"
+done
+expect_block_reason "GIT_CONFIG inside shell alias ship" "$AR cfgship" "$PUSH_REASON"
+expect_block_reason "GIT_CONFIG inside shell alias nested" "$AR cfgouter" "$MERGE_REASON"
+# Регрессии: неразбираемое имя присваивания env и неизвестная опция — block.
+expect_block_reason "env empty assignment name" "env '=x' $AR safe" "env assignment with empty name"
+expect_block_reason "env dynamic assignment name" "env \"\$N=1\" $AR safe" "dynamic env assignment name"
+expect_block_reason "env dynamic -S assignment name" "env -S '\${N}=1 git status'" "dynamic env split-string"
+expect_block_reason "env leading dash name before --" "env -A=1 $AR safe" "unknown env option"
+expect_block_reason "env unknown option -P" "env -P /usr/bin $AR ship" "unknown env option"
+expect_block "GIT_CONFIG-only dangerous alias" "GIT_CONFIG='$ONLY_CFG' $AR cfgonly"
+# Голый shell-префикс без env — команда `A%B=1`, не присваивание: поведение прежнее.
+expect_allow "bare non-identifier prefix unchanged" "A%B=1 $AR ship"
+# Без ложного блока: безопасный alias и обычные команды.
+expect_allow "env non-identifier assignment safe alias" "env 'A%B=1' $AR safe"
+expect_allow "env -- assignment safe alias" "env -- 'A%B=1' $AR safe"
+expect_allow "env -i assignment builtin" "env -i 'A%B=1' git status --short"
+expect_allow "env -S assignment safe alias" "env -S \"A%B=1 $AR safe\""
+expect_allow "env assignment only" "env 'A%B=1'"
+expect_allow "GIT_CONFIG safe alias" "GIT_CONFIG=/dev/null $AR safe"
+expect_allow "GIT_CONFIG builtin" "GIT_CONFIG='$EMPTY_CFG' $AR status --short"
+expect_allow "GIT_CONFIG git config read" "GIT_CONFIG='$ONLY_CFG' git config --get alias.cfgonly"
+
 # --- CP-4 (AC-02 edge): вывод git — строгий UTF-8, не ANSI code page ----------------
 # Кириллица и пробел в пути проекта и в имени ветки не дают ложного блока; невалидный
 # UTF-8 в выводе git — блок. На macOS/Linux ANSI-условие Windows задаётся локалью C без
