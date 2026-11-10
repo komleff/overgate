@@ -248,6 +248,8 @@ jobs:
             "$@" >"$LOG/$label.log" 2>&1 || rc=$?
             if [ "$rc" -eq 0 ]; then
               printf 'PASS %s (%s s)\n' "$label" "$((SECONDS-start))"
+              # Явные пропуски (CP-2, D-2) видны в логе CI вместе с их числом.
+              grep -E 'SKIP' "$LOG/$label.log" || true
             else
               printf 'FAIL %s (exit %s, %s s)\n' "$label" "$rc" "$((SECONDS-start))"
               tail -n 80 "$LOG/$label.log"
