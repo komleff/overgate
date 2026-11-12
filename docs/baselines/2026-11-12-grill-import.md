@@ -54,6 +54,16 @@ rc.5 upgrade проверяют реальное копирование bytes ч
 installer closure: APPROVED, BLOCKER0/ADVISORY0. Итог полного reference suite и CI
 фиксируется отдельно в PR, а не выводится из адресных проверок.
 
+Общий `bash scripts/verify-reference.sh` прошёл структуру/guards/parser/finalizer,
+75 install tests (4 неприменимых cases skipped), 22 helper tests и следующие Beads
+наборы, затем остановился на `bd-publisher-setup.test.mjs`: при унаследованном
+`umask 0077` создаваемый `control-plan.json` имеет0400 вместо ожидаемого0444.
+Publisher, этот тест и его libraries байтово совпадают с исходным main; Grill
+не участвует в их fixture. При `umask 0022` тот же test PASS; после него отдельно
+выполнены оставшиеся `bd-managed-routes` (1/1) и `bd-network-git` (14/14), PASS.
+Исходный общий прогон остаётся FAIL и не переименовывается в whole-suite PASS.
+Нативные bootstrap/preservation пробы без qualified bd отдельно отмечены skipped.
+
 Live Claude/Codex/T3 discovery, Windows и consumer upgrades — NOT RUN этой пробой.
 В частности, reference addition не обновляет автоматически установленный OverGate
 в OverStudio или U2. Pins consumers и их Memory Bank/Beads state не менялись.
