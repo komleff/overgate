@@ -3,6 +3,15 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
+## [Unreleased] — Grill по запросу оператора
+
+- Добавлен `grill`: неизменённый upstream `grilling` из Matt Pocock skills с frozen
+  provenance/MIT notice и переносимым owner. Claude `/grill` — тонкий adapter.
+- Skill входит в официальный install/upgrade/rollback inventory, включая `--no-beads`.
+  Пять прежних skills и процесс delivery сохраняются; новый обязательный этап не вводится.
+- Существующие проекты обновляются отдельно официальным installer; добавление в reference
+  не означает активацию в OverStudio, T3 или других consumers.
+
 ## [Unreleased] — v4.0.0-rc.5.2 candidate: og-4py (обычный вход в Git для Beads)
 
 Hotfix PR #20. Выпуск — PM после merge оператором (вместе с PR #19 или отдельно).

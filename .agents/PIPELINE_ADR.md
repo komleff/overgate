@@ -215,6 +215,9 @@ ambiguous или parser/tool failure → block до тяжёлой провер�
 Role владеет полномочиями и conditional triggers; `.agents/SKILLS.md` — membership/paths;
 каждый owner SKILL.md — процедурой. `.claude/` и `.codex/` — adapters, не второй policy owner.
 Ровно пять generic skills: canon-router, product-gap, product-handoff, diagnose, handoff.
+Дополнение 2026-11-12 по поручению оператора: в поставку добавлен `grill` из Matt Pocock
+для явного вызова интервью. Пять исходных role triggers сохраняются; `grill` не является
+новым обязательным stage, не меняет product authority и не запускается от готового ТЗ.
 Product authority задаёт проект в AGENTS; fallback — оператор. Обязательной GD/PD роли нет.
 Готовый source → PASS_THROUGH без новой spec. Missing WHAT → PRODUCT GAP; technical uncertainty
 сначала repo. Unknown root cause → RED/evidence/GREEN либо REPRODUCTION LIMIT; known simple cause

@@ -29,6 +29,15 @@ Frozen U2 tree не содержит root LICENSE: provenance не являет�
 
 ## Источники Skill Layer
 
+### Установленный Grill — 2026-11-12
+
+`.agents/skills/grill/upstream.md` переносит без правок `skills/productivity/grilling/SKILL.md`
+из [Matt Pocock — skills, commit 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d](https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/skills/productivity/grilling/SKILL.md),
+blob `d2f09a18e6a6c65c55f1271ba08dfeaf06f0bed3`. MIT notice Matt Pocock сохранён
+в `.agents/skills/grill/LICENSE` и входит в distribution inventory. Canonical owner
+`grill/SKILL.md` добавляет явный вход, repository-first context и границы роли;
+Claude adapter только ссылается на него. `grill-with-docs`/`domain-modeling` не перенесены.
+
 - [Matt Pocock — skills](https://github.com/mattpocock/skills): компактные, адаптируемые,
   компонуемые и независимые от модели инженерные процедуры. `grill-with-docs`, `to-spec`,
   `diagnosing-bugs`, `handoff` и TDD послужили вдохновением для source U2 skills (пять generic перенесены в OverGate). Source U2 owner

@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-SKILLS = {'canon-router', 'product-gap', 'product-handoff', 'diagnose', 'handoff'}
+SKILLS = {'canon-router', 'product-gap', 'product-handoff', 'diagnose', 'handoff', 'grill'}
 ROLES = {'PM', 'SV', 'PL', 'DEV', 'QA', 'RV'}
 # Роль проекта: файл ставится всегда, использование необязательно (ADR §3.36).
 PROJECT_ROLES = {'GD'}
@@ -23,7 +23,9 @@ RUNTIME = {
 } | {'.claude/tools/' + name for name in ('run-python.sh', 'with-timeout.sh', 'publish-pr-comment.py')} | {
     '.claude/settings.json', '.codex/hooks.json', 'scripts/bd-read.sh', 'scripts/bd-wt.sh',
     'scripts/lib/bd-env.sh', 'scripts/lib/bd-read-engine.mjs', '.agents/project/verify.sh',
-    'scripts/install-overgate.py', 'scripts/check-reference.py'}
+    'scripts/install-overgate.py', 'scripts/check-reference.py',
+    '.agents/skills/grill/upstream.md', '.agents/skills/grill/LICENSE',
+    '.claude/skills/grill/SKILL.md'}
 
 
 def windows_bash():
@@ -71,7 +73,7 @@ def check(root):
     entries = re.findall(r'^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`', registry, re.M)
     counts = Counter(name for name, path in entries)
     if set(counts) != SKILLS:
-        fail('SKILL-001', 'registry membership must be exactly five generic skills')
+        fail('SKILL-001', 'registry membership must be five generic skills plus explicit-use grill')
     if any(count != 1 for count in counts.values()):
         fail('SKILL-005', 'duplicate registry membership')
     expected = {f'.agents/skills/{name}/SKILL.md' for name in SKILLS}

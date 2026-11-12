@@ -31,6 +31,7 @@ External review доступен по named risk или прямому запр�
 | Роль проекта | [Game Designer](.agents/GD_ROLE.md) — ставится всегда, использование необязательно |
 | Точка входа оператора | [Шпаргалка с промптами ролей](.agents/HOW_TO_USE.md) |
 | Пять core skills | [canon-router, product-gap, product-handoff, diagnose, handoff](.agents/SKILLS.md) |
+| По запросу оператора | [grill](.agents/skills/grill/SKILL.md) — интервью по идее, плану или решению |
 | Project authority | AGENTS.md установленного проекта; fallback — оператор |
 | Runtime adapters | `.claude/`, `.codex/hooks.json` |
 | Distribution | [explicit inventory](.agents/distribution-manifest.json), [установка и rollback](.agents/INSTALL.md) |

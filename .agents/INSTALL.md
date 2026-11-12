@@ -214,7 +214,8 @@ python3 /trusted/overgate/scripts/install-overgate.py apply \
 Plan Review в том же PR. Нет `--force` и тихого overwrite изменённого managed role/skill.
 
 Explicit inventory — `.agents/distribution-manifest.json`. Копируются шесть delivery owners,
-шпаргалка оператора `HOW_TO_USE.md`, роль проекта `GD_ROLE.md` (preserve), ровно пять core skills, thin adapters, hook parser/policy/launcher/timeout/publisher closure,
+шпаргалка оператора `HOW_TO_USE.md`, роль проекта `GD_ROLE.md` (preserve), пять core skills и
+явно вызываемый `grill` с исходником и MIT notice, thin adapters, hook parser/policy/launcher/timeout/publisher closure,
 Beads readers и необходимые instructions. Не копируются каталоги U2, game data, credentials,
 personal runtime state или весь `.claude/skills/`. Шаблоны Memory Bank входят в payload,
 но `.memory-bank` и `.beads` не managed: safe() по-прежнему запрещает эти пути.
