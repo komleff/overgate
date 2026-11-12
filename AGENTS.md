@@ -14,7 +14,7 @@ OverGate — generic reference Delivery First. Product/game data сюда не �
 Search находит candidate, не authority. Конфликт current owners эскалируется оператору.
 
 **Product authority: оператор.** PM/Planner/Developer не выбирают missing WHAT.
-Implementation-ready source принимается без новой spec. Роли и пять core skills:
+Implementation-ready source принимается без новой spec. Роли, пять core skills и явно вызываемый grill:
 `.agents/AGENT_ROLES.md`, `.agents/SKILLS.md`; adapters не владеют policy.
 
 - Работа в рабочей ветке; ИИ не merge/auto-merge и не обновляет main/master напрямую.

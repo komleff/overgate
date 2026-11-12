@@ -994,9 +994,13 @@ fs.rmSync(root,{recursive:true,force:true});'''
 
     def apply(self,ok=True):return self.call('apply','--plan',self.plan,'--approval',self.approval,ok=ok)
 
-    def test_fresh_has_five_owners_and_runtime_closure(self):
+    def test_fresh_has_five_generic_skills_plus_grill_and_runtime_closure(self):
         self.make_plan();self.approve();self.apply()
-        self.assertEqual(len(list((self.target/'.agents/skills').glob('*/SKILL.md'))),5)
+        self.assertEqual({p.parent.name for p in (self.target/'.agents/skills').glob('*/SKILL.md')},
+                         {'canon-router','product-gap','product-handoff','diagnose','handoff','grill'})
+        for name in ('.agents/skills/grill/upstream.md', '.agents/skills/grill/LICENSE',
+                     '.claude/skills/grill/SKILL.md'):
+            self.assertEqual((self.target/name).read_bytes(),self.source_blob(name))
         self.assertIn('Product authority: оператор',(self.target/'AGENTS.md').read_text(encoding='utf-8'))
         run=subprocess.run([sys.executable,str(self.target/'scripts/check-reference.py'),'--root',str(self.target)],capture_output=True,text=True)
         self.assertEqual(run.returncode,0,run.stdout+run.stderr)

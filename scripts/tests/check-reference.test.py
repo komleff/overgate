@@ -27,6 +27,24 @@ class StructureTests(unittest.TestCase):
     def test_valid_reference(self):
         self.check(0)
 
+    def test_grill_is_registered_and_installed(self):
+        import json
+        owner = '.agents/skills/grill/SKILL.md'
+        self.assertTrue((self.root / owner).is_file(), 'grill owner must ship with OverGate')
+        registry = (self.root / '.agents/SKILLS.md').read_text(encoding='utf-8')
+        self.assertIn(f'| `grill` | `{owner}` |', registry)
+        manifest = json.loads((self.root / '.agents/distribution-manifest.json').read_text(encoding='utf-8'))
+        targets = {entry['target'] for entry in manifest['files']}
+        self.assertTrue({owner, '.agents/skills/grill/upstream.md',
+                         '.agents/skills/grill/LICENSE', '.claude/skills/grill/SKILL.md'} <= targets)
+        self.check(0)
+
+    def test_missing_grill_owner_is_rejected(self):
+        path = self.root / '.agents/skills/grill/SKILL.md'
+        self.assertTrue(path.is_file(), 'grill must exist before testing removal')
+        path.unlink()
+        self.check(1, 'SKILL-002')
+
     def test_missing_owner(self):
         (self.root / '.agents/QA_ROLE.md').unlink()
         self.check(1, 'ROLE-001')

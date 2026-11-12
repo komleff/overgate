@@ -1,5 +1,13 @@
 # Progress
 
+## Grill — implementation candidate (2026-11-12)
+
+По прямому поручению оператора добавлен optional explicit-use `grill`; frozen source,
+MIT и [проверка переноса](../docs/baselines/2026-11-12-grill-import.md) сохранены.
+Детерминированные targeted fixtures PASS; behavioral RED без skill / GREEN с ним;
+scoped Code Review APPROVED0/0. Full suite/CI/merge фиксируются в delivery PR отдельно.
+Установленные проекты и их task state не менялись, live discovery не заявлен.
+
 ## og-4py rc.5.2 — обычный вход в Git для Beads, реализация (2026-11-10)
 
 PR #20, ветка `fix/og-4py-beads-credentials`, план v0.5 PLAN_READY. Сетевые вызовы Beads

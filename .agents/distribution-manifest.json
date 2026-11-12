@@ -109,6 +109,26 @@
       "policy": "managed"
     },
     {
+      "source": ".agents/skills/grill/SKILL.md",
+      "target": ".agents/skills/grill/SKILL.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/grill/upstream.md",
+      "target": ".agents/skills/grill/upstream.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/skills/grill/LICENSE",
+      "target": ".agents/skills/grill/LICENSE",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/skills/grill/SKILL.md",
+      "target": ".claude/skills/grill/SKILL.md",
+      "policy": "managed"
+    },
+    {
       "source": ".agents/templates/AGENTS.template.md",
       "target": ".agents/templates/AGENTS.template.md",
       "policy": "managed"

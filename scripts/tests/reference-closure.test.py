@@ -60,6 +60,24 @@ class ClosureTests(unittest.TestCase):
             p.write_text(content);self.assertTrue(checker.closure(self.root))
         p.unlink();self.assertTrue(checker.closure(self.root))
     def test_valid(self):self.assertEqual(checker.closure(self.root),[])
+
+    def test_grill_source_license_and_adapter_are_required_in_installed_payload(self):
+        for name in ('.agents/skills/grill/upstream.md', '.agents/skills/grill/LICENSE',
+                     '.claude/skills/grill/SKILL.md'):
+            with self.subTest(name=name):
+                path=self.root/name
+                self.assertTrue(path.is_file(), 'grill dependency must be installed')
+                data=path.read_bytes();path.unlink()
+                try:self.assertTrue(any(name in error for error in checker.closure(self.root)))
+                finally:path.write_bytes(data)
+
+    def test_grill_license_cannot_be_omitted_from_manifest(self):
+        path=self.root/'.agents/distribution-manifest.json'
+        manifest=json.loads(path.read_text(encoding='utf-8'))
+        manifest['files']=[entry for entry in manifest['files']
+                           if entry['target']!='.agents/skills/grill/LICENSE']
+        path.write_text(json.dumps(manifest),encoding='utf-8')
+        self.assertTrue(any('CLOSURE-001' in error for error in checker.closure(self.root)))
     def test_helper_absent(self):
         (self.root/'.claude/hooks/shell_grammar.py').unlink()
         self.assertTrue(any('shell_grammar.py' in x for x in checker.closure(self.root)))

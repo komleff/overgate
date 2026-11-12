@@ -663,7 +663,7 @@ def load_manifest(source,sha,beads=True):
         if not meta or meta[0] not in {'100644','100755'}:raise InstallError('missing/unsafe source dependency: '+path)
         payload[path]=(data,0o755 if meta[0]=='100755' else 0o644)
     skills={x for x in payload if x.startswith('.agents/skills/') and x.endswith('/SKILL.md')}
-    expected={f'.agents/skills/{x}/SKILL.md' for x in ('canon-router','product-gap','product-handoff','diagnose','handoff')}
+    expected={f'.agents/skills/{x}/SKILL.md' for x in ('canon-router','product-gap','product-handoff','diagnose','handoff','grill')}
     actual=set(git(source,'ls-tree','-r','--name-only',sha,'--','.agents/skills').decode().splitlines())
     if skills!=expected or {x for x in actual if x.endswith('SKILL.md')}!=expected:
         raise InstallError('missing/nested/orphan skill payload')

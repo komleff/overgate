@@ -1,5 +1,15 @@
 # Active Context
 
+## Grill по запросу оператора — implementation candidate (2026-11-12)
+
+Ветка `feat/optional-grill-skill`: добавлен явный вход `grill` с неизменённым Matt Pocock
+upstream и MIT notice, Claude adapter, managed install inventory и fail-closed closure.
+Пять прежних skills/role triggers сохраняются; обязательного нового stage нет.
+[Источник и ограниченные RED/GREEN пробы](../docs/baselines/2026-11-12-grill-import.md).
+Targeted structural/closure/fresh/no-beads/rc.5-upgrade проверки PASS; один scoped Review
+APPROVED0/0. Full reference suite/CI и operator merge — отдельные gates в PR.
+Никаких обновлений consumers, их pins или native Claude/Codex/T3 activation.
+
 ## og-4py rc.5.2 — Beads с обычным входом пользователя в Git (P0, 2026-11-10)
 
 PR #20, ветка `fix/og-4py-beads-credentials`, CRITICAL, план

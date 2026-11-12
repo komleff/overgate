@@ -17,3 +17,8 @@ Registry владеет только membership и owner paths. Процедур
 | `product-handoff` | `.agents/skills/product-handoff/SKILL.md` | Условная product → PM передача |
 | `diagnose` | `.agents/skills/diagnose/SKILL.md` | Неизвестная причина дефекта |
 | `handoff` | `.agents/skills/handoff/SKILL.md` | Незавершённая работа между сессиями |
+| `grill` | `.agents/skills/grill/SKILL.md` | Явно запрошенное интервью по идее, плану или решению |
+
+Пять исходных generic skills сохраняют свои role triggers. `grill` устанавливается
+вместе с ними, но вызывается только по запросу оператора и не добавляет обязательный
+этап работы. Источник Matt Pocock и MIT notice входят в его installed payload.
