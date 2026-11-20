@@ -88,13 +88,14 @@ for outer_locale in ['C']+(['en_US.UTF-8'] if en_us_available else []):
 if not en_us_available:
     print('NOT RUN RV-F1 en_US.UTF-8 unavailable; C oracle executed')
 
-# Побайтное соответствие всех перенесённых блоков frozen source (AC-03).
+# Побайтное соответствие сохранённых блоков frozen source (AC-03).
+# Slipstream binding, выбор review и recheck проверяются через настоящий CLI ниже.
 frozen=subprocess.check_output(['git','cat-file','blob','b7e7ed132df17643ebf5b2d52af0b284ba3ce93e'],cwd=root).decode('utf-8').splitlines(keepends=True)
 def original_block(number):
     assert frozen[number-1]=='```bash\n'
     return ''.join(frozen[number:frozen.index('```\n',number)])
 actual=gate.read_text(encoding='utf-8')
-for number in [57,187,215,243,512,1946]:
+for number in [57,187,215,512]:
     expected=original_block(number).replace('<PR_NUMBER>','${PR_NUMBER}')
     expected=expected.replace('PREFLIGHT_REPO_ROOT=$(git rev-parse --show-toplevel)','PREFLIGHT_REPO_ROOT="$GATE_TREE"').replace('BD_REPO_ROOT=$(git rev-parse --show-toplevel)','BD_REPO_ROOT="$GATE_TREE"')
     if number==512:
@@ -103,11 +104,14 @@ for number in [57,187,215,243,512,1946]:
     compared=actual
     if number==512:
         assert actual.count('# tracker-defer:start')==1 and actual.count('# tracker-defer:end')==1
-        a=actual.index('      # tracker-defer:start');b=actual.index('      # tracker-defer:end',a)
-        compared=actual[:a]+actual[actual.index('\n',b)+1:]
+        for marker, indent in [('tracker-defer','      '),('managed-defer-helpers',''),('managed-defer','        ')]:
+            start = indent + '# ' + marker + ':start'
+            end = indent + '# ' + marker + ':end'
+            assert compared.count(start) == compared.count(end) == 1
+            a = compared.index(start)
+            b = compared.index(end, a)
+            compared = compared[:a] + compared[compared.index('\n', b)+1:]
     assert expected in compared, ('AC-03 transfer drift outside WI-1 tracker extension', number)
-base=original_block(1900);base=base[base.index('BASE_SHA='):base.index('ENVELOPE_FINGERPRINT=')].replace('<PR_NUMBER>','${PR_NUMBER}')
-assert base in actual, 'AC-03 BASE_SHA drift'
 pub=original_block(2041);pub=pub[pub.index('PUBLISHER='):].replace('$REPO_ROOT/','$GATE_TREE/').replace('<PR_NUMBER>','${PR_NUMBER}').replace('<<< "$BODY"','< "$BODY_SNAPSHOT"')
 a=pub.index('# Тело подаётся');b=pub.index('FINALIZE_PR_TOKEN',a)
 pub=pub[:a]+'# Raw stdin сохраняет все байты проверенного snapshot, включая завершающие LF.\n'+pub[b:]
@@ -138,14 +142,33 @@ with tempfile.TemporaryDirectory(prefix='og159-gate-') as holder:
     for name in subprocess.check_output(['git','ls-files','.claude/hooks','.claude/tools','scripts/lib','scripts/bd-wt.sh','scripts/bd-read.sh'], cwd=root).decode().splitlines():
         dest = trusted / name; dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / name, dest)
+    fingerprint = '.claude/tools/content-fingerprint.py'
+    shutil.copy2(root / fingerprint, trusted / fingerprint)
     entry = trusted / gate.relative_to(root); entry.parent.mkdir(parents=True)
     shutil.copy2(gate, entry)
     for args in [('init','-q','-b','fixture'),('config','user.name','Fixture'),('config','user.email','fixture@example.invalid')]:
         require(run(['git',*args], work), 0, 'git '+args[0])
+    def sha():
+        return subprocess.check_output(['git','rev-parse','HEAD'],cwd=work).decode().strip()
+
+    require(run(['git','commit','--allow-empty','-qm','base'],work),0,'git review base')
+    base = sha()
+    require(run(['git','commit','--allow-empty','-qm','equivalent base'],work),0,'git equivalent base')
+    equivalent_base = sha()
     (work/'data').write_text('fixture')
     require(run(['git','add','data'],work),0,'git add')
     require(run(['git','commit','-qm','fixture'],work),0,'git fixture commit')
-    head = subprocess.check_output(['git','rev-parse','HEAD'],cwd=work).decode().strip()
+    prior_head = sha()
+    require(run(['git','commit','--allow-empty','-qm','equivalent candidate'],work),0,'git equivalent candidate')
+    head = sha()
+    contract = 'Status text\n<!-- CONTRACT-BEGIN -->\nFixture scope.\n<!-- CONTRACT-END -->\n'
+    def content_digest(commit):
+        digest = run([sys.executable, trusted/fingerprint, '--content-digest', base, commit],
+                     work, data=json.dumps({'body':contract}).encode('utf-8'))
+        require(digest,0,'fixture content digest')
+        return digest.stdout.decode('ascii').strip()
+    exact_fingerprint = content_digest(head)
+    assert exact_fingerprint == content_digest(prior_head)
     # Legacy bd-wt requires a reachable origin to establish that no managed
     # beads-backup branch exists before it permits a linked worktree write.
     remote = temp / 'remote.git'
@@ -163,17 +186,37 @@ if args[0]=='cp':
         import time; time.sleep(30); sys.exit(0)
     import shutil
     shutil.copyfile(args[1],args[2]); sys.exit(0)
-if args[0]=='bd': sys.exit(0 if scenario in ('defer','locale') or (scenario=='worktree' and args[1]=='--db') else 1)
+if args[0]=='bd': sys.exit(0 if scenario in ('defer','locale','managed-missing') or (scenario=='worktree' and args[1]=='--db') else 1)
 if args[:2]==['pr','comment']:
     pathlib.Path(os.environ['OUTPUT']).write_bytes(sys.stdin.buffer.read())
     sys.exit(23 if scenario=='publish-error' else 0)
 if scenario=='gh-error': sys.exit(23)
 head=os.environ['FIXTURE_HEAD']
-if '--json' in args:
+base=os.environ['FIXTURE_BASE']
+equivalent=os.environ['FIXTURE_EQUIVALENT_BASE']
+contract=os.environ['FIXTURE_CONTRACT']
+if args[:3]==['api','--method','GET']:
+    endpoint=args[3]
+    calls=[json.loads(line)['args'] for line in p.read_text().splitlines()]
+    count=sum(event[:4]==args[:4] for event in calls)
+    if endpoint=='repos/{owner}/{repo}/pulls/13':
+        if count>1 and scenario=='head-race': head='e'*40
+        if count>1 and scenario=='contract-race': contract=contract.replace('Fixture scope.','Changed scope.')
+        if count>1 and scenario=='status-edit': contract=contract.replace('Status text','Updated status')
+        print(json.dumps({'head':{'sha':head},'base':{'repo':{'full_name':'example/project'},'ref':'feature/main','sha':'b'*40},'body':contract}))
+        if count>1 and scenario=='binding-recheck-error': sys.exit(23)
+    elif endpoint=='repos/example/project/git/ref/heads/feature%2Fmain':
+        if scenario=='base-equivalent' or (count>1 and scenario=='base-race'):
+            base=equivalent
+        print(base)
+    else: raise AssertionError(args)
+elif args[:2]==['pr','view'] and args[-1]=='url':
+    print(json.dumps({'url':'https://github.com/example/project/pull/13'}))
+elif args[:2]==['issue','view']:
+    print(json.dumps({'url':'https://github.com/example/project/issues/7','state':'OPEN','number':7,'__typename':'Issue'}))
+elif '--json' in args:
     field=args[args.index('--json')+1]
     if field=='headRefOid':
-        n=sum(1 for line in p.read_text().splitlines() if 'headRefOid' in line)
-        if scenario=='head-race' and n>1: head='e'*40
         if scenario=='local-mismatch': head='f'*40
         # Первая сеть наступает после capture; исходник меняется детерминированно.
         if scenario=='source-change': pathlib.Path(os.environ['BODY_SOURCE']).write_bytes(b'changed after capture')
@@ -182,17 +225,36 @@ if '--json' in args:
                 assert stat.S_IMODE(snapshot.stat().st_mode)==0o600
                 assert stat.S_IMODE(snapshot.parent.stat().st_mode)==0o700
         print(head)
-    elif field=='baseRefOid': print('b'*40)
     elif field=='comments':
-        body='## CODE REVIEW\nCommit: '+head+'\n'
+        review_head=os.environ['FIXTURE_PRIOR_HEAD'] if scenario=='head-equivalent' else head
+        fingerprint=os.environ['FIXTURE_FINGERPRINT']
+        body='## CODE REVIEW\nCommit: '+review_head+'\n'
+        if scenario!='unbound-review':
+            if scenario=='false-fingerprint': fingerprint='0'*64
+            body+='Review base: '+base+'\nContent-Fingerprint: '+fingerprint+'\n'
+        if scenario=='issue':
+            body+='| # | Severity | Finding | Status | Beads ID / Rationale |\n|---|---|---|---|---|\n| 1 | WARNING | issue | defer to Beads | #7 |\n'
         if scenario=='no-review': body='unrelated'
         if scenario=='locale': body+='| # | Severity | Заголовок | Файл:строка | Статус | Beads ID / Обоснование |\n|---|---|---|---|---|---|\n| 1 | WARNING | x | data:1 | defer to Beads | og-abcd |\n'
         if scenario=='triage-bad': body+='| # | Severity | Finding | File | Status | Beads ID / Rationale |\n| --- | --- | --- | --- | --- | --- |\n| 1 | WARNING | issue | data:1 | | |\n'
-        if scenario in ('defer','snapshot','worktree'): body+='| # | Severity | Finding | File | Status | Beads ID / Rationale |\n| --- | --- | --- | --- | --- | --- |\n| 1 | WARNING | issue | data:1 | defer to Beads | og-abcd |\n'
+        if scenario in ('defer','snapshot','worktree','managed-missing'):
+            body+='| # | Severity | Finding | File | Status | Beads ID / Rationale |\n| --- | --- | --- | --- | --- | --- |\n| 1 | WARNING | issue | data:1 | defer to Beads | og-abcd |\n'
+            if scenario=='managed-missing':
+                body+='| 2 | WARNING | issue | data:2 | defer to Beads | og-local |\n'
         print(json.dumps({'comments':[{'body':body,'createdAt':'2026-10-28T00:00:00Z'}]}))
     else: raise AssertionError(args)
 else: raise AssertionError(args)
 ''', encoding='utf-8')
+    # Windows CreateProcess does not reliably resolve a shell script or .cmd
+    # instead of gh.exe. Intercept only the publisher's native subprocess call.
+    (temp/'sitecustomize.py').write_text(
+        "import os, subprocess, sys\n"
+        "run = subprocess.run\n"
+        "def fixture_run(args, *pos, **kwargs):\n"
+        "    if isinstance(args, list) and args[:3] == ['gh', 'pr', 'comment']:\n"
+        "        args = [sys.executable, os.environ['FIXTURE_GH_DRIVER'], *args[1:]]\n"
+        "    return run(args, *pos, **kwargs)\n"
+        "subprocess.run = fixture_run\n", encoding='utf-8')
     binpath=temp/'bin';binpath.mkdir()
     launcher=(root/'.claude/tools/run-python.sh').as_posix()
     # D-5: publisher (нативный Python) зовёт `gh` через CreateProcess, который ищет только
@@ -207,7 +269,10 @@ else: raise AssertionError(args)
         stub=binpath/name
         stub.write_text('#!/usr/bin/env bash\ncase "$*" in *".overgate-runtime/finalize."*)\nif [ "${SCENARIO-}" = "'+scenario+'" ]; then exit 23; fi\n;;\nesac\nexec "'+Path(tool).as_posix()+'" "$@"\n',encoding='utf-8');stub.chmod(0o755)
     events=temp/'events'; output=temp/'published'; body=work/'body.md'
-    env=dict(os.environ,PATH=str(binpath)+os.pathsep+os.environ['PATH'],EVENTS=str(events),OUTPUT=str(output),FIXTURE_HEAD=head,BODY_SOURCE=str(body))
+    env=dict(os.environ,PATH=str(binpath)+os.pathsep+os.environ['PATH'],EVENTS=str(events),
+             OUTPUT=str(output),FIXTURE_HEAD=head,BODY_SOURCE=str(body),FIXTURE_PRIOR_HEAD=prior_head,
+             FIXTURE_BASE=base,FIXTURE_EQUIVALENT_BASE=equivalent_base,FIXTURE_CONTRACT=contract,
+             FIXTURE_FINGERPRINT=exact_fingerprint, FIXTURE_GH_DRIVER=str(driver), PYTHONPATH=str(temp))
     env.pop('FINALIZE_PR_TOKEN',None)
     def invoke(args, scenario='ok', expected=0, contains=b'', no_network=False):
         events.write_bytes(b''); output.unlink(missing_ok=True)
@@ -237,7 +302,7 @@ else: raise AssertionError(args)
         require(run([bash,entry,*args],work,dict(env,PATH=str(argbin)+os.pathsep+env['PATH'])),2,'argument preflight before git/dirname')
         assert not argtrace.exists(), 'external tool called before usage'
     result=invoke(['13','--check'],contains=b'GATE_RESULT=PASS')
-    for field,value in [('HEAD_COMMIT',head),('BASE_SHA','b'*40),('EVIDENCE_SHA',head),('UNRESOLVED','0')]:
+    for field,value in [('HEAD_COMMIT',head),('BASE_SHA',base),('EVIDENCE_SHA',head),('UNRESOLVED','0')]:
         assert (field+'='+value).encode() in result.stdout, ('summary',field,result.stdout)
     if os.name!='nt':
         assert ('GATE_TREE='+trusted.resolve().as_posix()).encode() in result.stdout
@@ -249,6 +314,146 @@ else: raise AssertionError(args)
     for scenario,diagnosis in [('gh-error','gh завершился'),('local-mismatch','не совпадает'),('no-review','нет CODE REVIEW'),('triage-bad','СТОП')]:
         invoke(['13','--check'],scenario,1,diagnosis.encode())
     valid=('## ✅ Готов к merge\n\nCommit: '+head+'\nUnresolved findings: 0').encode()
+    require(run(['git','config','--local','overgate.beadsPublisher',work],work),0,'register managed fixture')
+    invoke(['13','--check'],'defer',1,b'managed')
+    records=[json.loads(line)['args'] for line in events.read_text().splitlines()]
+    assert not any(args[0]=='bd' for args in records), 'managed local bd must not be consulted'
+    published = temp / 'snapshot-source'
+    require(run(['git','-c','core.autocrlf=false','init','-q','-b','beads-backup',published],work),0,'snapshot source')
+    for key, value in [('user.name','Fixture'),('user.email','fixture@example.invalid'),('core.autocrlf','false')]:
+        require(run(['git','config','--local',key,value],published),0,'snapshot config '+key)
+    taskdb=published/'.beads'
+    taskdb.mkdir()
+    snapshot=(json.dumps({'_type':'issue','id':'og-abcd','title':'Published task','status':'open',
+                          'priority':2,'issue_type':'task'})+'\n').encode()
+    (taskdb/'issues.jsonl').write_bytes(snapshot)
+    require(run(['git','add','.beads'],published),0,'legacy snapshot files')
+    require(run(['git','commit','-qm','legacy snapshot'],published),0,'legacy snapshot commit')
+    legacy=subprocess.check_output(['git','rev-parse','HEAD'],cwd=published).decode().strip()
+    ledger=b'{"version":1,"outcomes":[]}\n'
+    (taskdb/'overgate-outcomes-v1.json').write_bytes(ledger)
+    (taskdb/'overgate-managed-v1.json').write_bytes(json.dumps({
+        'version':1,'prefix':'og','snapshot_sha256':hashlib.sha256(snapshot).hexdigest(),
+        'ledger_sha256':hashlib.sha256(ledger).hexdigest()}).encode()+b'\n')
+    require(run(['git','add','.beads'],published),0,'managed snapshot files')
+    require(run(['git','commit','-qm','managed activation'],published),0,'managed activation commit')
+    frozen=subprocess.check_output(['git','rev-parse','HEAD'],cwd=published).decode().strip()
+    require(run(['git','push','-q',remote,'HEAD:refs/heads/beads-backup'],published),0,'publish to disposable origin')
+    reader=trusted/'scripts/bd-read.sh'
+    original_reader=reader.read_bytes()
+    real_reader=reader.with_name('bd-read-real.sh')
+    real_reader.write_bytes(original_reader)
+    receipt=temp/'reader-calls'
+    reader.write_text(
+        '#!/usr/bin/env bash\n'
+        '[ "${BD_READ_FIXTURE+x}" = "" ] && [ "$BD_READ_NO_FETCH" = "1" ] || exit 77\n'
+        'printf "%s:%s\\n" "$BD_READ_REF" "$*" >> "$READER_CALLS"\n'
+        'git update-ref refs/remotes/origin/beads-backup "$LEGACY_R" || exit 78\n'
+        'exec bash "'+real_reader.as_posix()+'" "$@"\n',encoding='utf-8')
+    # Assert the effective Git subprocess environments without modifying any Git objects.
+    Git = shutil.which('git')
+    assert Git
+    object_calls = temp / 'git-object-calls'
+    git_guard = temp / 'object-bin'
+    git_guard.mkdir()
+    git_proxy = git_guard / 'git'
+    git_proxy.write_bytes(b"""#!/usr/bin/env bash
+case "$1:$*" in
+  fetch:*refs/remotes/origin/beads-backup*|rev-parse:*refs/remotes/origin/beads-backup*|cat-file:*:.beads/overgate-managed-v1.json) stage=freeze ;;
+  show:*:.beads/issues.jsonl) stage=snapshot ;;
+  *) exec "$FIXTURE_REAL_GIT" "$@" ;;
+esac
+if [ "${GIT_NO_REPLACE_OBJECTS-}" != "1" ] || [ "${GIT_REPLACE_REF_BASE+x}" = "x" ]; then
+  printf 'Unsafe Git object-read environment in %s\\n' "$stage" >&2
+  exit 73
+fi
+printf '%s\\n' "$stage" >> "$OBJECT_CALLS"
+exec "$FIXTURE_REAL_GIT" "$@"
+""")
+    git_proxy.chmod(0o755)
+    history_guard = temp / 'check-git-history.cjs'
+    history_guard.write_text("""const child = require('node:child_process');
+const fs = require('node:fs');
+const original = child.execFileSync;
+child.execFileSync = function (command, args, options) {
+    if (command === 'git') {
+        if (options?.env?.GIT_NO_REPLACE_OBJECTS !== '1' || 'GIT_REPLACE_REF_BASE' in options.env) {
+            throw new Error('Unsafe Git object-read environment in history');
+        }
+        if (args[0] === 'log' || args[0] === 'rev-list') {
+            fs.appendFileSync(process.env.OBJECT_CALLS, 'history\\n');
+        }
+    }
+    return original.apply(this, arguments);
+};
+require('node:module').syncBuiltinESMExports();
+""", encoding='utf-8')
+    original_env = env.copy()
+    env.update(PATH=str(git_guard)+os.pathsep+env['PATH'], FIXTURE_REAL_GIT=Path(Git).as_posix(),
+               OBJECT_CALLS=str(object_calls), NODE_OPTIONS='--require='+json.dumps(history_guard.as_posix()),
+               GIT_NO_REPLACE_OBJECTS='fixture', GIT_REPLACE_REF_BASE='refs/fixture-unused/')
+    fixture=temp/'unpublished.jsonl'
+    fixture.write_bytes(snapshot.replace(b'og-abcd',b'og-local'))
+    env.update(BD_READ_FIXTURE=str(fixture),BD_READ_REF=legacy,BD_READ_NO_FETCH='caller override',
+               READER_CALLS=str(receipt),LEGACY_R=legacy)
+    invoke(['13','--check'],'defer',contains=b'GATE_RESULT=PASS')
+    records=[json.loads(line)['args'] for line in events.read_text().splitlines()]
+    assert not any(args[0]=='bd' for args in records)
+    assert receipt.read_text().splitlines()==[f'{frozen}:show og-abcd']
+    assert set(object_calls.read_text().splitlines())=={'freeze','snapshot','history'}
+    receipt.write_bytes(b'')
+    invoke(['13','--check'],'managed-missing',1,f'published managed Beads snapshot {frozen}'.encode())
+    assert receipt.read_text().splitlines()==[f'{frozen}:show og-abcd', f'{frozen}:show og-local', f'{frozen}:list --json']
+    records=[json.loads(line)['args'] for line in events.read_text().splitlines()]
+    assert not any(args[0]=='bd' for args in records)
+    reader.write_bytes(original_reader)
+    env.clear()
+    env.update(original_env)
+    require(run(['git','config','--local','--unset','overgate.beadsPublisher'],work),0,'restore legacy fixture')
+
+    mode_base = temp / 'installed-base'
+    require(run(['git','worktree','add','--detach',mode_base,base],work),0,'trusted installed base')
+    installed=mode_base/'.overgate/install-state.json'
+    installed.parent.mkdir()
+    installed.write_text('{"beads":true,"beads_protocol":"managed-v1"}',encoding='utf-8')
+    require(run(['git','add','.overgate/install-state.json'],mode_base),0,'trusted mode bytes')
+    require(run(['git','commit','-qm','trusted installed mode'],mode_base),0,'trusted mode commit')
+    installed_sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=mode_base).decode().strip()
+    candidate_state=work/'.overgate/install-state.json'
+    candidate_state.parent.mkdir()
+    candidate_state.write_text('{"beads":true,"beads_protocol":"legacy-v0"}',encoding='utf-8')
+    env['FIXTURE_BASE']=installed_sha
+    invoke(['13','--check'],'managed-missing',1,b'published managed Beads snapshot')
+    records=[json.loads(line)['args'] for line in events.read_text().splitlines()]
+    assert not any(args[0]=='bd' for args in records), 'trusted base mode must govern candidate data'
+    env['FIXTURE_BASE']=base
+    candidate_state.unlink()
+    candidate_state.parent.rmdir()
+
+    installed.write_text('{"beads":false,"beads_protocol":"none"}',encoding='utf-8')
+    require(run(['git','add','.overgate/install-state.json'],mode_base),0,'trusted no-Beads state')
+    require(run(['git','commit','-qm','trusted no-Beads mode'],mode_base),0,'trusted no-Beads commit')
+    no_beads_base=subprocess.check_output(['git','rev-parse','HEAD'],cwd=mode_base).decode().strip()
+
+    # The following legacy fixtures need an origin with no managed history.
+    require(run(['git','remote','rename','origin','managed-fixture'],work),0,'archive managed fixture origin')
+    legacy_origin=temp/'legacy-origin.git'
+    require(run(['git','init','--bare','-q',legacy_origin],work),0,'git bare legacy origin')
+    require(run(['git','remote','add','origin',legacy_origin],work),0,'git legacy origin fixture')
+
+    invoke(['13','--check'],'unbound-review',1,b'Review base')
+    invoke(['13','--check'],'false-fingerprint',1,b'Content-Fingerprint')
+    equivalent = invoke(['13','--check'],'base-equivalent',contains=b'Content-equivalent CODE REVIEW accepted')
+    assert ('BASE_SHA='+equivalent_base).encode() in equivalent.stdout
+    equivalent = invoke(['13','--check'],'head-equivalent',contains=b'Content-equivalent CODE REVIEW accepted')
+    assert ('EVIDENCE_SHA='+prior_head).encode() in equivalent.stdout
+    env['FIXTURE_BASE']=no_beads_base
+    body.write_bytes(valid)
+    invoke(['13','--publish',body],'issue');assert output.read_bytes()==valid
+    records=[json.loads(line)['args'] for line in events.read_text().splitlines()]
+    assert any(args[:3]==['issue','view','7'] for args in records)
+    assert not any(args[0]=='bd' for args in records)
+    env['FIXTURE_BASE']=base
     if en_us_available:
         previous_locale=env.get('LC_ALL')
         env['LC_ALL']='en_US.UTF-8'
@@ -271,16 +476,23 @@ else: raise AssertionError(args)
     body.write_bytes(valid.replace(head.encode(),b'f'*40));invoke(['13','--publish',body],expected=1,contains=b'Commit:')
     for invalid in [valid+b'\n\xff', valid+b'\n\x00']:
         body.write_bytes(invalid);invoke(['13','--publish',body],expected=1)
-    for scenario in ['head-race','publish-error']:
-        body.write_bytes(valid);invoke(['13','--publish',body],scenario,1)
+    for scenario, diagnosis in [
+        ('head-race','HEAD изменился'),
+        ('base-race','base PR изменился'),
+        ('contract-race','contract PR изменился'),
+        ('binding-recheck-error','повторное чтение HEAD/base/contract'),
+        ('publish-error','НЕ опубликован'),
+    ]:
+        body.write_bytes(valid);invoke(['13','--publish',body],scenario,1,diagnosis.encode())
     for suffix in [b'',b'\n',b'\n\n\n']:
         body.write_bytes(valid+suffix);invoke(['13','--publish',body]);assert output.read_bytes()==valid+suffix
     body.write_bytes(valid+b'\n\n');invoke(['13','--publish',body],'source-change');assert output.read_bytes()==valid+b'\n\n'
+    body.write_bytes(valid);invoke(['13','--publish',body],'status-edit');assert output.read_bytes()==valid
     body.write_bytes(valid);invoke(['13','--publish',body],'cleanup-error',1, 'rm завершился с кодом 23'.encode());assert output.read_bytes()==valid
     print('PASS QA-F1: cleanup failure is nonzero after publication; earlier copy/publisher error statuses survive successful cleanup')
     # Ловушки в WORK_TREE не исполняются даже при наличии одноимённых helpers.
     trap=temp/'trap'
-    for rel in ['.claude/tools/with-timeout.sh','.claude/tools/run-python.sh','.claude/tools/publish-pr-comment.py','scripts/lib/bd-env.sh','scripts/bd-wt.sh','scripts/bd-read.sh','scripts/lib/bd-read-engine.mjs']:
+    for rel in ['.claude/tools/with-timeout.sh','.claude/tools/run-python.sh','.claude/tools/publish-pr-comment.py',fingerprint,'scripts/lib/bd-env.sh','scripts/bd-wt.sh','scripts/bd-read.sh','scripts/lib/bd-read-engine.mjs']:
         path=work/rel;path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text('echo trap >> "'+trap.as_posix()+'"\nexit 99\n',encoding='utf-8',newline='\n');path.chmod(0o755)
     invoke(['13','--check'],'defer',contains=b'GATE_RESULT=PASS');assert not trap.exists()
@@ -305,7 +517,7 @@ else: raise AssertionError(args)
     missing=trusted/'.claude/tools/with-timeout.sh';saved=missing.read_bytes();missing.unlink()
     invoke(['13','--check'],expected=1,contains=b'with-timeout.sh',no_network=True);assert not trap.exists()
     missing.write_bytes(saved);missing.chmod(0o755)
-    for relative in ['.claude/tools/run-python.sh','.claude/tools/publish-pr-comment.py']:
+    for relative in ['.claude/tools/run-python.sh',fingerprint,'.claude/tools/publish-pr-comment.py']:
         path=trusted/relative;saved=path.read_bytes();mode=path.stat().st_mode
         path.unlink();body.write_bytes(valid)
         invoke(['13','--publish',body],expected=1)

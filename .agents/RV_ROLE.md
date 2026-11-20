@@ -49,6 +49,8 @@ Advisory не требует автоматической правки план�
 
 ## Режим CODE_REVIEW
 
+Возьми Review Contract, exact base/HEAD и границы проверки из контекста PM (.agents/PM_ROLE.md, §1).
+
 Вход: Review Contract:
 - goal;
 - acceptance surface;
@@ -83,7 +85,8 @@ Base-only movement при совпавшем content fingerprint не требу
 Укажи точные поля:
 - `Mode: PLAN_REVIEW | CODE_REVIEW`;
 - `Model:`;
-- `Commit:`;
+- `Commit:` (полный SHA);
+- `Review base:` (полный SHA, для CODE_REVIEW);
 - source plan/Review Contract;
 - `Reviewed-Paths:` (явный список);
 - `Content-Fingerprint:` (ADR 3.29 / primitive ADR 3.28 З);

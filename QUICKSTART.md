@@ -18,9 +18,9 @@ Helper и установщик сами bd не скачивают. Для PR н
 или авторизованный коннектор; `gh auth status` проверяют при использовании shell `gh`.
 Для Beads после merge нужен отдельный авторизованный `git push` из publisher checkout.
 
-Source OverGate — чистый Git checkout с `.git`. Для установки OverGate 4.0.0 выберите
-тег версии в [GitHub Releases](https://github.com/komleff/overgate/releases).
-Для проверки кандидата используйте точный SHA из PR.
+Source OverGate — чистый Git checkout с `.git`. Для проверки кандидата Slipstream
+`v5.0.0-rc.1` используйте точный SHA из PR. Для установки опубликованной версии
+выберите тег из [GitHub Releases](https://github.com/komleff/overgate/releases).
 
 На Windows для fresh install source OverGate и проектный target создавайте сразу как LF checkout:
 `git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'` (замените оба
@@ -38,7 +38,7 @@ inventory/preservation до перехода; новый clone сам по се�
 Для Codex сохраняются его существующие permissions; Claude-specific mode flags к нему не относятся.
 Поручите агенту:
 
-> Установи OverGate из чистого trusted Git checkout выбранной версии по `.agents/INSTALL.md`.
+> Установи OverGate из чистого trusted Git checkout выбранного RC по `.agents/INSTALL.md`.
 > Сохрани мою product authority, команды проверок и custom hooks; подготовь target Draft PR,
 > получи PLAN_READY от отдельного reviewer-агента, выполни apply и helpers в указанном порядке,
 > заполни `.agents/project/verify.sh` тестами проекта и проверь результат. Merge оставь мне.
