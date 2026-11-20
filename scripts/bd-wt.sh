@@ -162,9 +162,11 @@ esac
 
 # Незарегистрированный clone тоже может видеть managed remote: legacy bd-wt не должен
 # менять локальный Dolt до проверки опубликованного protocol/history.
+# Вызывается в command substitution: сетевой файл переноса (og-4py) живёт не дольше вызова.
 remote_mode() {
-  local rc=0 shallow tip markers prior
-  git ls-remote --exit-code --heads origin refs/heads/beads-backup >/dev/null 2>&1 || rc=$?
+  local rc=0 shallow tip markers prior root
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || { printf 'unknown'; return; }
+  bd_env_network_git "$root" ls-remote --exit-code --heads origin refs/heads/beads-backup >/dev/null 2>&1 || rc=$?
   case "$rc" in
     2)
       if git show-ref --verify --quiet refs/remotes/origin/beads-backup \
@@ -176,7 +178,7 @@ remote_mode() {
     *) printf 'unknown'; return ;;
   esac
   shallow="$(git rev-parse --is-shallow-repository 2>/dev/null)" || { printf 'unknown'; return; }
-  if [ "$shallow" != false ] || ! git fetch -q origin "$BD_BACKUP_REFSPEC"; then
+  if [ "$shallow" != false ] || ! bd_env_network_git "$root" fetch -q origin "$BD_BACKUP_REFSPEC"; then
     printf 'unknown'; return
   fi
   tip="$(git rev-parse --verify 'refs/remotes/origin/beads-backup^{commit}' 2>/dev/null)" || { printf 'unknown'; return; }
@@ -186,6 +188,8 @@ remote_mode() {
   if [ -n "$prior" ]; then printf 'managed'; else printf 'legacy'; fi
 }
 published_mode="$(remote_mode)"
+# Перед любым exec ниже файл переноса не существует и не наследуется (og-4py).
+bd_env_network_cleanup
 case "$published_mode" in
   managed)
     case "$sub" in

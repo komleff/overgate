@@ -27,7 +27,7 @@ MOVED = {
 INTEGRATION = {
     'install-fresh-upgrade-rollback', 'install-helpers', 'bd-bootstrap-native', 'bd-upgrade-preserve',
     'bd-legacy-fence', 'bd-sync', 'bd-managed-prefix', 'bd-managed-snapshot', 'bd-managed-two-clone',
-    'bd-publisher-guard', 'bd-publisher-setup', 'bd-managed-routes'}
+    'bd-publisher-guard', 'bd-publisher-setup', 'bd-managed-routes', 'bd-network-git'}
 
 
 def bash():

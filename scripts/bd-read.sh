@@ -76,7 +76,7 @@ read_snapshot() {
 # Снимок получаем целиком ДО движка: при ошибке git show node иначе получил бы пустой stdin
 # и напечатал «(нет задач)» прежде, чем pipeline упадёт по pipefail — двусмысленный вывод.
 SNAP="$(mktemp "${TMPDIR:-/tmp}/overgate-bd-read.XXXXXX")"
-trap 'rm -f "$SNAP"' EXIT
+trap 'rm -f "$SNAP"; bd_env_network_cleanup' EXIT
 if ! read_snapshot > "$SNAP"; then
   exit 1
 fi

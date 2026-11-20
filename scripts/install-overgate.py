@@ -2,15 +2,19 @@
 """Frozen-source plan/apply/rollback. Никакой сети, credentials или force overwrite."""
 from __future__ import annotations
 import argparse
+import atexit
 import base64
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 
 MANIFEST = '.agents/distribution-manifest.json'
@@ -44,6 +48,323 @@ def git(root,*args):
     if run.returncode: raise InstallError('git failed: '+ ' '.join(args[:2]))
     return run.stdout
 
+# og-4py, ADR §3.39: сетевые вызовы Git получают перенос allowlist пользовательского config.
+# Спецификация общая с scripts/lib/bd-env.sh и scripts/lib/bd-git-environment.mjs.
+USER_CONFIG_OVERRIDE='OVERGATE_GIT_USER_CONFIG_FILE'
+USER_CONFIG_PATTERN=r'^(credential\..+|user\.name|user\.email)$'
+RESIDUAL_CONFIG_PATTERN=r'^(http\..+|url\..+\.(insteadof|pushinsteadof)|core\.sshcommand|author\..+|committer\..+|commit\.gpgsign|gpg\..+)$'
+_ALLOWED_KEY=re.compile(r'^(credential\..+|user\.name|user\.email)$',re.S)
+_KEY_SHAPE=re.compile(r'^[A-Za-z0-9-]+(\..*)?\.[A-Za-z][A-Za-z0-9-]*$',re.S)
+_SCOPES={'system','global','local','worktree','command','unknown'}
+_CARRIED_SCOPES={'system','global','unknown'}
+_NETWORK_STATE={}
+_NETWORK_HANDLERS=[False]
+
+def redact_key(key):
+    # В subsection URL может оказаться токен: userinfo не печатается.
+    return re.sub(r'(://)[^/@]*@',r'\1<userinfo>@',str(key))
+
+def _without_git_variables():
+    env={name:value for name,value in os.environ.items() if not name.startswith('GIT_')}
+    env['GIT_TERMINAL_PROMPT']='0'
+    return env
+
+def parse_user_git_config(raw):
+    if not raw:return []
+    if not raw.endswith(b'\0'):raise InstallError('user Git config framing invalid (fail-closed)')
+    try:fields=raw[:-1].decode('utf-8','strict').split('\0')
+    except UnicodeDecodeError:raise InstallError('user Git config encoding invalid (fail-closed)') from None
+    if len(fields)%2:raise InstallError('user Git config framing invalid (fail-closed)')
+    entries=[]
+    for index in range(0,len(fields),2):
+        scope,record=fields[index],fields[index+1]
+        if scope not in _SCOPES:raise InstallError('user Git config scope invalid (fail-closed)')
+        key,separator,value=record.partition('\n')
+        if not _KEY_SHAPE.fullmatch(key):raise InstallError('user Git config key framing invalid (fail-closed)')
+        entries.append((scope,key,value if separator else None))
+    return entries
+
+def _reader_output(root,pattern,extra=()):
+    if USER_CONFIG_OVERRIDE in os.environ:
+        try:return Path(os.environ[USER_CONFIG_OVERRIDE]).read_bytes()
+        except OSError:raise InstallError(USER_CONFIG_OVERRIDE+' is set but unreadable (fail-closed)') from None
+    # Без GIT_CONFIG_NOSYSTEM и прочих caller GIT_*: иначе теряются scope system/unknown.
+    try:
+        run=subprocess.run(['git','config',*extra,'--show-scope','--includes','-z','--get-regexp',pattern],cwd=str(root),
+                           env=_without_git_variables(),capture_output=True,timeout=30)
+    except (OSError,subprocess.TimeoutExpired):raise InstallError('user Git config reader unavailable (fail-closed)') from None
+    if run.returncode==1:return b''
+    if run.returncode:raise InstallError('user Git config reader failed (exit '+str(run.returncode)+'); Git >= 2.26 with --show-scope is required (fail-closed)')
+    return run.stdout
+
+def read_user_git_config(root):
+    return [entry for entry in parse_user_git_config(_reader_output(root,USER_CONFIG_PATTERN))
+            if entry[0] in _CARRIED_SCOPES and _ALLOWED_KEY.fullmatch(entry[1])]
+
+def residual_user_git_keys(root):
+    # Только имена и scope residual-ключей; значения не читаются (--name-only).
+    if USER_CONFIG_OVERRIDE in os.environ:return []
+    try:raw=_reader_output(root,RESIDUAL_CONFIG_PATTERN,('--name-only',))
+    except InstallError:return []
+    fields=raw.decode('utf-8','replace').split('\0')
+    if fields and fields[-1]=='':fields.pop()
+    return [(fields[index],fields[index+1]) for index in range(0,len(fields)-1,2) if fields[index] in _CARRIED_SCOPES]
+
+def residual_hint(root):
+    keys=residual_user_git_keys(root)
+    if not keys:return ''
+    return ('; user Git config keys not carried into the Beads network route: '+
+            ', '.join(redact_key(key)+' ('+scope+')' for scope,key in keys)+
+            ' — og-4py residual (ADR §3.39); diagnose: python3 scripts/install-overgate.py network-diagnose --probe ls-remote')
+
+def dispose_network_git_environment():
+    for directory,_ in list(_NETWORK_STATE.values()):
+        shutil.rmtree(directory,ignore_errors=True)
+    _NETWORK_STATE.clear()
+
+def _sigterm(signum,frame):
+    raise SystemExit(128+signum)
+
+def _install_network_handlers():
+    if _NETWORK_HANDLERS[0]:return
+    _NETWORK_HANDLERS[0]=True
+    atexit.register(dispose_network_git_environment)
+    if threading.current_thread() is threading.main_thread() and hasattr(signal,'SIGTERM') \
+       and signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL,None):
+        signal.signal(signal.SIGTERM,_sigterm)
+
+_CONFIG_ESCAPES={'\\':'\\\\','"':'\\"','\n':'\\n','\t':'\\t','\b':'\\b'}
+
+def carried_config_bytes(entries):
+    """Каждая запись — собственная секция в порядке вывода reader. `git config --add` не подходит:
+    он дописывает ключ в существующую одноимённую секцию и меняет порядок списка helper."""
+    text='';expected=''
+    for scope,key,value in entries:
+        first=key.find('.');last=key.rfind('.')
+        section=key[:first];variable=key[last+1:];subsection=None if first==last else key[first+1:last]
+        residue='' if value is None else re.sub('[\n\t\b]','',value)
+        if re.search('[\x00-\x1f\x7f]',residue) or re.search('[\x00\n]',subsection or ''):
+            raise InstallError('user Git config value/key unsupported for transfer: '+redact_key(key)+' (fail-closed)')
+        text+=('['+section+']\n' if subsection is None else
+               '['+section+' "'+re.sub(r'[\\"]',lambda m:_CONFIG_ESCAPES[m.group(0)],subsection)+'"]\n')
+        text+=('\t'+variable+'\n' if value is None else
+               '\t'+variable+' = "'+re.sub('[\\\\"\n\t\b]',lambda m:_CONFIG_ESCAPES[m.group(0)],value)+'"\n')
+        canonical=section.lower()+('' if subsection is None else '.'+subsection)+'.'+variable.lower()
+        expected+=canonical+'\0' if value is None else canonical+'\n'+value+'\0'
+    return text,expected
+
+def network_git_environment(root,extra=None):
+    """Окружение сетевого вызова: чистая изоляция + приватный временный GIT_CONFIG_GLOBAL.
+    Файл создаётся лениво, один раз на процесс и корень; удаляется atexit/SIGTERM."""
+    resolved=str(Path(root).resolve())
+    if resolved not in _NETWORK_STATE:
+        _install_network_handlers()
+        directory=tempfile.mkdtemp(prefix='overgate-git-net-')
+        file=os.path.join(directory,'config')
+        _NETWORK_STATE[resolved]=(directory,file)
+        try:
+            os.chmod(directory,0o700)
+            text,expected=carried_config_bytes(read_user_git_config(resolved))
+            descriptor=os.open(file,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_BINARY',0),0o600)
+            with os.fdopen(descriptor,'wb') as stream:stream.write(text.encode('utf-8'))
+            # Read-back тем же git: перенос побайтно совпадает с записями reader.
+            run=subprocess.run(['git','config','--file',file,'-z','--list'],env=git_environment(),capture_output=True,timeout=30)
+            if not (run.returncode==0 or (run.returncode==1 and not text)) or run.stdout.decode('utf-8','replace')!=expected:
+                raise InstallError('user Git config transfer read-back mismatch (fail-closed)')
+            os.chmod(file,0o600)
+        except BaseException:
+            del _NETWORK_STATE[resolved]
+            shutil.rmtree(directory,ignore_errors=True)
+            raise
+    env=git_environment(extra)
+    env['GIT_CONFIG_GLOBAL']=_NETWORK_STATE[resolved][1]
+    return env
+
+def net_git(root,*args,cwd=None,check=True):
+    """Сетевой Git-вызов (ls-remote/fetch/push) в окружении маршрута с переносом allowlist."""
+    run=subprocess.run(['git','-C',str(cwd or root),*args],capture_output=True,env=network_git_environment(root))
+    if check and run.returncode:raise InstallError('git failed: '+' '.join(args[:2])+residual_hint(root))
+    return run.stdout if check else run
+
+# --- Preflight: helper для URL по правилам git (urlmatch.c / credential.c).
+_URL_UNSAFE=' <>"%{}|\\^`'
+_URL_RESERVED=":/?#[]@!$&'()*+,;="
+_CREDENTIAL_UNSAFE=' <>"%{}|\\^`:?#[]@'
+_HEX2=re.compile(r'[0-9A-Fa-f]{2}')
+
+def _index_of_any(text,characters):
+    for index,character in enumerate(text):
+        if character in characters:return index
+    return len(text)
+
+def _percent_decode(text):
+    raw=text.encode('utf-8');out=bytearray();index=0
+    while index<len(raw):
+        if raw[index]==0x25 and _HEX2.fullmatch(raw[index+1:index+3].decode('latin-1')):
+            out.append(int(raw[index+1:index+3],16));index+=3
+        else:out.append(raw[index]);index+=1
+    return out.decode('utf-8','replace')
+
+def _percent_encode(text,encode_slash):
+    out=''
+    for byte in text.encode('utf-8'):
+        character=chr(byte)
+        out+=('%%%02X'%byte if byte<=0x1f or byte>=0x7f or (encode_slash and character=='/') or character in _CREDENTIAL_UNSAFE
+              else character)
+    return out
+
+def _normalize_escapes(text):
+    raw=text.encode('utf-8');out='';index=0
+    while index<len(raw):
+        byte=raw[index];escaped=False
+        if byte==0x25:
+            digits=raw[index+1:index+3].decode('latin-1')
+            if not _HEX2.fullmatch(digits):return None
+            byte=int(digits,16);index+=2;escaped=True
+        character=chr(byte)
+        out+=('%%%02X'%byte if byte<=0x1f or byte>=0x7f or character in _URL_UNSAFE or (escaped and character in _URL_RESERVED)
+              else character)
+        index+=1
+    return out
+
+def normalize_url(url,allow_globs=False):
+    scheme=re.match(r'[A-Za-z][A-Za-z0-9+.-]*://',url)
+    if not scheme:return None
+    result={'scheme':scheme.group(0)[:-3].lower(),'user':None,'host':'','port':'','path':'/'}
+    rest=url[scheme.end():]
+    at=rest.find('@')
+    if 0<=at<_index_of_any(rest,'/?#'):
+        info=_normalize_escapes(rest[:at])
+        if info is None:return None
+        result['user']=info.split(':',1)[0]
+        rest=rest[at+1:]
+    end=_index_of_any(rest,'/?#');authority=rest[:end];host=authority;port=None
+    if authority.startswith('['):
+        close=authority.find(']')
+        if close<0:return None
+        host=authority[:close+1];tail=authority[close+1:]
+        if tail:
+            if not tail.startswith(':'):return None
+            port=tail[1:]
+    elif ':' in authority:
+        host,port=authority.split(':',1)
+    if not host:
+        if result['scheme']!='file':return None
+    elif not re.fullmatch(r'[A-Za-z0-9.\-*\[\]:]+' if allow_globs else r'[A-Za-z0-9.\-\[\]:]+',host):return None
+    result['host']=host.lower()
+    if port:
+        if not re.fullmatch(r'[0-9]+',port):return None
+        trimmed=port.lstrip('0') or '0'
+        if (result['scheme']=='http' and trimmed=='80') or (result['scheme']=='https' and trimmed=='443'):result['port']=''
+        else:
+            if not 1<=int(trimmed)<=65535:return None
+            result['port']=trimmed
+    path_part=rest[end:];path_part=path_part[:_index_of_any(path_part,'?#')]
+    if path_part.startswith('/'):path_part=path_part[1:]
+    segments=[];trailing=False
+    for segment in (path_part.split('/') if path_part else []):
+        normalized=_normalize_escapes(segment)
+        if normalized is None:return None
+        trailing=False
+        if normalized=='.':trailing=True
+        elif normalized=='..':
+            if not segments:return None
+            segments.pop();trailing=True
+        else:segments.append(normalized)
+    if path_part and path_part.endswith('/'):trailing=True
+    result['path']='/'+'/'.join(segments)+('/' if trailing and segments else '')
+    return result
+
+def credential_from_url(url,partial=False):
+    protocol_end=url.find('://')
+    if not partial and protocol_end<=0:return None
+    tail=url[protocol_end+3:] if protocol_end>=0 else url
+    at=tail.find('@');colon=tail.find(':');slash=_index_of_any(tail,'/?#')
+    result={'protocol':url[:protocol_end] if protocol_end>0 else None,'username':None,'host':None,'path':None}
+    if at<0 or slash<=at:host=tail[:slash]
+    elif colon<0 or at<=colon:result['username']=_percent_decode(tail[:at]);host=tail[at+1:slash]
+    else:result['username']=_percent_decode(tail[:colon]);host=tail[at+1:slash]
+    if not partial or host:result['host']=_percent_decode(host)
+    remainder=tail[slash:].lstrip('/')
+    if remainder:
+        decoded=_percent_decode(remainder)
+        while len(decoded)>1 and decoded.endswith('/'):decoded=decoded[:-1]
+        result['path']=decoded
+    return result
+
+def _format_credential(credential):
+    out=credential['protocol']+'://'
+    if credential['username']:out+=_percent_encode(credential['username'],True)+'@'
+    if credential['host']:out+=credential['host']
+    if credential['path']:out+='/'+_percent_encode(credential['path'],False)
+    return out
+
+def _match_host(host,pattern):
+    host_parts=host.split('.');pattern_parts=pattern.split('.')
+    return len(host_parts)==len(pattern_parts) and all(part=='*' or part==host_parts[index] for index,part in enumerate(pattern_parts))
+
+def _match_path_prefix(url_path,prefix_path):
+    if not prefix_path or prefix_path=='/':return True
+    prefix=prefix_path[:-1] if prefix_path.endswith('/') else prefix_path
+    return url_path.startswith(prefix) and (len(url_path)==len(prefix) or url_path[len(prefix)]=='/')
+
+def credential_pattern_matches(pattern,target,credential):
+    prefix=normalize_url(pattern,True)
+    if prefix:
+        return (target['scheme']==prefix['scheme'] and (prefix['user'] is None or target['user']==prefix['user'])
+                and _match_host(target['host'],prefix['host']) and target['port']==prefix['port']
+                and _match_path_prefix(target['path'],prefix['path']))
+    want=credential_from_url(pattern,True)
+    return all(want[field] is None or credential[field]==want[field] for field in ('protocol','host','path','username'))
+
+def credential_helpers_from_entries(entries,url):
+    """Итоговый список helper для URL: порядок записей, url-match, сброс пустым значением."""
+    credential=credential_from_url(url)
+    if not credential:return []
+    target=normalize_url(_format_credential(credential))
+    helpers=[]
+    for key,value in entries:
+        if not key.startswith('credential.'):continue
+        rest=key[len('credential.'):];dot=rest.rfind('.')
+        variable=rest if dot<0 else rest[dot+1:]
+        if variable.lower()!='helper':continue
+        if dot>=0 and (not target or not credential_pattern_matches(rest[:dot],target,credential)):continue
+        if value is None:raise InstallError('valueless '+redact_key(key)+' is invalid Git config (fail-closed)')
+        helpers=[] if value=='' else helpers+[value]
+    return helpers
+
+def credential_helpers_for(root,url,env):
+    """Эффективный credential config так, как его видит git в окружении маршрута."""
+    run=subprocess.run(['git','config','-z','--get-regexp',r'^credential\.'],cwd=str(root),env=env,capture_output=True,timeout=30)
+    if run.returncode==1:return []
+    if run.returncode:raise InstallError('effective credential config unavailable (exit '+str(run.returncode)+') (fail-closed)')
+    records=run.stdout.decode('utf-8','replace').split('\0')
+    if records and records[-1]=='':records.pop()
+    entries=[]
+    for record in records:
+        key,separator,value=record.partition('\n')
+        entries.append((key,value if separator else None))
+    return credential_helpers_from_entries(entries,url)
+
+_PROBES={'ls-remote':('ls-remote','--heads','origin'),
+         'push-dry-run':('push','--dry-run','origin','HEAD:refs/heads/og-auth-probe')}
+
+def network_diagnose(root,probe=None):
+    """Ключи и scope без значений + сетевая проба в production-окружении маршрута."""
+    lines=['OverGate Beads network Git diagnostic (python; values hidden)']
+    carried=read_user_git_config(root)
+    lines+=['carried: '+scope+' '+redact_key(key) for scope,key,_ in carried] or ['carried: <none>']
+    lines+=['residual: '+scope+' '+redact_key(key)+' (not carried; og-4py residual, ADR §3.39)' for scope,key in residual_user_git_keys(root)]
+    if probe:
+        if probe not in _PROBES:raise InstallError('probe must be ls-remote or push-dry-run')
+        run=subprocess.run(['git',*_PROBES[probe]],cwd=str(root),env=network_git_environment(root),capture_output=True,timeout=120)
+        stderr=run.stderr.decode('utf-8','replace')
+        result=('ok' if run.returncode==0 else 'auth-unavailable' if re.search(
+            r'terminal prompts disabled|could not read (Username|Password)|Authentication failed|HTTP (401|403)|returned error: 40[13]',stderr,re.I)
+            else 'failed')
+        lines.append('probe: '+probe+' exit='+str(run.returncode)+' result='+result)
+    return '\n'.join(lines)
+
 def origin_identity(root):
     fetch=git(root,'remote','get-url','origin').decode('utf-8').strip()
     pushes=git(root,'remote','get-url','--push','--all','origin').decode('utf-8').splitlines()
@@ -54,7 +375,7 @@ def origin_identity(root):
 def origin_sha256(root):return digest(json_bytes(origin_identity(root)))
 
 def origin_heads(root,destination):
-    raw=git(root,'ls-remote','--heads',destination,'refs/heads/main','refs/heads/beads-backup')
+    raw=net_git(root,'ls-remote','--heads',destination,'refs/heads/main','refs/heads/beads-backup')
     heads={}
     for line in raw.splitlines():
         match=re.fullmatch(rb'([0-9a-f]{40})\trefs/heads/(main|beads-backup)',line)
@@ -79,7 +400,7 @@ def frozen_legacy_snapshot(root,R):
         init=subprocess.run(['git','init','-q','--bare',str(bare)],capture_output=True,env=git_environment())
         if init.returncode:raise InstallError('disposable remote read setup failed')
         git(bare,'remote','add','origin',fetch)
-        git(bare,'fetch','-q','--no-tags','origin','refs/heads/beads-backup')
+        net_git(root,'fetch','-q','--no-tags','origin','refs/heads/beads-backup',cwd=bare)
         if git(bare,'rev-parse','FETCH_HEAD').decode('ascii').strip()!=R:
             raise InstallError('frozen remote task R advanced during read')
         return git(bare,'show',R+':.beads/issues.jsonl')
@@ -176,10 +497,10 @@ def beads_inventory(root):
         observed['git_config_sha256']=digest(config.stdout)
         if any(prefix in config.stdout for prefix in (b'overgate.beads',b'beads-sync.',b'beads.')):
             reasons.append('registered Beads writer/override')
-    prompt_env=git_environment()
+    prompt_env=network_git_environment(root)
     try:
-        remote=subprocess.run(['git','-C',str(root),'ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup'],
-                              capture_output=True,env=prompt_env,timeout=30)
+        remote=subprocess.run(['git','-C',str(root),'ls-remote','--exit-code','--heads','origin','refs/heads/beads-backup'],env=prompt_env,
+                              capture_output=True,timeout=30)
         if remote.returncode==2 and not remote.stdout:remote_state={'status':'verified-absent','R':None}
         elif remote.returncode==0 and re.fullmatch(rb'[0-9a-f]{40}\trefs/heads/beads-backup\n?',remote.stdout):
             remote_state={'status':'present','R':remote.stdout.split(b'\t',1)[0].decode()};reasons.append('remote beads-backup present')
@@ -599,9 +920,13 @@ def main():
     p.add_argument('--switch-managed',action='store_true')
     p=sub.add_parser('apply');p.add_argument('--plan',required=True,type=Path);p.add_argument('--approval',required=True,type=Path)
     p=sub.add_parser('rollback');p.add_argument('--target',required=True,type=Path);p.add_argument('--backup',required=True,type=Path)
+    # Диагностика og-4py для живых проверок: ключи/scope без значений и сетевая проба.
+    p=sub.add_parser('network-diagnose');p.add_argument('--root',type=Path,default=Path.cwd())
+    p.add_argument('--probe',choices=tuple(_PROBES))
     args=parser.parse_args()
     try:
-        if args.command=='plan':
+        if args.command=='network-diagnose':print(network_diagnose(args.root,args.probe))
+        elif args.command=='plan':
             plan=make_plan(args.source,args.source_sha,args.target,args.contract,args.target_pr,args.mode,args.no_beads,args.preservation,args.switch_managed)
             args.output.write_bytes(json_bytes(plan))
             for note in plan['notes']:print(note)

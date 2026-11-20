@@ -709,11 +709,14 @@ fs.rmSync(root,{recursive:true,force:true});'''
         remote=self.root/'target-origin.git';git(remote,'symbolic-ref','HEAD','refs/heads/main')
         publisher=self.root/'publisher';peer=self.root/'peer'
         for clone in (publisher,peer):subprocess.check_call(['git','clone','-q',str(remote),str(clone)])
-        # Git clone has no repo-local identity; global identity must not silently qualify it.
+        # Git clone has no repo-local identity; the user Git config source is empty (og-4py seam),
+        # so neither user config nor service identity qualifies the publisher.
         command=[BASH,'scripts/bd-activate.sh','--publisher-root',publisher,'--peer-root',peer,'--bd-bin',binary,
                  '--prefix','big-heroes','--actor','agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2',
                  '--title','Actual project task','--work-dir',self.root/'identity-work']
+        empty_user_config=self.root/'empty-user-config';empty_user_config.write_bytes(b'')
         env={key:value for key,value in os.environ.items() if not key.startswith(('GIT_AUTHOR_','GIT_COMMITTER_'))}
+        env['OVERGATE_GIT_USER_CONFIG_FILE']=str(empty_user_config)
         run=subprocess.run(command,cwd=self.target,env=env,capture_output=True,text=True,timeout=90)
         self.assertNotEqual(run.returncode,0)
         self.assertIn('publisher Git identity unavailable',run.stderr)
@@ -825,7 +828,7 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.assertNotIn(b'docker-compose.prod.yml',source)
         self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
         state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
-        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.5'))
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0'))
         self.assertNotIn('source',state);self.assertNotIn('backup',state)
         def no_absolute(value):
             if isinstance(value,dict):

@@ -50,7 +50,8 @@ def main(packet_name):
             raise FenceError('legacy writer linked checkout denied')
         if git(root,'symbolic-ref','--quiet','--short','HEAD')!='main' or git(root,'rev-parse','HEAD')!=head:
             raise FenceError('all legacy writer clones require the same trusted main')
-        if git(root,'ls-remote','--heads','origin','refs/heads/main').split()!=[head,'refs/heads/main']:
+        # Сетевой вызов с обычным входом пользователя (og-4py, ADR §3.39).
+        if installer.net_git(root,'ls-remote','--heads','origin','refs/heads/main').decode().strip().split()!=[head,'refs/heads/main']:
             raise FenceError('legacy writer main is not exact origin/main')
         if git(root,'status','--porcelain','--untracked-files=no'):
             raise FenceError('legacy writer tracked source/index changed')

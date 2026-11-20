@@ -32,7 +32,9 @@ bd_sync_validate || exit 1
 # Приватная временная директория (umask 077, mktemp).
 umask 077
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bd-sync.XXXXXX")
-cleanup() { rm -rf "$WORK"; }
+# Файл переноса пользовательского Git config (og-4py) создан в bd_sync_validate: эта ловушка
+# заменяет его EXIT-ловушку, поэтому удаляет и его.
+cleanup() { rm -rf "$WORK"; bd_env_network_cleanup; }
 trap cleanup EXIT
 SNAP="$WORK/snap.jsonl"
 IDX="$WORK/index"
@@ -45,14 +47,14 @@ blob=$(git hash-object -w "$SNAP")
 # 2. Родитель = актуальный remote tip. Явный destination-refspec для single-branch/CI-клонов.
 parent=""
 remote_rc=0
-git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null 2>&1 || remote_rc=$?
+bd_env_network_git "$BD_SYNC_NET_ROOT" ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null || remote_rc=$?
 case "$remote_rc" in
   0)
     if [ "$BD_SYNC_VALIDATED_PRESENT" != 1 ]; then
       echo "ОШИБКА: remote появился после legacy guard; публикация остановлена." >&2
       exit 1
     fi
-    git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
+    bd_env_network_git "$BD_SYNC_NET_ROOT" fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
     parent=$(git rev-parse --verify "refs/remotes/${REMOTE}/${BRANCH}^{commit}")
     if [ "$parent" != "$BD_SYNC_VALIDATED_TIP" ]; then
       echo "ОШИБКА: remote tip изменился после legacy guard; публикация остановлена." >&2
@@ -144,18 +146,18 @@ GIT_INDEX_FILE="$IDX" git read-tree --empty
 GIT_INDEX_FILE="$IDX" git update-index --add --cacheinfo "100644,${blob},.beads/issues.jsonl"
 tree=$(GIT_INDEX_FILE="$IDX" git write-tree)
 
-# 4. Fast-forward-коммит поверх remote tip.
+# 4. Fast-forward-коммит поверх remote tip. Identity — как у обычного git пользователя (og-4py).
 msg="beads-backup: snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [ -n "$parent" ]; then
-  commit=$(git commit-tree "$tree" -p "$parent" -m "$msg")
+  commit=$(bd_env_network_git "$BD_SYNC_NET_ROOT" commit-tree "$tree" -p "$parent" -m "$msg")
 else
-  commit=$(git commit-tree "$tree" -m "$msg")
+  commit=$(bd_env_network_git "$BD_SYNC_NET_ROOT" commit-tree "$tree" -m "$msg")
 fi
 git update-ref "refs/heads/${BRANCH}" "$commit"
 
 # 5. Fast-forward push (без --force) с ЯВНЫМ refspec (src:dst) — не полагаемся на короткое имя,
 #    чтобы исключить ambiguity/неявную трактовку ref. При reject — откат локальной ветки.
-if ! git push "$REMOTE" "refs/heads/${BRANCH}:refs/heads/${BRANCH}"; then
+if ! bd_env_network_git "$BD_SYNC_NET_ROOT" push "$REMOTE" "refs/heads/${BRANCH}:refs/heads/${BRANCH}"; then
   if [ -n "$parent" ]; then
     git update-ref "refs/heads/${BRANCH}" "$parent"
   else

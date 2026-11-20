@@ -32,7 +32,10 @@ bd_env_assert_main_checkout "bd-apply-intents.sh"
 
 branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 head="$(git rev-parse HEAD)"
-trusted="$(git ls-remote --exit-code --heads origin refs/heads/main 2>/dev/null | awk '{print $1}')"
+# Сетевой вызов с обычным входом пользователя (og-4py): файл переноса живёт только в этой
+# command substitution и в exec-окружение не попадает.
+trusted_line="$(bd_env_network_git "$repo_root" ls-remote --exit-code --heads origin refs/heads/main)" || trusted_line=""
+trusted="$(printf '%s\n' "$trusted_line" | awk '{print $1}')"
 if [ "$branch" != main ] || [ -z "$trusted" ] || [ "$head" != "$trusted" ]; then
   echo "ERROR: managed publisher требует exact trusted origin/main HEAD (fail-closed)." >&2
   exit 6
@@ -46,4 +49,5 @@ native_entry="$(bd_env_native_path "${SCRIPT_DIR}/lib/bd-managed-entry.mjs")" ||
   echo "ERROR: native Node module path unavailable (fail-closed)." >&2
   exit 6
 }
+bd_env_network_cleanup
 exec node "$native_entry" "$@"

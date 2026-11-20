@@ -415,7 +415,9 @@ class GateBudget(unittest.TestCase):
 
     def test_gate_hanging_on_limit_query_is_blocked(self):
         """Зависший запрос предела режется пределом быстрой проверки, а не 600 с записи."""
-        tree = gate_tree("#!/usr/bin/env bash\nsleep 30\nexit 0\n", ("QUICK_LIMIT=10", "QUICK_LIMIT=2"))
+        # Окно 2 с относится к запросу предела. Предшествующие guards используют штатный предел.
+        query = 'GATE_BASE="$(sh "$TIMEOUT_HELPER"'
+        tree = gate_tree("#!/usr/bin/env bash\nsleep 30\nexit 0\n", (query, f"QUICK_LIMIT=2\n{query}"))
         started = time.monotonic()
         code, err = run(ENTRY, "git commit -m x", tree, str(tree), timeout=25)
         elapsed = time.monotonic() - started

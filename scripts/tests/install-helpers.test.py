@@ -286,6 +286,33 @@ class Helpers(unittest.TestCase):
         self.assertTrue(self.git('ls-remote','--heads','origin','beads-backup'))
         self.assertTrue(any('export' in c for c in self.calls()))
 
+    @unittest.skipIf(os.name=='nt','probe wrapper uses POSIX git shim')
+    def test_bootstrap_network_calls_carry_unknown_scope_helper_through_export_chain(self):
+        # og-4py B-09: родитель с GIT_CONFIG_NOSYSTEM=1, helper scope unknown подан через seam;
+        # сетевые вызовы bootstrap (Python) и дочернего bd-sync-export.sh видят helper.
+        self.remote();work=Path(self.temp.name)
+        override=work/'user-config';override.write_bytes(b'unknown\0credential.helper\n!OGMARKER-helper\0')
+        probe=work/'probe-bin';probe.mkdir();log=work/'git-calls.log';log.write_text('')
+        shim=('#!/usr/bin/env bash\nargs=("$@"); i=0\n'
+              'while [ "$i" -lt "${#args[@]}" ]; do case "${args[$i]}" in -C|-c) i=$((i+2)) ;; --*) i=$((i+1)) ;; *) break ;; esac; done\n'
+              'marker=no\nif [ -n "${GIT_CONFIG_GLOBAL:-}" ] && [ -f "$GIT_CONFIG_GLOBAL" ] && grep -q OGMARKER "$GIT_CONFIG_GLOBAL"; then marker=yes; fi\n'
+              'printf \'%s\\t%s\\t%s\\n\' "${args[$i]:-}" "${GIT_CONFIG_GLOBAL:-<unset>}" "$marker" >> \''+str(log)+'\'\n'
+              'exec \''+shutil.which('git')+'\' "$@"\n')
+        (probe/'git').write_text(shim);(probe/'git').chmod(0o755)
+        tmp=work/'route-tmp';tmp.mkdir()
+        self.env.update(OVERGATE_GIT_USER_CONFIG_FILE=str(override),GIT_CONFIG_NOSYSTEM='1',TMPDIR=str(tmp),
+                        PATH=str(probe)+os.pathsep+self.env['PATH'])
+        self.run_helper('bd-bootstrap')
+        calls=[line.split('\t') for line in log.read_text().splitlines()]
+        network=[call for call in calls if call[0] in ('ls-remote','fetch','push','commit-tree')]
+        self.assertTrue(any(call[0]=='push' for call in network),calls)
+        self.assertTrue(any(call[0]=='ls-remote' for call in network),calls)
+        self.assertEqual([call for call in network if call[2]!='yes'],[],'network call without carried helper')
+        self.assertEqual([call for call in calls if call[0] not in ('ls-remote','fetch','push','commit-tree','config')
+                          and call[1] not in ('/dev/null','NUL')],[],'non-network call left isolation')
+        self.assertEqual([p for p in tmp.iterdir() if p.name.startswith('overgate-git-net')],[],'network config removed')
+        self.assertTrue(self.git('ls-remote','--heads','origin','beads-backup'))
+
     def test_beads_worktree_stops_before_any_bd_call(self):
         (self.root/'seed').write_text('x');self.git('add','seed');self.git('commit','-qm','seed')
         wt=Path(self.temp.name)/'linked';self.git('worktree','add','-q','-b','linked',str(wt))

@@ -22,7 +22,8 @@ bd_sync_validate || exit 1
 
 umask 077
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bd-sync.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+# Ловушка заменяет EXIT-ловушку файла переноса Git config (og-4py) и удаляет его сама.
+trap 'rm -rf "$WORK"; bd_env_network_cleanup' EXIT
 SNAP="$WORK/snap.jsonl"
 
 # 0. Проверка инициализации воркспейса.
@@ -34,7 +35,7 @@ fi
 # 1. Получить ветку. Явный destination-refspec: на single-branch/CI-клонах обычный
 #    `git fetch origin <branch>` может заполнить только FETCH_HEAD и НЕ создать
 #    remote-tracking ref → `git show <remote>/<branch>:...` ниже не нашёл бы снапшот.
-git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
+bd_env_network_git "$BD_SYNC_NET_ROOT" fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
 remote_tip=$(git rev-parse "refs/remotes/${REMOTE}/${BRANCH}")
 if [ "$BD_SYNC_VALIDATED_PRESENT" != 1 ] || [ "$remote_tip" != "$BD_SYNC_VALIDATED_TIP" ]; then
   echo "ОШИБКА: remote tip изменился после legacy guard; импорт отменён." >&2

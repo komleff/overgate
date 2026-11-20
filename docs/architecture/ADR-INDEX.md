@@ -14,6 +14,7 @@
 | [Pipeline ADR §3.36](../../.agents/PIPELINE_ADR.md) | Шпаргалка оператора в HOW_TO_USE и generic роль проекта GD; частично заменяет inventory/AC-04 PR #7 | proposed for rc.5.1 |
 | [Pipeline ADR §3.37](../../.agents/PIPELINE_ADR.md) | Commit tier reference-гейта overgate: ограниченный набор для гейта коммита, полный — `/verify` и CI; состав заменён §3.38 | proposed for rc.5.1 |
 | [Pipeline ADR §3.38](../../.agents/PIPELINE_ADR.md) | Ядро commit tier (12 шагов), Windows CI `windows-commit-tier`, fail-closed guard и Git Bash route на Windows; заменяет состав §3.37 | proposed for rc.5.2 |
+| [Pipeline ADR §3.39](../../.agents/PIPELINE_ADR.md) | Обычный вход пользователя в Git для сетевых вызовов Beads: перенос allowlist `credential.*`/`user.*` только в ls-remote/fetch/push/commit-tree; дополняет §3.34 | proposed for rc.5.2 |
 
 ## Решения проекта
 

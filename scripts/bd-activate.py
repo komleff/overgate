@@ -48,7 +48,8 @@ def trusted(root):
         raise ActivationError('trusted standalone main checkout required')
     if git(root,'symbolic-ref','--quiet','--short','HEAD')!='main':raise ActivationError('trusted main branch required')
     head=git(root,'rev-parse','HEAD')
-    remote=git(root,'ls-remote','--heads','origin','refs/heads/main').split()
+    # Сетевой вызов с обычным входом пользователя (og-4py, ADR §3.39).
+    remote=call(['git','-C',root,'ls-remote','--heads','origin','refs/heads/main'],root,'Git ls-remote',env=installer.network_git_environment(root)).split()
     if remote!=[head,'refs/heads/main']:raise ActivationError('trusted exact origin/main required')
     # Git status refreshes index stat data even when it rejects a CRLF checkout.
     # A copied index checks staged entries; a fresh HEAD index forces a working
@@ -112,13 +113,6 @@ def origin_state(root):
     if not fetch or not pushes:raise ActivationError('origin fetch/push destination unavailable')
     return (fetch,pushes)
 
-def local_git_values(root,key):
-    result=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-all',key],
-                          capture_output=True,env=installer.git_environment())
-    if result.returncode==1:return []
-    if result.returncode!=0:raise ActivationError('publisher local Git config unavailable: '+key)
-    return [value.decode('utf-8') for value in result.stdout.rstrip(b'\0').split(b'\0')]
-
 def optional_local_config(root,key):
     result=subprocess.run(['git','-C',str(root),'config','--local','--get',key],
                           capture_output=True,env=installer.git_environment())
@@ -128,22 +122,34 @@ def optional_local_config(root,key):
     if result.returncode:raise ActivationError('peer reader registration unavailable: '+key)
     return stdout.strip()
 
+IDENTITY_UNAVAILABLE=('publisher Git identity unavailable; set user.name/user.email in your Git config (global or repo-local) '
+                      'or explicit service author/committer identity')
+
 def publisher_identity_auth(root,push_destinations):
-    names=local_git_values(root,'user.name');emails=local_git_values(root,'user.email')
-    local_identity=len(names)==len(emails)==1 and names[0].strip() and emails[0].strip()
+    # og-4py (ADR §3.39): то же правило, что assertPublisherIdentityAndAuth в bd-publisher-setup.mjs:
+    # окружение публикации (repo-local + перенесённый allowlist) и url-match helper по правилам git.
+    env=installer.network_git_environment(root)
+    def effective(key):
+        result=subprocess.run(['git','-C',str(root),'config','--get',key],capture_output=True,env=env,timeout=60)
+        if result.returncode==1:return ''
+        if result.returncode:raise ActivationError('publisher Git config unavailable: '+key)
+        return result.stdout.decode('utf-8',errors='strict').strip()
+    config_identity=bool(effective('user.name') and effective('user.email'))
     service_identity=all(os.environ.get(key,'').strip() for key in
                          ('GIT_AUTHOR_NAME','GIT_AUTHOR_EMAIL','GIT_COMMITTER_NAME','GIT_COMMITTER_EMAIL'))
-    if not (local_identity or service_identity):
-        raise ActivationError('publisher Git identity unavailable under isolated config; set repo-local user.name/user.email or explicit service author/committer identity')
+    if not (config_identity or service_identity):raise ActivationError(IDENTITY_UNAVAILABLE)
     for identity in ('GIT_AUTHOR_IDENT','GIT_COMMITTER_IDENT'):
-        if not git(root,'var',identity):raise ActivationError('publisher Git identity unavailable: '+identity)
-    helpers=[value for value in local_git_values(root,'credential.helper') if value]
+        try:value=call(['git','-C',root,'var',identity],root,'Git var',env=env)
+        except ActivationError:raise ActivationError(IDENTITY_UNAVAILABLE) from None
+        if not value:raise ActivationError(IDENTITY_UNAVAILABLE)
     for destination in push_destinations.splitlines():
         if re.match(r'^https://',destination,re.I):
-            if not helpers:raise ActivationError('publisher HTTPS authentication unavailable under isolated config; configure a trusted repo-local credential.helper or use SSH agent origin')
+            if not installer.credential_helpers_for(root,destination,env):
+                raise ActivationError('publisher HTTPS authentication unavailable: no credential.helper applies to the HTTPS push URL in your Git config; '
+                                      'sign in for ordinary git push (for example gh auth setup-git or Git Credential Manager) or use SSH agent origin')
         elif re.match(r'^(ssh://|[^/\s]+@[^/:\s]+:)',destination,re.I):
             if not os.environ.get('SSH_AUTH_SOCK'):
-                raise ActivationError('publisher SSH authentication unavailable; start SSH agent or configure trusted repo-local HTTPS credential.helper')
+                raise ActivationError('publisher SSH authentication unavailable; start SSH agent or use an HTTPS origin with your ordinary Git credential helper')
         elif not (Path(destination).is_absolute() or destination.startswith('file://')):
             raise ActivationError('publisher push origin transport unsupported under isolated config')
 
@@ -377,7 +383,7 @@ def main(args):
                    'binary_sha256':qualified,'queue_sha256':queue['queue_sha256'],'primary_init':primary_init,'peer_init':peer_init}
         checkpoint(work,journal,'complete',completed=completed)
         return completed
-    except (ActivationError,OSError,ValueError,KeyError,subprocess.TimeoutExpired) as error:
+    except (ActivationError,installer.InstallError,OSError,ValueError,KeyError,subprocess.TimeoutExpired) as error:
         raise ActivationError(str(error)+'; queue/base/actor retained: '+json.dumps(queue,sort_keys=True)) from error
 
 def parse():
@@ -389,6 +395,6 @@ def parse():
 
 if __name__=='__main__':
     try:print(json.dumps(main(parse()),sort_keys=True))
-    except (ActivationError,OSError,ValueError,KeyError,subprocess.TimeoutExpired) as error:
+    except (ActivationError,installer.InstallError,OSError,ValueError,KeyError,subprocess.TimeoutExpired) as error:
         print('STOP: '+str(error),file=sys.stderr)
         raise SystemExit(1)

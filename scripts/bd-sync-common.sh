@@ -45,15 +45,21 @@ bd_sync_validate() {
     echo "ОШИБКА: managed publisher зарегистрирован; legacy sync запрещён. Используй trusted typed queue publisher." >&2
     return 1
   fi
+  # og-4py (ADR §3.39): сетевые вызовы получают обычный вход пользователя (credential.*,
+  # user.*); прочие Git-вызовы остаются в чистой изоляции. Ошибка подготовки — fail-closed.
+  if ! BD_SYNC_NET_ROOT="$(git rev-parse --show-toplevel)" || ! bd_env_network_prepare "$BD_SYNC_NET_ROOT"; then
+    echo "ОШИБКА: сетевое Git-окружение маршрута недоступно; legacy sync остановлен (fail-closed)." >&2
+    return 1
+  fi
   local remote_rc=0
-  git ls-remote --exit-code --heads "$REMOTE" "refs/heads/${BRANCH}" >/dev/null 2>&1 || remote_rc=$?
+  bd_env_network_git "$BD_SYNC_NET_ROOT" ls-remote --exit-code --heads "$REMOTE" "refs/heads/${BRANCH}" >/dev/null || remote_rc=$?
   case "$remote_rc" in
     0)
       if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
         echo "ОШИБКА: partial history не подтверждает отсутствие managed protocol; legacy sync остановлен." >&2
         return 1
       fi
-      if ! git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"; then
+      if ! bd_env_network_git "$BD_SYNC_NET_ROOT" fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"; then
         echo "ОШИБКА: не удалось подтвердить remote task state перед legacy sync (fail-closed)." >&2
         return 1
       fi
