@@ -29,6 +29,16 @@
       "policy": "managed"
     },
     {
+      "source": ".agents/PM_ERR.md",
+      "target": ".agents/PM_ERR.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/DOC_PR.md",
+      "target": ".agents/DOC_PR.md",
+      "policy": "managed"
+    },
+    {
       "source": ".agents/PL_ROLE.md",
       "target": ".agents/PL_ROLE.md",
       "policy": "managed"
