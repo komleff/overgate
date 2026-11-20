@@ -1,14 +1,16 @@
 ---
 title: "Project Manager — Delivery First"
 status: active
-version: "3.0"
-date: 2026-09-19
+version: "3.1"
+date: 2026-11-20
 tags: [pipeline, pm, delivery-first, planning, qa, review]
 related:
   - .agents/AGENT_ROLES.md
   - .agents/PIPELINE.md
   - .agents/PIPELINE_ADR.md
   - .agents/SV_ROLE.md
+  - .agents/PM_ERR.md
+  - .agents/DOC_PR.md
 ---
 
 # Project Manager — Delivery First
@@ -120,6 +122,12 @@ PM не повышает advisory до blocker и не исправляет advi
 Исправленный blocker получает affected QA + scoped re-review; полный review не повторяется без
 изменения review surface.
 
+Перед повторным QA, ревью или ручным прогоном в существующем поручении назови,
+что изменилось или какой вопрос открыт и какое решение по выпуску, PR или дефекту
+зависит от результата. Правило действует и при возврате к тому же проверяющему в той же
+сессии. Если оба исхода ведут к одному действию, используй имеющиеся данные. Штатные
+обязательные тесты и автоматические проверки выполняются по установленному порядку.
+
 ## 4. Verification-call budget
 
 Считаются только новые independent verifier launches.
@@ -178,10 +186,12 @@ Merge делает только оператор. Агент не push/merge в 
 Supervisor нужен для portfolio/dependencies/priorities/scope drift/budget stop-loss.
 Не проси Supervisor породить reviewer swarm.
 
-## 9. Что не читать по умолчанию
+## 9. Самосверка и справочные памятки
 
-`PM_ERR.md`, `DOC_PR.md`, `REVIEW_CYCLE.md` и полная история ADR — reference/lessons,
-а не mandatory runtime context. Читай их только для конкретного failure/history вопроса.
+Примерно каждые 2 часа активной работы, с интервалом до 4 часов, сверяй работу с целью
+и ближайшим условием приёмки по [PM_ERR.md](PM_ERR.md). При заметном симптоме открой нужный
+раздел сразу. Для петли документального ревью или выбора проверки для правки документа
+используй [DOC_PR.md](DOC_PR.md). Для старта достаточно обязательного контекста роли.
 
 ## 10. Self-modification pipeline
 
