@@ -389,8 +389,9 @@ child.execFileSync = function (command, args, options) {
 require('node:module').syncBuiltinESMExports();
 """, encoding='utf-8')
     original_env = env.copy()
+    # NODE_OPTIONS honors double quotes for spaces but does not decode JSON Unicode escapes.
     env.update(PATH=str(git_guard)+os.pathsep+env['PATH'], FIXTURE_REAL_GIT=Path(Git).as_posix(),
-               OBJECT_CALLS=str(object_calls), NODE_OPTIONS='--require='+json.dumps(history_guard.as_posix()),
+               OBJECT_CALLS=str(object_calls), NODE_OPTIONS='--require='+json.dumps(history_guard.as_posix(), ensure_ascii=False),
                GIT_NO_REPLACE_OBJECTS='fixture', GIT_REPLACE_REF_BASE='refs/fixture-unused/')
     fixture=temp/'unpublished.jsonl'
     fixture.write_bytes(snapshot.replace(b'og-abcd',b'og-local'))
