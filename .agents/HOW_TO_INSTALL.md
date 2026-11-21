@@ -1,14 +1,21 @@
 ---
-title: "Установка OverGate — entrypoint"
+title: "Как попросить агента установить OverGate"
 status: active
 version: "4.0.0"
 date: 2026-11-21
 tags: [installation]
 ---
-# Установка
+# Как добавить OverGate в свой проект
 
-Единственный актуальный путь fresh/upgrade/rollback: [INSTALL.md](INSTALL.md).
-Чистый source Git checkout с `.git` (не release ZIP) и exact source SHA → target Draft PR + plan/Verification Contract → PLAN_READY → backup/apply
-→ project verify + QA/scoped review → одна финализация → operator merge.
-Штатный маршрут сохраняет project overrides. Тег выпуска или exact SHA кандидата
-выбирается по [INSTALL.md](INSTALL.md).
+Откройте папку своего проекта в Codex или Claude Code. Скопируйте сообщение в чат агента.
+
+```text
+Добавь OverGate v4.0.0 Delivery First в мой проект по инструкции:
+https://github.com/komleff/overgate/blob/v4.0.0/.agents/INSTALL.md
+
+Сохрани мои настройки и текущие изменения. Проверь, что установка работает.
+Пришли ссылку на pull request и объясни, как начать пользоваться OverGate.
+Я сам решу, когда принять изменения.
+```
+
+Для агента: [порядок установки, обновления и отката](INSTALL.md).
