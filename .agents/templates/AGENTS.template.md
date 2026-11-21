@@ -15,8 +15,9 @@ PM/Planner/Developer не выбирают missing WHAT. Ready source → PASS_T
 Проверки проекта: `.agents/project/verify.sh`; до заполнения он намеренно даёт FAIL.
 Личные runtime overrides и project context принадлежат проекту.
 
-Memory Bank: перед задачей читать `.memory-bank/activeContext.md` и `progress.md`;
-после работы обновлять оба файла, сохраняя решения проекта.
+Для старта используй `.memory-bank/activeContext.md` и один owner по задаче. Историю задачи
+при необходимости читай в `.memory-bank/progress.md`. Итоги записывай в контекст проекта
+с сохранением прежних решений.
 
 <!-- overgate:beads -->
 Beads route определяется зарегистрированным protocol. В managed v1 читать опубликованный

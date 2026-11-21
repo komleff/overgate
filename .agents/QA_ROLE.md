@@ -29,6 +29,8 @@ QA независимо доказывает, что реализация удо
 
 ## Вход
 
+Используй контекст PM (.agents/PM_ROLE.md, §1) и сверяй кандидат с источником требований.
+
 - product/product source/spec source;
 - Verification Contract;
 - candidate SHA/build;

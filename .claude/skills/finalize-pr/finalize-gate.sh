@@ -206,6 +206,7 @@ fi
 # только `jq`, а `jq` на пустом входе отрабатывает успешно и отдаёт пустую строку — отказ `gh`
 # становился бы «на этом commit нет internal review-pass», и стоп приходил бы с чужим адресом
 # починки (перезапусти цикл ревью) вместо своего (чини окружение).
+# gate-review:start
 INTERNAL_COMMENTS_JSON=$(run_with_timeout 10 gh pr view ${PR_NUMBER} --json comments)
 internal_comments_rc=$?
 if [ "$internal_comments_rc" -ne 0 ]; then
@@ -251,175 +252,16 @@ if [ -z "$LAST_INTERNAL" ]; then
     exit 1
   fi
 
-  EVIDENCE_SHA=$(jq -Rrs 'capture("Commit:\\s*`?(?<sha>[0-9a-fA-F]{40})").sha // empty' <<< "$LAST_INTERNAL")
+  EVIDENCE_SHA=$(jq -Rrs 'capture("Commit:\\s*`?(?<sha>[0-9a-fA-F]{40})").sha // empty | ascii_downcase' <<< "$LAST_INTERNAL")
   evidence_sha_rc=$?
   if [ "$evidence_sha_rc" -ne 0 ]; then
     echo "СТОП: Commit binding CODE REVIEW не разобран — jq завершился с кодом ${evidence_sha_rc}." >&2
     exit 1
   fi
-  EVIDENCE_FINGERPRINT=$(jq -Rrs 'capture("Content-Fingerprint:\\s*`?(?:sha256:)?(?<fp>[0-9a-fA-F]{64})").fp // empty' <<< "$LAST_INTERNAL")
-  evidence_fp_rc=$?
-  if [ "$evidence_fp_rc" -ne 0 ]; then
-    echo "СТОП: Content-Fingerprint CODE REVIEW не разобран — jq завершился с кодом ${evidence_fp_rc}." >&2
+  if [ -z "$EVIDENCE_SHA" ]; then
+    echo "СТОП: prior CODE REVIEW не несёт Commit binding." >&2
     exit 1
   fi
-  if [ -z "$EVIDENCE_SHA" ] || [ -z "$EVIDENCE_FINGERPRINT" ]; then
-    echo "СТОП: prior CODE REVIEW не несёт Commit + Content-Fingerprint binding." >&2
-    exit 1
-  fi
-
-  BINDING_META=$(run_with_timeout 10 gh pr view ${PR_NUMBER} --json baseRefOid,body)
-  binding_meta_rc=$?
-  if [ "$binding_meta_rc" -ne 0 ]; then
-    echo "СТОП: base/body PR не прочитаны для content binding — gh завершился с кодом ${binding_meta_rc}." >&2
-    exit 1
-  fi
-  if [ -z "$BINDING_META" ]; then
-    echo "СТОП: gh вернул пустые base/body для content binding." >&2
-    exit 1
-  fi
-
-  BINDING_BASE=$(jq -r '.baseRefOid // empty' <<< "$BINDING_META")
-  binding_base_rc=$?
-  if [ "$binding_base_rc" -ne 0 ]; then
-    echo "СТОП: base SHA не разобран — jq завершился с кодом ${binding_base_rc}." >&2
-    exit 1
-  fi
-  BINDING_BODY=$(jq -r '.body // ""' <<< "$BINDING_META")
-  binding_body_rc=$?
-  if [ "$binding_body_rc" -ne 0 ]; then
-    echo "СТОП: body PR не разобран — jq завершился с кодом ${binding_body_rc}." >&2
-    exit 1
-  fi
-  if [ -z "$BINDING_BASE" ]; then
-    echo "СТОП: base SHA пуст для content binding." >&2
-    exit 1
-  fi
-
-  BINDING_DIR=$(mktemp -d)
-  binding_dir_rc=$?
-  if [ "$binding_dir_rc" -ne 0 ] || [ -z "$BINDING_DIR" ]; then
-    echo "СТОП: временный каталог для content binding не создан." >&2
-    exit 1
-  fi
-
-  tr -d '\r' <<< "$BINDING_BODY" > "$BINDING_DIR/body.txt"
-  binding_body_write_rc=$?
-  if [ "$binding_body_write_rc" -ne 0 ]; then
-    echo "СТОП: body PR не записан во временный файл." >&2
-    exit 1
-  fi
-
-  BIND_BEGIN_COUNT=$(grep -c '^<!-- CONTRACT-BEGIN -->$' "$BINDING_DIR/body.txt")
-  bind_begin_count_rc=$?
-  if [ "$bind_begin_count_rc" -ge 2 ]; then
-    echo "СТОП: CONTRACT-BEGIN не проверен — grep завершился с кодом ${bind_begin_count_rc}." >&2
-    exit 1
-  fi
-  BIND_END_COUNT=$(grep -c '^<!-- CONTRACT-END -->$' "$BINDING_DIR/body.txt")
-  bind_end_count_rc=$?
-  if [ "$bind_end_count_rc" -ge 2 ]; then
-    echo "СТОП: CONTRACT-END не проверен — grep завершился с кодом ${bind_end_count_rc}." >&2
-    exit 1
-  fi
-  if [ "$BIND_BEGIN_COUNT" != "1" ] || [ "$BIND_END_COUNT" != "1" ]; then
-    echo "СТОП: content-equivalence требует ровно одну пару CONTRACT-BEGIN/CONTRACT-END." >&2
-    exit 1
-  fi
-
-  BIND_BEGIN=$(awk '/^<!-- CONTRACT-BEGIN -->$/{print NR; exit}' "$BINDING_DIR/body.txt")
-  bind_begin_rc=$?
-  if [ "$bind_begin_rc" -ne 0 ] || [ -z "$BIND_BEGIN" ]; then
-    echo "СТОП: позиция CONTRACT-BEGIN не определена." >&2
-    exit 1
-  fi
-  BIND_END=$(awk '/^<!-- CONTRACT-END -->$/{print NR; exit}' "$BINDING_DIR/body.txt")
-  bind_end_rc=$?
-  if [ "$bind_end_rc" -ne 0 ] || [ -z "$BIND_END" ]; then
-    echo "СТОП: позиция CONTRACT-END не определена." >&2
-    exit 1
-  fi
-  if [ "$BIND_BEGIN" -ge "$BIND_END" ]; then
-    echo "СТОП: CONTRACT markers имеют неверный порядок." >&2
-    exit 1
-  fi
-
-  awk '/^<!-- CONTRACT-BEGIN -->$/{f=1;next} /^<!-- CONTRACT-END -->$/{f=0} f' "$BINDING_DIR/body.txt" > "$BINDING_DIR/contract.txt"
-  contract_extract_rc=$?
-  if [ "$contract_extract_rc" -ne 0 ]; then
-    echo "СТОП: contract не извлечён — awk завершился с кодом ${contract_extract_rc}." >&2
-    exit 1
-  fi
-  grep -q '[^[:space:]]' "$BINDING_DIR/contract.txt"
-  contract_nonempty_rc=$?
-  if [ "$contract_nonempty_rc" -ge 2 ]; then
-    echo "СТОП: contract не проверен — grep завершился с кодом ${contract_nonempty_rc}." >&2
-    exit 1
-  fi
-  if [ "$contract_nonempty_rc" -ne 0 ]; then
-    echo "СТОП: contract пуст — content-equivalence недоказуем." >&2
-    exit 1
-  fi
-
-  git diff --no-color --no-ext-diff --name-only "$BINDING_BASE...$HEAD_COMMIT" > "$BINDING_DIR/files.raw"
-  binding_diff_rc=$?
-  if [ "$binding_diff_rc" -ne 0 ]; then
-    echo "СТОП: package diff не получен — git завершился с кодом ${binding_diff_rc}." >&2
-    exit 1
-  fi
-  LC_ALL=C sort "$BINDING_DIR/files.raw" > "$BINDING_DIR/files.sorted"
-  binding_sort_rc=$?
-  if [ "$binding_sort_rc" -ne 0 ]; then
-    echo "СТОП: package paths не отсортированы — sort завершился с кодом ${binding_sort_rc}." >&2
-    exit 1
-  fi
-
-  : > "$BINDING_DIR/pkg.txt"
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    BLOB_SHA=$(git rev-parse "$HEAD_COMMIT:$f" 2>/dev/null)
-    blob_sha_rc=$?
-    if [ "$blob_sha_rc" -ne 0 ]; then
-      BLOB_SHA="DELETED"
-    fi
-    printf '%s %s\n' "$f" "$BLOB_SHA" >> "$BINDING_DIR/pkg.txt"
-    pkg_write_rc=$?
-    if [ "$pkg_write_rc" -ne 0 ]; then
-      echo "СТОП: package binding не записан." >&2
-      exit 1
-    fi
-  done < "$BINDING_DIR/files.sorted"
-
-  cat "$BINDING_DIR/pkg.txt" "$BINDING_DIR/contract.txt" > "$BINDING_DIR/content.txt"
-  binding_cat_rc=$?
-  if [ "$binding_cat_rc" -ne 0 ]; then
-    echo "СТОП: content binding input не собран — cat завершился с кодом ${binding_cat_rc}." >&2
-    exit 1
-  fi
-  BINDING_SHA_LINE=$(shasum -a 256 "$BINDING_DIR/content.txt")
-  binding_sha_rc=$?
-  if [ "$binding_sha_rc" -ne 0 ]; then
-    echo "СТОП: content fingerprint не вычислен — shasum завершился с кодом ${binding_sha_rc}." >&2
-    exit 1
-  fi
-  CURRENT_CONTENT_FINGERPRINT="${BINDING_SHA_LINE%% *}"
-  if [ -z "$CURRENT_CONTENT_FINGERPRINT" ]; then
-    echo "СТОП: content fingerprint пуст." >&2
-    exit 1
-  fi
-
-  rm -rf "$BINDING_DIR"
-  binding_cleanup_rc=$?
-  if [ "$binding_cleanup_rc" -ne 0 ]; then
-    echo "СТОП: временный content-binding каталог не удалён — rm завершился с кодом ${binding_cleanup_rc}." >&2
-    exit 1
-  fi
-
-  if [ "$CURRENT_CONTENT_FINGERPRINT" != "$EVIDENCE_FINGERPRINT" ]; then
-    echo "СТОП: prior CODE REVIEW не content-equivalent current HEAD; нужен affected recheck." >&2
-    exit 1
-  fi
-  echo "Content-equivalent CODE REVIEW accepted: evidence=$EVIDENCE_SHA current=$HEAD_COMMIT"
 fi
 head -30 <<< "$LAST_INTERNAL"
 head_preview_rc=$?
@@ -428,6 +270,151 @@ if [ "$head_preview_rc" -ne 0 ]; then
   echo "Это отказ ИНСТРУМЕНТА: отчёт найден, но прочитать его нечем — чини окружение (доступность head)." >&2
   echo "Пустой вывод здесь нельзя читать как «в отчёте ничего нет»." >&2
   exit 1
+fi
+
+# gate-review:end
+
+# base.sha/baseRefOid в метаданных PR могут отставать от вершины base-ветки.
+# Repo и ref берутся из PR, а SHA читается по каноническому GitHub ref на обоих проходах.
+read_pr_binding() {
+  local pr_json base_repo base_ref base_sha read_rc
+  pr_json=$(run_with_timeout 10 gh api --method GET "repos/{owner}/{repo}/pulls/$PR_NUMBER")
+  read_rc=$?
+  if [ "$read_rc" -ne 0 ]; then
+    return 1
+  fi
+  base_repo=$(jq -er '.base.repo.full_name | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))' <<< "$pr_json")
+  read_rc=$?
+  if [ "$read_rc" -ne 0 ]; then
+    return 1
+  fi
+  base_ref=$(jq -er '.base.ref | select(type == "string" and length > 0) | @uri' <<< "$pr_json")
+  read_rc=$?
+  if [ "$read_rc" -ne 0 ]; then
+    return 1
+  fi
+  base_sha=$(run_with_timeout 10 gh api --method GET "repos/$base_repo/git/ref/heads/$base_ref" --jq '.object.sha')
+  read_rc=$?
+  if [ "$read_rc" -ne 0 ]; then
+    return 1
+  fi
+  case "$base_sha" in
+    *[!0-9a-f]*)
+      return 1
+      ;;
+  esac
+  if [ "${#base_sha}" -ne 40 ]; then
+    return 1
+  fi
+  jq -ce --arg base "$base_sha" '
+    select(.head.sha | test("^[0-9a-f]{40}$"))
+    | {head: .head.sha, base: $base, baseRepo: .base.repo.full_name, baseRef: .base.ref, body}
+  ' <<< "$pr_json"
+  read_rc=$?
+  if [ "$read_rc" -ne 0 ]; then
+    return 1
+  fi
+}
+
+review_hash() {
+  local review_hash_rc
+  jq -erRs --arg pattern "$1" '[scan($pattern) | .[0]] | select(length == 1) | .[0] | ascii_downcase' \
+    <<< "$LAST_INTERNAL"
+  review_hash_rc=$?
+  if [ "$review_hash_rc" -ne 0 ]; then
+    return 1
+  fi
+}
+
+BINDING_LAUNCHER="$GATE_TREE/.claude/tools/run-python.sh"
+BINDING_HELPER="$GATE_TREE/.claude/tools/content-fingerprint.py"
+if [ ! -x "$BINDING_LAUNCHER" ] || [ ! -f "$BINDING_HELPER" ]; then
+  echo "СТОП: доверенный content-fingerprint launcher/helper отсутствует." >&2
+  exit 1
+fi
+
+BINDING_META=$(read_pr_binding)
+binding_meta_rc=$?
+if [ "$binding_meta_rc" -ne 0 ]; then
+  echo "СТОП: HEAD/base/contract PR для content binding не прочитаны — код ${binding_meta_rc}." >&2
+  exit 1
+fi
+BINDING_HEAD=$(jq -er '.head' <<< "$BINDING_META")
+binding_head_rc=$?
+if [ "$binding_head_rc" -ne 0 ]; then
+  echo "СТОП: HEAD из PR binding не прочитан." >&2
+  exit 1
+fi
+if [ "$BINDING_HEAD" != "$HEAD_COMMIT" ]; then
+  echo "СТОП: HEAD изменился до проверки content binding." >&2
+  exit 1
+fi
+BASE_SHA=$(jq -er '.base' <<< "$BINDING_META")
+base_sha_rc=$?
+if [ "$base_sha_rc" -ne 0 ]; then
+  echo "СТОП: Base из PR binding не прочитан." >&2
+  exit 1
+fi
+BINDING_REFS=$(jq -ce 'del(.body)' <<< "$BINDING_META")
+binding_refs_rc=$?
+if [ "$binding_refs_rc" -ne 0 ]; then
+  echo "СТОП: Refs из PR binding не прочитаны." >&2
+  exit 1
+fi
+CONTRACT_HASH=$("$BINDING_LAUNCHER" "$BINDING_HELPER" --contract-digest <<< "$BINDING_META")
+contract_hash_rc=$?
+if [ "$contract_hash_rc" -ne 0 ]; then
+  echo "СТОП: PR требует ровно одну пару CONTRACT-BEGIN/CONTRACT-END с непустым контрактом." >&2
+  exit 1
+fi
+
+# Exact HEAD тоже должен иметь вычислимый Review base и Content-Fingerprint.
+REVIEWED_HEAD=$(review_hash '(?im)^Commit:[ \t]*`?([a-f0-9]{40})`?[ \t]*\r?$')
+reviewed_head_rc=$?
+if [ "$reviewed_head_rc" -ne 0 ]; then
+  echo "СТОП: CODE REVIEW не содержит единственный полный Commit." >&2
+  exit 1
+fi
+if [ "$REVIEWED_HEAD" != "$EVIDENCE_SHA" ]; then
+  echo "СТОП: Commit отчёта не совпадает с выбранным CODE REVIEW evidence." >&2
+  exit 1
+fi
+EVIDENCE_BASE=$(review_hash '(?im)^Review base:[ \t]*`?([a-f0-9]{40})`?[ \t]*\r?$')
+evidence_base_rc=$?
+if [ "$evidence_base_rc" -ne 0 ]; then
+  echo "СТОП: CODE REVIEW не содержит единственный полный Review base." >&2
+  exit 1
+fi
+EVIDENCE_FINGERPRINT=$(review_hash '(?im)^Content-Fingerprint:[ \t]*`?(?:sha256:)?([a-f0-9]{64})`?[ \t]*\r?$')
+evidence_fingerprint_rc=$?
+if [ "$evidence_fingerprint_rc" -ne 0 ]; then
+  echo "СТОП: CODE REVIEW не содержит единственный Content-Fingerprint." >&2
+  exit 1
+fi
+REVIEWED_CONTENT_FINGERPRINT=$("$BINDING_LAUNCHER" "$BINDING_HELPER" --content-digest \
+  "$EVIDENCE_BASE" "$EVIDENCE_SHA" <<< "$BINDING_META")
+reviewed_content_fingerprint_rc=$?
+if [ "$reviewed_content_fingerprint_rc" -ne 0 ]; then
+  echo "СТОП: review base/head или contract не подтверждены для Content-Fingerprint." >&2
+  exit 1
+fi
+if [ "$REVIEWED_CONTENT_FINGERPRINT" != "$EVIDENCE_FINGERPRINT" ]; then
+  echo "СТОП: Content-Fingerprint CODE REVIEW не совпадает с review base/head и текущим контрактом." >&2
+  exit 1
+fi
+if [ "$EVIDENCE_BASE" != "$BASE_SHA" ] || [ "$EVIDENCE_SHA" != "$HEAD_COMMIT" ]; then
+  CURRENT_CONTENT_FINGERPRINT=$("$BINDING_LAUNCHER" "$BINDING_HELPER" --content-digest \
+    "$BASE_SHA" "$HEAD_COMMIT" <<< "$BINDING_META")
+  current_content_fingerprint_rc=$?
+  if [ "$current_content_fingerprint_rc" -ne 0 ]; then
+    echo "СТОП: текущий Content-Fingerprint не вычислен — проверь объекты base/head." >&2
+    exit 1
+  fi
+  if [ "$CURRENT_CONTENT_FINGERPRINT" != "$EVIDENCE_FINGERPRINT" ]; then
+    echo "СТОП: prior CODE REVIEW не content-equivalent для текущих base/head; нужен affected recheck." >&2
+    exit 1
+  fi
+  echo "Content-equivalent CODE REVIEW accepted: evidence=$EVIDENCE_SHA current=$HEAD_COMMIT"
 fi
 
 # Извлекаем строки таблицы замечаний из review-pass на $HEAD_COMMIT.
@@ -1353,6 +1340,71 @@ fi
 # выходит ТОЛЬКО из subshell, skill продолжает выполнение и публикует
 # `## ✅ Готов к merge` несмотря на невалидный Beads ID / пустой rationale.
 # Это fake gate (GPT-5.4 round 13 CRITICAL).
+# managed-defer-helpers:start
+read_beads_mode() {
+  local local_rc mode_rc state_entry state_json git_name
+  # No-Beads installs omit bd-env.sh. Keep this read within the actual
+  # checkout's local config and objects, with caller Git overrides removed.
+  for git_name in "${!GIT_@}"; do
+    unset "$git_name"
+  done
+  export GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1
+  if [ "${OS-}" = "Windows_NT" ]; then
+    export GIT_CONFIG_GLOBAL=NUL
+  else
+    export GIT_CONFIG_GLOBAL=/dev/null
+  fi
+  git config --local --get overgate.beadsPublisher >/dev/null
+  local_rc=$?
+  if [ "$local_rc" -eq 0 ]; then
+    printf 'managed\n'
+    return 0
+  fi
+  if [ "$local_rc" -ne 1 ]; then
+    return 1
+  fi
+  # Only install-state from the established PR base can select a protocol.
+  if [ -z "${BASE_SHA-}" ]; then
+    printf 'legacy\n'
+    return 0
+  fi
+  state_entry=$(git ls-tree --full-tree --name-only "$BASE_SHA" -- .overgate/install-state.json)
+  mode_rc=$?
+  if [ "$mode_rc" -ne 0 ]; then
+    return 1
+  fi
+  if [ -z "$state_entry" ]; then
+    printf 'legacy\n'
+    return 0
+  fi
+  state_json=$(git show "$BASE_SHA:.overgate/install-state.json")
+  mode_rc=$?
+  if [ "$mode_rc" -ne 0 ]; then
+    return 1
+  fi
+  "$GATE_TREE/.claude/tools/run-python.sh" -I -c 'import json, sys
+
+state = json.load(sys.stdin.buffer)
+if type(state) is not dict or type(state.get("beads")) is not bool:
+    sys.exit(1)
+existing = state.get("beads_protocol", "legacy-v0" if state["beads"] else "none")
+if (state["beads"], existing) == (True, "managed-v1"):
+    print("managed")
+elif (state["beads"], existing) == (True, "legacy-v0"):
+    print("legacy")
+elif (state["beads"], existing) == (False, "none"):
+    print("none")
+else:
+    sys.exit(1)' <<< "$state_json"
+  mode_rc=$?
+  if [ "$mode_rc" -ne 0 ]; then
+    return 1
+  fi
+}
+
+BEADS_LOOKUP_MODE=""
+BEADS_PUBLISHED_R=""
+# managed-defer-helpers:end
 TRIAGE_FAILED=0
 while IFS="$GS" read -r kind num status id_named rat_named bead_id rationale; do
   # Пропускаем ТОЛЬКО пустой ввод (here-string при отсутствии разобранных строк).
@@ -1454,19 +1506,10 @@ while IFS="$GS" read -r kind num status id_named rat_named bead_id rationale; do
       esac
       if [ "$tracker_candidate" = "1" ]; then
           tracker_launcher="$GATE_TREE/.claude/tools/run-python.sh"
-          tracker_work="${WORK_TREE:-$GATE_TREE}"
-          tracker_enabled=$(
-            "$tracker_launcher" -I -c 'import json,sys
-from pathlib import Path
-try:
- value=json.loads((Path(sys.argv[1])/".overgate/install-state.json").read_text(encoding="utf-8"))
- enabled=isinstance(value,dict) and value.get("beads") is False
-except (OSError,ValueError):enabled=False
-print("yes" if enabled else "no")' "$tracker_work"
-          )
-          tracker_state_rc=$?
-          if [ "$tracker_state_rc" -ne 0 ] || [ "$tracker_enabled" != "yes" ]; then
-            echo "СТОП: tracker defer разрешён только при beads: false в install-state."
+          tracker_mode=$(read_beads_mode)
+          tracker_mode_rc=$?
+          if [ "$tracker_mode_rc" -ne 0 ] || [ "$tracker_mode" != "none" ]; then
+            echo "СТОП: tracker defer разрешён только при подтверждённом режиме no-Beads базовой ветки."
             TRIAGE_FAILED=1
             continue
           fi
@@ -1609,6 +1652,62 @@ except (ValueError,TypeError):sys.exit(1)' "$tracker_repo" "$tracker_number" <<<
           exit 1
         fi
         [ "$beads_env_rc" -eq 0 ] && beads_main_checkout=1
+        # managed-defer:start
+        if [ -z "$BEADS_LOOKUP_MODE" ]; then
+          BEADS_LOOKUP_MODE=$(read_beads_mode)
+          beads_mode_rc=$?
+          if [ "$beads_mode_rc" -ne 0 ] || [ -z "$BEADS_LOOKUP_MODE" ]; then
+            echo "СТОП: protocol Beads не определён; исключена проверка по неизвестной базе." >&2
+            exit 1
+          fi
+        fi
+        if [ "$BEADS_LOOKUP_MODE" = "none" ]; then
+          echo "СТОП: проект установлен без Beads; defer требует открытую GitHub Issue." >&2
+          exit 1
+        fi
+        if [ "$BEADS_LOOKUP_MODE" = "managed" ]; then
+          if [ ! -f "$BD_READ_SNAPSHOT" ]; then
+            echo "СТОП: доверенный managed Beads reader отсутствует." >&2
+            exit 1
+          fi
+          if [ -z "$BEADS_PUBLISHED_R" ]; then
+            BEADS_PUBLISHED_R=$(run_with_timeout 30 bash -c '
+              . "$1"
+              bd_env_sanitize_git
+              export GIT_NO_REPLACE_OBJECTS=1
+              trap bd_env_network_cleanup EXIT
+              bd_env_fetch_backup || exit 1
+              R=$(git rev-parse --verify "refs/remotes/origin/${BD_BACKUP_BRANCH}^{commit}") || exit 1
+              marker_type=$(git cat-file -t "$R:.beads/overgate-managed-v1.json") || exit 1
+              [ "$marker_type" = "blob" ] || exit 1
+              case "$R" in *[!0-9a-f]*) exit 1 ;; esac
+              printf "%s\n" "$R"
+            ' -- "$BD_ENV_LIB")
+            beads_freeze_rc=$?
+            if [ "$beads_freeze_rc" -ne 0 ] || [ "${#BEADS_PUBLISHED_R}" -ne 40 ]; then
+              echo "СТОП: published managed Beads snapshot не подтверждён." >&2
+              exit 1
+            fi
+          fi
+          run_with_timeout 30 env -u BD_READ_FIXTURE BD_READ_NO_FETCH=1 BD_READ_REF="$BEADS_PUBLISHED_R" \
+            bash "$BD_READ_SNAPSHOT" show "$bead_id" >/dev/null
+          beads_managed_show_rc=$?
+          if [ "$beads_managed_show_rc" -eq 0 ]; then
+            continue
+          fi
+          if [ "$beads_managed_show_rc" -eq 1 ]; then
+            run_with_timeout 30 env -u BD_READ_FIXTURE BD_READ_NO_FETCH=1 BD_READ_REF="$BEADS_PUBLISHED_R" \
+              bash "$BD_READ_SNAPSHOT" list --json >/dev/null
+            beads_managed_list_rc=$?
+            if [ "$beads_managed_list_rc" -eq 0 ]; then
+              echo "СТОП: задача '$bead_id' отсутствует в published managed Beads snapshot $BEADS_PUBLISHED_R." >&2
+              exit 1
+            fi
+          fi
+          echo "СТОП: published managed Beads snapshot $BEADS_PUBLISHED_R не прочитан." >&2
+          exit 1
+        fi
+        # managed-defer:end
 
         beads_found=0        # хоть один маршрут ответил «задача есть»
         beads_absent_via=""  # маршрут, опросивший базу и ответивший «задачи нет»
@@ -1781,36 +1880,45 @@ if [ "$TRIAGE_FAILED" = "1" ]; then
   exit 1
 fi
 
-BASE_SHA=$(run_with_timeout 10 gh pr view ${PR_NUMBER} --json baseRefOid -q '.baseRefOid')
-base_sha_rc=$?
-if [ "$base_sha_rc" -ne 0 ]; then
-  echo "СТОП: base commit PR не прочитан — gh завершился с кодом ${base_sha_rc}." >&2
-  echo "Это отказ ИНСТРУМЕНТА: паспорт приёмки с пустой привязкой издавать нельзя." >&2
+# gate-recheck:start
+BINDING_NOW=$(read_pr_binding)
+binding_now_rc=$?
+if [ "$binding_now_rc" -ne 0 ]; then
+  echo "СТОП: повторное чтение HEAD/base/contract перед публикацией не выполнено — код ${binding_now_rc}." >&2
   exit 1
 fi
-if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "null" ]; then
-  echo "СТОП: base commit PR пуст — привязка паспорта приёмки не заполняется." >&2
-  exit 1
-fi
-
-HEAD_NOW=$(run_with_timeout 10 gh pr view ${PR_NUMBER} --json headRefOid --jq '.headRefOid')
+HEAD_NOW=$(jq -er '.head' <<< "$BINDING_NOW")
 head_now_rc=$?
-# Отказ чтения даёт пустой HEAD_NOW, сравнение ниже не совпадает, и стоп приходит с диагнозом
-# «HEAD изменился» — PM пошёл бы перезапускать гейт на несуществующем новом commit. Диагноз
-# обязан называть отказ инструмента.
 if [ "$head_now_rc" -ne 0 ]; then
-  echo "СТОП: повторное чтение HEAD перед публикацией не выполнено — gh завершился с кодом ${head_now_rc}." >&2
-  echo "Это отказ ИНСТРУМЕНТА, а не смена HEAD: без подтверждённого HEAD финальный комментарий не публикуется." >&2
+  echo "СТОП: HEAD не прочитан перед публикацией." >&2
+  exit 1
+fi
+if [ "$HEAD_NOW" != "$HEAD_COMMIT" ]; then
+  echo "СТОП: HEAD изменился во время выполнения /finalize-pr." >&2
+  exit 1
+fi
+REFS_NOW=$(jq -ce 'del(.body)' <<< "$BINDING_NOW")
+refs_now_rc=$?
+if [ "$refs_now_rc" -ne 0 ]; then
+  echo "СТОП: Refs не прочитаны перед публикацией." >&2
+  exit 1
+fi
+if [ "$REFS_NOW" != "$BINDING_REFS" ]; then
+  echo "СТОП: base PR изменился во время выполнения /finalize-pr." >&2
+  exit 1
+fi
+CONTRACT_NOW=$("$BINDING_LAUNCHER" "$BINDING_HELPER" --contract-digest <<< "$BINDING_NOW")
+contract_now_rc=$?
+if [ "$contract_now_rc" -ne 0 ]; then
+  echo "СТОП: contract PR не прочитан перед публикацией." >&2
+  exit 1
+fi
+if [ "$CONTRACT_NOW" != "$CONTRACT_HASH" ]; then
+  echo "СТОП: contract PR изменился во время выполнения /finalize-pr." >&2
   exit 1
 fi
 
-if [ "$HEAD_NOW" != "$HEAD_COMMIT" ]; then
-  echo "СТОП: HEAD изменился во время выполнения /finalize-pr."
-  echo "  Был при старте: $HEAD_COMMIT"
-  echo "  Текущий:        $HEAD_NOW"
-  echo "Запусти /finalize-pr ${PR_NUMBER} заново на новом commit."
-  exit 1
-fi
+# gate-recheck:end
 
 if [ "$MODE" = "--check" ]; then
   printf 'GATE_RESULT=PASS\nGATE_TREE=%s\nHEAD_COMMIT=%s\nBASE_SHA=%s\nEVIDENCE_SHA=%s\nUNRESOLVED=0\n' "$GATE_TREE" "$HEAD_COMMIT" "$BASE_SHA" "$EVIDENCE_SHA"
