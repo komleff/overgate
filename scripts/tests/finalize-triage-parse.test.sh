@@ -2542,7 +2542,6 @@ extract_block_with() {
   case "$1" in
     'HEAD_COMMIT='*) end='echo "Финализируем PR' ;;
     'INTERNAL_COMMENTS_JSON='*) end='head_preview_rc=$?' ;;
-    'HEAD_NOW='*) end='echo "Запусти /finalize-pr' ;;
     'LOCAL_HEAD='*) end='echo "Выполни: gh pr checkout' ;;
     *) return 1 ;;
   esac
@@ -2645,15 +2644,8 @@ else
   assert_read_passes "$STEP3" "Шаг 3" "$comments_json" "HEAD_COMMIT=$HEAD_FAKE"
 fi
 
-# 154-156. Re-check HEAD перед публикацией: заглушка печатает ТОТ ЖЕ commit и падает кодом 1.
-STEPRE="$TMP/step-recheck.sh"
-if ! extract_block_with 'HEAD_NOW=$(run_with_timeout' "$STEPRE"; then
-  not_ok "блок повторной проверки HEAD не извлекается из SKILL.md"
-else
-  ok "блок повторной проверки HEAD извлечён из действующего SKILL.md"
-  assert_read_fails_closed "$STEPRE" "Re-check HEAD" "$HEAD_FAKE" "HEAD_COMMIT=$HEAD_FAKE"
-  assert_read_passes "$STEPRE" "Re-check HEAD" "$HEAD_FAKE" "HEAD_COMMIT=$HEAD_FAKE"
-fi
+# Recheck HEAD/base/contract и отказ API проверяет полный CLI fixture
+# scripts/tests/finalize-gate-script.test.sh.
 
 # 157-158. Шаг 2 — сверка локального HEAD. Заглушка `git` печатает ТОТ ЖЕ commit и падает
 #          кодом 1: до правки шаг сравнивал строки, они совпадали, и отказ проходил молча.
@@ -3049,7 +3041,7 @@ gate_contract_holds() {
   [ "$(grep -c -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source")" = 1 ] || return 1
   [ "$(grep -A1 -F 'FINALIZE_PR_TOKEN=1 "$PYTHON_LAUNCHER"' "$source" | grep -c -F 'publish_rc=$?')" = 1 ] || return 1
   [ "$(grep -c -F 'if [ "$publish_rc" -ne 0 ]; then' "$source")" = 1 ] || return 1
-  grep -A8 -F 'BASE_SHA=$(run_with_timeout' "$source" | grep -F 'if [ "$base_sha_rc" -ne 0 ]; then' >/dev/null || return 1
+  grep -A8 -F 'BINDING_META=$(read_pr_binding)' "$source" | grep -F 'if [ "$binding_meta_rc" -ne 0 ]; then' >/dev/null || return 1
   [ "$(grep -c -Fx '# triage-fetch:start' "$source")" = 1 ] || return 1
   [ "$(grep -c -Fx '# triage-fetch:end' "$source")" = 1 ] || return 1
   [ "$(grep -c -E '^[[:space:]]*#.*проба-условия:' "$source")" = 3 ] || return 1
@@ -3064,7 +3056,7 @@ for mutation in pipeline publisher base marker probe locale-prefix; do
   case "$mutation" in
     pipeline) cp "$GATE" "$mutated"; printf '\nX=$(gh pr view 1 | jq .)\n' >> "$mutated" ;;
     publisher) sed '/^if \[ "\$publish_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
-    base) sed '/^if \[ "\$base_sha_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
+    base) sed '/^if \[ "\$binding_meta_rc" -ne 0 \]; then$/d' "$GATE" > "$mutated" ;;
     locale-prefix) sed 's/TRIAGE_ROWS=$(LC_ALL=C awk/TRIAGE_ROWS=$(LC_COLLATE=C awk/' "$GATE" > "$mutated" ;;
     marker) sed '/^# triage-fetch:end$/d' "$GATE" > "$mutated" ;;
     probe) cp "$GATE" "$mutated"; printf '\n# проба-условия: лишняя необоснованная проба\n' >> "$mutated" ;;
@@ -3310,20 +3302,6 @@ else
   not_ok "число строк-маркеров проба-условия изменилось ($probe_exemptions вместо $probe_expected): исключение сканера добавлено или снято без обновления фикстуры — счёт идёт по всему файлу, включая преамбулу"
 fi
 
-# 171-172. СТРУКТУРНАЯ проверка для места, которое исполнением недостижимо: блок сбора полей
-#          паспорта приёмки содержит текстовые заглушки (`UNRESOLVED=$(...)`) и целиком не
-#          исполняется. `base` — поле привязки паспорта: отказ чтения давал пустую привязку.
-if grep -A2 -F 'BASE_SHA=$(run_with_timeout' "$GATE" | grep -F >/dev/null 'base_sha_rc=$?'; then
-  ok "сбор паспорта: код возврата чтения base записан"
-else
-  not_ok "сбор паспорта: у BASE_SHA нет записи кода возврата — паспорт издаётся с пустой привязкой"
-fi
-if grep -A8 -F 'BASE_SHA=$(run_with_timeout' "$GATE" | grep -F >/dev/null 'if [ "$base_sha_rc" -ne 0 ]; then'; then
-  ok "сбор паспорта: код возврата чтения base не только записан, но и проверен"
-else
-  not_ok "сбор паспорта: base_sha_rc записан, но не проверен — переменная мёртвая"
-fi
-
 # СТРУКТУРНЫЕ проверки для шагов, которые заглушкой по образцу не изолируются (их процесс не
 # отличим по аргументам от соседнего) либо лежат в блоке публикации, исполнять который фикстура
 # не вправе. Проверяются ТРИ половины, а не две: код записан, ветка по нему стоит И ветка
@@ -3382,7 +3360,8 @@ assert_rc_recorded_and_read() {
   fi
 }
 RC_SOURCE="$SKILL" assert_rc_recorded_and_read 'REPO_ROOT=$(git rev-parse --show-toplevel)' repo_root_rc "Публикация (корень репозитория, все три шаблона)"
-assert_rc_recorded_and_read 'BASE_SHA=$(run_with_timeout 10 gh pr view ${PR_NUMBER} --json baseRefOid -q '"'"'.baseRefOid'"'"')' base_sha_rc "Сбор паспорта (base commit)"
+assert_rc_recorded_and_read 'BINDING_META=$(read_pr_binding)' binding_meta_rc "Чтение PR для content binding"
+assert_rc_recorded_and_read 'BINDING_NOW=$(read_pr_binding)' binding_now_rc "Повторное чтение HEAD/base/contract"
 # Места, закрытые по внешнему ревью PR #634 (P1, класс «код возврата одиночного процесса»).
 # Исполнением они не изолируются: блок публикации ходит в GitHub, preflight выполняется до
 # извлекаемого фикстурой участка, а показ начала отчёта стоит в шаге 3.

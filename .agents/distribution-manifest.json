@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "4.0.0",
+  "version": "5.0.0-rc.1",
   "legacy_source": "466ad2020b8c46e6c14b4bbe67b5335017726542",
   "files": [
     {
@@ -26,6 +26,16 @@
     {
       "source": ".agents/SV_ROLE.md",
       "target": ".agents/SV_ROLE.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/PM_ERR.md",
+      "target": ".agents/PM_ERR.md",
+      "policy": "managed"
+    },
+    {
+      "source": ".agents/DOC_PR.md",
+      "target": ".agents/DOC_PR.md",
       "policy": "managed"
     },
     {
@@ -246,6 +256,16 @@
     {
       "source": ".claude/tools/with-timeout.sh",
       "target": ".claude/tools/with-timeout.sh",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/tools/content-fingerprint.py",
+      "target": ".claude/tools/content-fingerprint.py",
+      "policy": "managed"
+    },
+    {
+      "source": ".claude/tools/docker_desktop.py",
+      "target": ".claude/tools/docker_desktop.py",
       "policy": "managed"
     },
     {

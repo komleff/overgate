@@ -1,8 +1,8 @@
 ---
-title: "Install, upgrade and rollback — OverGate 4"
+title: "Install, upgrade and rollback — OverGate Slipstream"
 status: active
-version: "4.0.0"
-date: 2026-11-21
+version: "5.0.0-rc.1"
+date: 2026-11-20
 tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
@@ -10,9 +10,9 @@ tags: [installation, upgrade, rollback, delivery-first]
 Единый путь — `scripts/install-overgate.py plan → apply → rollback` из чистого trusted
 OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
 не является trusted source этого установщика. Получите source через `git clone`, затем
-выберите тег OverGate `v4.0.0` или другого нужного выпуска в
-[GitHub Releases](https://github.com/komleff/overgate/releases). Для проверки кандидата
-используйте полный commit SHA из PR. Installer работает с локальным Git checkout.
+выберите тег нужного выпуска в [GitHub Releases](https://github.com/komleff/overgate/releases).
+Для проверки кандидата Slipstream `v5.0.0-rc.1` используйте полный commit SHA из PR.
+Installer работает с локальным Git checkout.
 
 Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
 а trusted installer/publisher игнорирует system/global Git config. Для установки

@@ -1,14 +1,16 @@
 ---
 title: "Project Manager — Delivery First"
 status: active
-version: "3.0"
-date: 2026-09-19
+version: "3.1"
+date: 2026-11-20
 tags: [pipeline, pm, delivery-first, planning, qa, review]
 related:
   - .agents/AGENT_ROLES.md
   - .agents/PIPELINE.md
   - .agents/PIPELINE_ADR.md
   - .agents/SV_ROLE.md
+  - .agents/PM_ERR.md
+  - .agents/DOC_PR.md
 ---
 
 # Project Manager — Delivery First
@@ -41,6 +43,17 @@ repo; не объявляй её продуктовым пробелом без 
 
 product source/spec определяют **WHAT**. PM строит **HOW**.
 Если продуктового ответа нет — `PRODUCT GAP` оператору до кода.
+
+### Контекст задачи для исполнителей
+
+PM передаёт Developer, QA и Reviewer ссылку на задачу или PR, accepted spec/plan и AC,
+границы работы, named risk и способ проверки. Для проверки указывает exact base/HEAD или
+frozen tree, имеющееся evidence и независимую роль. Добавь ограничения окружения и условия
+эскалации, когда они влияют на проверку. Эти сведения можно передать через PR или в сообщении.
+
+При включённом Beads PM ведёт подтверждённое владение линией по правилам проекта и передаёт
+исполнителям ID, assignee, опубликованный task SHA и scope поручения. При недоступном publisher
+PM сохраняет typed input и контекст. Статус pending и опубликованный результат указываются отдельно.
 
 ## 2. Режим
 
@@ -120,6 +133,12 @@ PM не повышает advisory до blocker и не исправляет advi
 Исправленный blocker получает affected QA + scoped re-review; полный review не повторяется без
 изменения review surface.
 
+Перед повторным QA, ревью или ручным прогоном в существующем поручении назови,
+что изменилось или какой вопрос открыт и какое решение по выпуску, PR или дефекту
+зависит от результата. Правило действует и при возврате к тому же проверяющему в той же
+сессии. Если оба исхода ведут к одному действию, используй имеющиеся данные. Штатные
+обязательные тесты и автоматические проверки выполняются по установленному порядку.
+
 ## 4. Verification-call budget
 
 Считаются только новые independent verifier launches.
@@ -157,6 +176,7 @@ PM — single publisher для субагентов без изменения с
 После sync/rebase deterministic checks идут на текущем HEAD.
 Если reviewed/tested paths и content fingerprint совпали и new runtime surface не появился,
 старое QA/Review evidence остаётся валидным. Base/head movement само по себе не требует LLM review.
+Для CODE REVIEW укажи полный `Review base:` и считай fingerprint тем же helper, что и финализатор.
 Изменился reviewed blob/contract/surface — recheck только affected surface.
 
 ## 7. Finalize
@@ -178,10 +198,12 @@ Merge делает только оператор. Агент не push/merge в 
 Supervisor нужен для portfolio/dependencies/priorities/scope drift/budget stop-loss.
 Не проси Supervisor породить reviewer swarm.
 
-## 9. Что не читать по умолчанию
+## 9. Самосверка и справочные памятки
 
-`PM_ERR.md`, `DOC_PR.md`, `REVIEW_CYCLE.md` и полная история ADR — reference/lessons,
-а не mandatory runtime context. Читай их только для конкретного failure/history вопроса.
+Примерно каждые 2 часа активной работы, с интервалом до 4 часов, сверяй работу с целью
+и ближайшим условием приёмки по [PM_ERR.md](PM_ERR.md). При заметном симптоме открой нужный
+раздел сразу. Для петли документального ревью или выбора проверки для правки документа
+используй [DOC_PR.md](DOC_PR.md). Для старта достаточно обязательного контекста роли.
 
 ## 10. Self-modification pipeline
 

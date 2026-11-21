@@ -68,6 +68,7 @@ done
 run finalizer-validator bash .claude/skills/finalize-pr/validators/test_validate_review_pass.sh
 run finalize-no-beads "$PYTHON" scripts/tests/finalize-no-beads.test.py
 # regression_pr183.sh is historical U2 live-comment tooling, not a deterministic reference fixture.
+run desktop-helper "$PYTHON" scripts/tests/docker-desktop.test.py
 run install-fresh-upgrade-rollback "$PYTHON" scripts/tests/install-distribution.test.py
 run install-helpers "$PYTHON" scripts/tests/install-helpers.test.py
 run bd-bootstrap-native "$PYTHON" scripts/tests/bd-bootstrap-native.test.py

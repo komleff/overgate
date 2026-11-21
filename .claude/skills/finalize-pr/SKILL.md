@@ -11,12 +11,12 @@ user-invocable: true
 Этот раздел — **живой алгоритм** Delivery First. Старые tier/iteration/external и confirming-pass
 блоки физически удалены в Phase 2; fixture-suite проверяет только действующий алгоритм.
 
-1. Зафиксируй current HEAD и запусти `/verify`/CI на current HEAD — deterministic checks всегда fresh.
+1. Подготовь все tracked landing-изменения. Используй успешный полный `/verify` на тех же
+   HEAD, дереве, командах и окружении. После изменения входов повтори нужную проверку.
 2. Найди последнее обязательное QA/CODE REVIEW evidence для данного PR.
-3. Evidence валидно, если:
-   - оно относится к current HEAD; **или**
-   - report содержит reviewed/tested paths + content fingerprint, и пересчёт на current HEAD даёт тот же fingerprint,
-     при этом new runtime surface не появился.
+3. Для CODE REVIEW проверь `Commit:`, `Review base:` и `Content-Fingerprint:` даже при
+   exact HEAD. При движении base/head отпечаток должен совпасть для текущей пары; появление
+   новой runtime surface требует affected проверки.
 4. Base/head movement само по себе не инвалидирует LLM evidence.
 5. Sprint Final не требует external review. Critical не требует iteration >= 2.
 6. Copilot не mandatory. External review проверяется только если Review Contract/оператор явно сделал его required named-risk evidence.
@@ -27,12 +27,17 @@ user-invocable: true
 ### Content-equivalence proof
 
 Используй существующий primitive ADR 3.28, superseded/уточнённый ADR 3.29:
-`CONTENT_FINGERPRINT = sha256(PKG blob hashes + relevant contract text)`.
+`CONTENT_FINGERPRINT` вычисляет trusted `.claude/tools/content-fingerprint.py` по Git package
+и UTF-8 блоку контракта. В PR определи одну непустую пару `<!-- CONTRACT-BEGIN -->` и
+`<!-- CONTRACT-END -->` на отдельных строках.
+
+Для отчёта передай helper полный base и HEAD, а через stdin — JSON PR с полем `body`.
+Для просмотра списка путей и blob hashes используй `--package <base> <head>`.
 
 Verifier report обязан публиковать:
 - `Reviewed-Paths:`;
-- `Content-Fingerprint:`;
-- SHA/build;
+- `Content-Fingerprint:` из `--content-digest <base> <head>`;
+- `Commit:` и `Review base:` с полными SHA для CODE REVIEW;
 - source contract/scope.
 
 Если exact-HEAD report не найден, **не запускай новый LLM автоматически**: сначала пересчитай fingerprint.
@@ -54,7 +59,8 @@ bash .claude/skills/finalize-pr/finalize-gate.sh <PR_NUMBER> --publish <BODY_FIL
 
 `--check` проверяет гейт без публикации. `--publish` принимает подготовленное PM тело с первой
 строкой `## ✅ Готов к merge`, `Commit: <HEAD>` и `Unresolved findings: 0`; он снимает private
-snapshot, проверяет и публикует именно его bytes. Паспорт, смысл rationale, закрывающий APPROVED
+snapshot, сверяет HEAD, вершину base-ветки и контракт перед публикацией и публикует именно
+проверенные bytes. Паспорт, смысл rationale, закрывающий APPROVED
 по аспекту fix now и accepted risk PM проверяет вручную до публикации.
 
 Для PR, меняющего сам скрипт или его замыкание, используй доверенную версию по PM_ROLE §10:
@@ -65,7 +71,7 @@ bash /absolute/trusted-worktree/.claude/skills/finalize-pr/finalize-gate.sh <PR_
 ```
 
 Аналогичный абсолютный путь используется для `--publish <BODY_FILE>`. Замыкание: tools
-`with-timeout.sh`, `run-python.sh`, `publish-pr-comment.py`, publisher-модули `.claude/hooks/`,
+`with-timeout.sh`, `run-python.sh`, `content-fingerprint.py`, `publish-pr-comment.py`, publisher-модули `.claude/hooks/`,
 `scripts/lib/bd-env.sh`, `scripts/bd-wt.sh`, `scripts/bd-read.sh`, `scripts/lib/bd-read-engine.mjs`.
 Код читается только из дерева скрипта (GATE_TREE), HEAD/git-объекты/install-state — из checkout
 текущего каталога (WORK_TREE). Файлы validators не входят в замыкание.
@@ -80,7 +86,7 @@ shell-инструмент. В Codex нет commit/publication guards: project v
 
 Автоматические шаги ниже реализованы в `finalize-gate.sh`: preflight между комментариями
 `timeout-helper-preflight`, затем HEAD_COMMIT (шаг 1), LOCAL_HEAD (шаг 2), INTERNAL_COMMENTS_JSON
-и content binding (шаг 3), triage (шаг 6), BASE_SHA и HEAD_NOW. Шаги 7–8 остаются ручными.
+и content binding (шаг 3), triage (шаг 6), повторное чтение HEAD/base/contract. Шаги 7–8 остаются ручными.
 
 ## Аргументы
 
@@ -197,11 +203,10 @@ Deterministic проверки идут против **этого** commit. LLM 
 
 ### Шаг 3: Review evidence — exact HEAD или content-equivalent binding
 
-PM публикует review-отчёты с двумя маркерами commit binding:
-1. **Строка `Commit: <hash>`** в теле отчёта (под заголовком) — человекочитаемый маркер для оператора.
-2. **JSON-метаданные** в HTML-комментарии (см. `.agents/PM_ROLE.md` §5): `<!-- {"reviewer": "...", "commit": "<hash>", ...} -->` — машинный маркер.
-
-Сначала ищи exact-HEAD report. Если его нет, live-алгоритм ADR 3.29 требует проверить published Reviewed-Paths + Content-Fingerprint до любого нового LLM call. Раздел INTERNAL_COMMENTS_JSON скрипта реализует exact-HEAD и content-equivalence fallback:
+В каждом CODE REVIEW нужны отдельные строки `Commit:`, `Review base:` и `Content-Fingerprint:`.
+Финализатор ищет exact-HEAD report первым, затем последнее CODE REVIEW. Для выбранного отчёта
+он пересчитывает fingerprint на review base/head с текущим контрактом. При движении base/head
+он также сверяет fingerprint текущей пары. Повтори проверку только для изменившегося содержания.
 
 
 > **Почему данные разбора подаются через `<<<`, а не аргументом команды.** Readiness-тело передаётся raw stdin из snapshot. Значения
@@ -238,7 +243,7 @@ PM публикует review-отчёты с двумя маркерами commi
 | Статус | Валидация |
 |--------|-----------|
 | **fix now** | Должен быть закрыт affected scoped re-review на `EVIDENCE_SHA` с APPROVED для затронутой surface — **проверяет PM вручную** |
-| **defer to Beads** | **Обязателен Beads ID** — читается из колонки идентификатора, названной шапкой «Beads ID» (при составном имени — «Beads ID / Обоснование»), где бы она ни стояла. Автопроверка: сначала форма — regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+`, покрывает `project-*` и `big-heroes-*`; затем существование — маршрутами того класса окружения, в котором запущен гейт (`bd show -- <id>` авторитетен только в основном checkout; иначе `scripts/bd-wt.sh`, затем снимок `origin/beads-backup` через `scripts/bd-read.sh show <id>`); проверить нечем — стоп. Колонка «Обоснование», если шапка назвала её ОТДЕЛЬНО, идентификатор не заменяет: шапка без колонки идентификатора даёт адресный стоп «колонка идентификатора не названа», а не зачёт текстом из соседней колонки |
+| **defer to Beads** | **Обязателен Beads ID** — читается из колонки идентификатора, названной шапкой «Beads ID» (при составном имени — «Beads ID / Обоснование»), где бы она ни стояла. Автопроверка: сначала форма — regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+`, покрывает `project-*` и `big-heroes-*`; затем в managed-режиме существование проверяется доверенным читателем опубликованного снимка. Legacy использует маршруты checkout по правилам ниже. Отказ проверки блокирует финализацию. Колонка «Обоснование», если шапка назвала её ОТДЕЛЬНО, идентификатор не заменяет: шапка без колонки идентификатора даёт адресный стоп «колонка идентификатора не названа», а не зачёт текстом из соседней колонки |
 | **reject with rationale** | **Обязательно обоснование** в PR comment; осмысленность обоснования **проверяет PM вручную** (автоматика убеждается лишь в том, что колонка обоснования — названная шапкой «Обоснование», при составном имени «Beads ID / Обоснование», где бы она ни стояла — не пуста визуально: в ней есть хоть что-то помимо прочерков любого начертания и невидимых пробелов). Колонка «Beads ID», если шапка назвала её ОТДЕЛЬНО, к отклонению отношения не имеет и пустое обоснование не закрывает; шапка без колонки обоснования даёт адресный стоп «колонка обоснования не названа», а не зачёт идентификатором |
 
 **Минимальная автоматика для defer/reject (выполняется скиллом):**
@@ -248,6 +253,14 @@ PM публикует review-отчёты с двумя маркерами commi
 
 - Для каждого `fix now` пройдись по review-pass на `$HEAD_COMMIT` и убедись, что аспект, к которому относится замечание, имеет `APPROVED` (это ловит регрессии: фикс «починил архитектуру», но reviewer вернул `CHANGES_REQUESTED` по гигиене).
 - Для каждого `reject with rationale` прочитай его обоснование (колонка «Обоснование»; при составном имени шапки — «Beads ID / Обоснование») и убедись, что оно осмысленное, а не «no» / «later». Автопроверка ловит только пустоту/прочерк.
+
+Для managed Beads признаком служит локальная регистрация publisher или protocol
+`managed-v1` в install-state доверенной base-ветки. Гейт обновляет
+`origin/beads-backup` один раз и закрепляет точный SHA для всех проверок `show`/`list`.
+Параметры чтения из окружения вызывающего не управляют этим снимком. Если публикация
+или чтение не подтверждены, финализация останавливается. Правила маршрутов checkout
+ниже применяются в legacy-режиме. Ссылку на открытую GitHub Issue гейт принимает при
+отключённом Beads в install-state доверенной base-ветки и без локальной managed-регистрации.
 
 > **Почему не хардкодим `bd-*`:** префикс Beads ID определяется установленным проектом, например `project-*` (см. `.memory-bank/activeContext.md`, в исходном big-heroes префикс был `big-heroes-*`). Regex `bd-[a-z0-9]+` прошлой версии не покрывал их — все defer были бы ложно отвергнуты как «без ID». Порядок проверки:
 > 1. **Форма — всегда и первой**, независимо от наличия `bd`: regex `[A-Za-z][A-Za-z0-9-]+-[a-z0-9]+` (покрывает `project-*` и `big-heroes-*`). Не прошла — замечание неразрешено, дальше не идём.
@@ -356,7 +369,8 @@ Warning публикуется в финальном комментарии и �
 ### Сбор данных для финального шаблона
 
 PM готовит BODY_FILE: паспорт, CI URL, результат ручных проверок, deferred IDs и долю defer.
-Скрипт сам читает BASE_SHA с проверкой кода и пустоты; шаблонные значения не исполняются.
+Base SHA читается по текущему GitHub ref базовой ветки. Base SHA, сохранённый в PR metadata,
+может отставать от этого ref.
 
 ## Финальный комментарий
 
@@ -366,14 +380,11 @@ PM готовит BODY_FILE: паспорт, CI URL, результат ручн
 > `gh` напрямую: publisher сам видит token, проверяет точные bytes и отправляет их.
 > Не используй `export` + `unset` — при сбое token остался бы в окружении.
 
-### Re-check HEAD перед публикацией (защита от race condition)
+### Повторная сверка перед публикацией
 
-> ⛔ Между шагами 1–5 (фиксация HEAD + проверки) и публикацией финального комментария может пройти 5–30 секунд. За это время в ветку PR может попасть новый commit (параллельный push, force-push, rebase). Если этого не проверить — финальный комментарий объявит `Готов к merge` для commit, который уже не является HEAD-ом.
-
-Скрипт **обязательно** перепроверяет HEAD_NOW перед публикацией и в конце --check:
-
-
-Если HEAD не изменился — скрипт продолжает публикацию (или завершает `--check`). Если изменился — **СТОП**, нужен новый запуск скилла на актуальном commit.
+Перед публикацией и в конце `--check` скрипт заново читает HEAD, base repo/ref/SHA и контракт.
+При изменении привязки или отказе чтения гейт останавливается. После правки текста вне блока
+контракта прежний отпечаток остаётся применимым.
 
 ### Single-invocation landing contract
 
