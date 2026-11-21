@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,10 @@ COMMIT_CLEANUP_TIMEOUT = 85
 
 
 class DesktopError(RuntimeError):
+    pass
+
+
+class MacDesktopStillActive(DesktopError):
     pass
 
 
@@ -62,7 +67,8 @@ def time_left(limit, deadline):
 class Desktop:
     def __init__(self, state_dir=None, run=subprocess.run, platform=sys.platform, hook=False):
         self.windows = platform == 'win32'
-        self.enabled = self.windows or platform == 'darwin'
+        self.macos = platform == 'darwin'
+        self.enabled = self.windows or self.macos
         self.directory = Path(state_dir or (Path(tempfile.gettempdir()) /
                               ('overgate-desktop-' + getpass.getuser())))
         self.state_file = self.directory / 'owner.json'
@@ -147,16 +153,51 @@ if (-not ($processes -or $pipes)) { [Console]::WriteLine('desktop-absent') }
             raise DesktopError('Активность Docker Desktop в Windows не определена') from error
         return result.returncode == 0 and not result.stderr.strip() and result.stdout.strip() == 'desktop-absent'
 
+    def confirm_macos_stopped(self, deadline):
+        # Desktop CLI can report "stopped" while the native Engine is still serving.
+        endpoint = self.command('context', 'inspect', '--format', '{{.Endpoints.docker.Host}}',
+                                deadline=deadline)
+        host = endpoint.stdout.strip()
+        if endpoint.returncode or endpoint.stderr.strip() or not host.startswith('unix:///'):
+            raise DesktopError('Не подтверждён локальный сокет Docker Desktop на macOS')
+        selected = Path(host[len('unix://'):]).resolve()
+        desktop_socket = (Path.home() / '.docker/run/docker.sock').resolve()
+        if selected != desktop_socket:
+            raise DesktopError('Выбранный endpoint не совпадает с сокетом Docker Desktop на macOS')
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(time_left(5, deadline))
+            try:
+                probe.connect(str(desktop_socket))
+            except (FileNotFoundError, ConnectionRefusedError):
+                pass
+            except OSError as error:
+                raise DesktopError('Доступность сокета Docker Desktop не определена') from error
+            else:
+                raise MacDesktopStillActive('Desktop сообщает stopped, но локальный сокет Engine отвечает')
+        try:
+            processes = self.run(['/bin/ps', '-A', '-o', 'comm='], capture_output=True,
+                                 text=True, timeout=time_left(5, deadline))
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise DesktopError('Активность процессов Docker Desktop на macOS не определена') from error
+        if processes.returncode or processes.stderr.strip() or not processes.stdout.strip():
+            raise DesktopError('Не удалось проверить процессы Docker Desktop на macOS')
+        names = {Path(line.strip()).name for line in processes.stdout.splitlines()}
+        if names.intersection(('Docker Desktop', 'com.docker.backend')):
+            raise MacDesktopStillActive('Desktop сообщает stopped, но процессы Docker Desktop ещё работают')
+
     def status(self, *, allow_cold=True, allow_starting=False, deadline=None):
         # Windows Desktop 4.99 при выключенном приложении возвращает диагностический RC1 с задержкой.
-        cold = self.windows and allow_cold
+        cold = self.enabled and allow_cold
         result = self.command('desktop', 'status', '--format', 'json',
                               timeout=25 if cold else 5, deadline=deadline)
         if result.returncode:
             if (cold and result.returncode == 1 and not result.stdout.strip()
-                    and result.stderr.partition('\n')[0].strip() == 'Could not retrieve status. Is Docker Desktop running?'
-                    and self.windows_desktop_absent(time_left(5, deadline))):
-                return 'stopped', None
+                    and result.stderr.partition('\n')[0].strip() == 'Could not retrieve status. Is Docker Desktop running?'):
+                if self.macos:
+                    self.confirm_macos_stopped(deadline)
+                    return 'stopped', None
+                if self.windows_desktop_absent(time_left(5, deadline)):
+                    return 'stopped', None
             raise DesktopError('Статус Desktop не определён; нужен Docker Desktop CLI с status/start/stop')
         data = json.loads(result.stdout)
         if not isinstance(data, dict):
@@ -164,6 +205,8 @@ if (-not ($processes -or $pipes)) { [Console]::WriteLine('desktop-absent') }
         status = str(data.get('Status', data.get('status', ''))).strip().lower()
         if status not in ('running', 'stopped') and not (allow_starting and status == 'starting'):
             raise DesktopError('Desktop в неизвестном/переходном состоянии; владение сохранено')
+        if self.macos and status == 'stopped':
+            self.confirm_macos_stopped(deadline)
         session_id = data.get('SessionID')
         if status == 'stopped' or not isinstance(session_id, str) or not session_id.strip():
             session_id = None
@@ -277,7 +320,15 @@ if (-not ($processes -or $pipes)) { [Console]::WriteLine('desktop-absent') }
             self.require_session(self.state, session_id)
             if self.command('desktop', 'stop', timeout=20, deadline=deadline).returncode:
                 raise DesktopError('docker desktop stop отказал; cleanup FAILED')
-            status, _ = self.status(deadline=deadline)
+            # macOS may return from stop before the Engine socket and backend close.
+            if self.macos:
+                deadline = time.monotonic() + 35  # includes a possible 25 s Desktop CLI probe
+            while True:
+                try:
+                    status, _ = self.status(deadline=deadline)
+                    break
+                except MacDesktopStillActive:
+                    time.sleep(time_left(1, deadline))
             if status != 'stopped':
                 raise DesktopError('Desktop остался запущен; cleanup FAILED')
         self.state_file.unlink()

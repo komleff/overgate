@@ -39,6 +39,21 @@ class DesktopTests(unittest.TestCase):
         self.cold_status_error = ''
         self.status_timeout = False
         self.windows_probe_result = (0, 'desktop-absent', '')
+        self.endpoint = 'npipe:////./pipe/dockerDesktopLinuxEngine'
+        self.macos_home = Path('/Users/slipstream-qa')
+        self.macos_host = 'unix:///Users/slipstream-qa/.docker/run/docker.sock'
+        self.process_table = (0, '/sbin/launchd\n/bin/ps', '')
+        home_patch = patch.object(desktop.Path, 'home', return_value=self.macos_home)
+        home_patch.start()
+        self.addCleanup(home_patch.stop)
+        if not hasattr(desktop.socket, 'AF_UNIX'):
+            unix_family = patch.object(desktop.socket, 'AF_UNIX', 1, create=True)
+            unix_family.start()
+            self.addCleanup(unix_family.stop)
+        socket_patch = patch.object(desktop.socket, 'socket')
+        self.connect = socket_patch.start().return_value.__enter__.return_value.connect
+        self.connect.side_effect = FileNotFoundError
+        self.addCleanup(socket_patch.stop)
         self.desktop_session = 'test-desktop-session'
         self.start_statuses = []
         self.start_already_running = False
@@ -68,6 +83,8 @@ class DesktopTests(unittest.TestCase):
         args = list(args)
         self.calls.append(args)
         code, out = 0, ''
+        if args[0] == '/bin/ps':
+            return subprocess.CompletedProcess(args, *self.process_table)
         if args[0].endswith('powershell.exe'):
             return subprocess.CompletedProcess(args, *self.windows_probe_result)
         if args[1:3] == ['desktop', 'status']:
@@ -80,7 +97,7 @@ class DesktopTests(unittest.TestCase):
                 status, self.desktop_session = self.start_statuses.pop(0)
             out = json.dumps({'Status': status, 'SessionID': self.desktop_session})
         elif args[1:3] == ['context', 'inspect']:
-            out = 'npipe:////./pipe/dockerDesktopLinuxEngine'
+            out = self.endpoint
         elif args[1:2] == ['info']:
             code = 0 if self.running and self.engine_ready and not self.info_failures else 1
             if self.info_failures:
@@ -117,6 +134,8 @@ class DesktopTests(unittest.TestCase):
         return subprocess.CompletedProcess(args, code, out, '')
 
     def context(self, platform='win32', **kwargs):
+        if platform == 'darwin':
+            self.endpoint = self.macos_host
         return desktop.Desktop(state_dir=self.state, run=self.command, platform=platform, **kwargs)
 
     def test_owned_lifecycle_starts_and_stops(self):
@@ -397,6 +416,66 @@ with m.Desktop(state_dir=sys.argv[2],platform='win32').lock():
         self.assertIn(['docker', 'desktop', 'stop'], self.calls)
         self.assertTrue((self.state / 'owner.json').exists())
         self.assertNotIn('OVERGATE_DOCKER_SCOPE', os.environ)
+
+    def test_macos_stopped_with_live_engine_keeps_existing_work(self):
+        self.connect.side_effect = None
+        scope = self.context(platform='darwin')
+        with self.assertRaisesRegex(desktop.DesktopError, 'Engine'):
+            scope.prepare()
+        self.assertFalse(scope.state_file.exists())
+        self.assertNotIn(['docker', 'desktop', 'start'], self.calls)
+        self.assertNotIn(['docker', 'desktop', 'stop'], self.calls)
+
+    def test_macos_uncertain_cold_probe_cannot_start(self):
+        for host, connect_error, processes in [
+                ('ssh://remote', FileNotFoundError, self.process_table),
+                ('unix:///tmp/other.sock', FileNotFoundError, self.process_table),
+                (self.macos_host, TimeoutError, self.process_table),
+                (self.macos_host, PermissionError, self.process_table),
+                (self.macos_host, FileNotFoundError, (1, '', 'failed')),
+                (self.macos_host, ConnectionRefusedError, (0, '/Applications/Docker.app/Contents/MacOS/com.docker.backend', ''))]:
+            with self.subTest(host=host, connect_error=connect_error, processes=processes):
+                scope = self.context(platform='darwin')
+                self.endpoint, self.connect.side_effect, self.process_table = host, connect_error, processes
+                with self.assertRaises(desktop.DesktopError):
+                    scope.prepare()
+                self.assertFalse(scope.state_file.exists())
+        self.assertNotIn(['docker', 'desktop', 'start'], self.calls)
+
+    def test_macos_accepts_known_status_error_only_after_native_cold_proof(self):
+        self.cold_status_error = 'Could not retrieve status. Is Docker Desktop running?'
+        self.connect.side_effect = ConnectionRefusedError
+        with self.context(platform='darwin'):
+            self.assertTrue(self.running)
+        self.assertEqual(self.connect.call_count, 2)
+        self.assertFalse((self.state / 'owner.json').exists())
+
+    def test_macos_live_socket_after_stop_preserves_journal_through_recovery(self):
+        scope = self.context(platform='darwin')
+        with patch.object(desktop.time, 'sleep') as sleep, patch.object(desktop.time, 'monotonic', return_value=0) as clock:
+            sleep.side_effect = lambda duration: setattr(clock, 'return_value', clock.return_value + duration)
+            with self.assertRaises(desktop.DesktopError):
+                with scope:
+                    original = scope.state_file.read_bytes()
+                    self.connect.side_effect = None
+            self.assertEqual(clock.return_value, 35)
+        self.assertEqual(scope.state_file.read_bytes(), original)
+        with patch.object(desktop, 'alive', return_value=False):
+            with self.assertRaisesRegex(desktop.DesktopError, 'Engine'):
+                scope.recover()
+            self.assertEqual(scope.state_file.read_bytes(), original)
+            self.connect.side_effect = FileNotFoundError
+            scope.recover()
+        self.assertFalse(scope.state_file.exists())
+        self.assertEqual(self.calls.count(['docker', 'desktop', 'stop']), 1)
+
+    def test_macos_waits_for_socket_to_close_after_owned_stop(self):
+        with patch.object(desktop.time, 'sleep') as sleep:
+            with self.context(platform='darwin'):
+                self.connect.side_effect = [None, ConnectionRefusedError]
+            sleep.assert_called_once()
+        self.assertFalse((self.state / 'owner.json').exists())
+        self.assertEqual(self.calls.count(['docker', 'desktop', 'stop']), 1)
 
     def test_macos_start_requires_evidence_beyond_rc_zero(self):
         self.start_already_running = True
