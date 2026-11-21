@@ -66,6 +66,22 @@ def merge_ready_wrapper() -> str:
 # Номер PR, который этот тест подаёт публикатору.
 TEST_PR = "645"
 
+sys.path.insert(0, str(ROOT / "scripts" / "tests" / "lib"))
+from command_stub import exe_stub  # noqa: E402
+
+
+def symlink_or_skip(test: unittest.TestCase, link: Path, target: Path) -> None:
+    """D-2: кейс отказа на symlink без привилегии Windows — явный SKIP с причиной.
+
+    В Windows CI (runner с привилегией) и на macOS/Linux кейс исполняется.
+    """
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            test.skipTest("SKIP: нет привилегии создания symlink (WinError 1314); кейс исполняется в Windows CI")
+        raise
+
 
 
 class PublisherTest(unittest.TestCase):
@@ -113,8 +129,7 @@ class PublisherTest(unittest.TestCase):
         self.legacy_python_bin.mkdir()
         shutil.copy2(fake_python, self.legacy_python_bin / "python3")
         fake_gh = self.fake_bin / "gh"
-        fake_gh.write_text(
-            f"#!{sys.executable}\n"
+        fake_gh_source = (
             "import json, os, pathlib, sys\n"
             "args = sys.argv[1:]\n"
             "if args[:2] == ['pr', 'view']:\n"
@@ -127,10 +142,12 @@ class PublisherTest(unittest.TestCase):
             "pathlib.Path(os.environ['FAKE_GH_ARGS']).write_text(json.dumps(args))\n"
             "pathlib.Path(os.environ['FAKE_GH_TOKEN']).write_text("
             "os.environ.get('FINALIZE_PR_TOKEN', ''))\n"
-            "raise SystemExit(int(os.environ.get('FAKE_GH_EXIT', '0')))\n",
-            encoding="utf-8",
+            "raise SystemExit(int(os.environ.get('FAKE_GH_EXIT', '0')))\n"
         )
+        fake_gh.write_text(f"#!{sys.executable}\n" + fake_gh_source, encoding="utf-8")
         fake_gh.chmod(0o755)
+        # D-5: нативный publisher зовёт gh через CreateProcess, который видит только gh.exe.
+        exe_stub(self.fake_bin, "gh", fake_gh_source)
         self.old_cwd = Path.cwd()
         os.chdir(self.repo)
 
@@ -232,7 +249,7 @@ class PublisherTest(unittest.TestCase):
         tool = self.load_tool()
         outside = self.sandbox / "outside.md"
         outside.write_text("нейтральный отчёт\n", encoding="utf-8")
-        self.body_path.symlink_to(outside)
+        symlink_or_skip(self, self.body_path, outside)
 
         with self.gh_environment(), self.assertRaises(tool.PublishError):
             tool.publish_comment(TEST_PR, str(self.body_path))
@@ -244,7 +261,7 @@ class PublisherTest(unittest.TestCase):
         tool = self.load_tool()
         target = self.repo / "inside.md"
         target.write_text("нейтральный отчёт\n", encoding="utf-8")
-        self.body_path.symlink_to(target)
+        symlink_or_skip(self, self.body_path, target)
 
         with (
             self.gh_environment(),
@@ -295,6 +312,20 @@ class PublisherTest(unittest.TestCase):
                 self.body_path.write_bytes(body)
                 with self.subTest(label=label), self.assertRaises(tool.PublishError):
                     tool.publish_comment(TEST_PR, str(self.body_path))
+
+        self.assertFalse(self.capture_body.exists())
+
+    def test_ctrl_z_inside_body_is_rejected_not_truncated(self):
+        """CP-5: 0x1A — запрещённый C0-байт; отказ, а не публикация головы до него.
+
+        В текстовом режиме CRT Windows чтение обрывалось на 0x1A: проверка видела только
+        безобидную голову, и в gh уходило усечённое тело. Правила валидации не меняются.
+        """
+        tool = self.load_tool()
+        self.body_path.write_bytes("голова отчёта\n".encode() + b"\x1a" + "хвост\n".encode())
+
+        with self.gh_environment(), self.assertRaises(tool.PublishError):
+            tool.publish_comment(TEST_PR, str(self.body_path))
 
         self.assertFalse(self.capture_body.exists())
 
@@ -414,6 +445,43 @@ class PublisherTest(unittest.TestCase):
 
         self.assertEqual(result, 37)
         self.assertEqual(self.capture_body.read_bytes(), self.body_path.read_bytes())
+
+    def test_repository_path_with_cyrillic_and_space_publishes(self):
+        """AC-07: ломается, если вывод git декодируется по ANSI code page, а не UTF-8.
+
+        Publisher запускается отдельным процессом в репозитории `репо с пробелом`.
+        На Windows действует ANSI code page (cp1252/cp1251); на macOS/Linux то же
+        условие задаётся локалью C без UTF-8 mode и без принуждения локали.
+        """
+        repo = self.sandbox / "репо с пробелом"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        body = repo / "review.md"
+        body.write_bytes("нейтральный отчёт\n".encode())
+        with self.gh_environment():
+            env = dict(os.environ)
+        env.pop("FINALIZE_PR_TOKEN", None)
+        env.pop("PYTHONIOENCODING", None)
+        if sys.platform == "darwin":
+            # macOS: кодировка ФС Python всегда UTF-8, а локаль C делает кодировку текста
+            # ASCII — ровно условие Windows (ANSI code page ≠ UTF-8). На Linux локаль C
+            # меняет и кодировку ФС, это уже другое окружение: там кейс идёт в штатной локали.
+            env.update(LC_ALL="C", LANG="C", PYTHONCOERCECLOCALE="0", PYTHONUTF8="0")
+        result = subprocess.run([sys.executable, str(TOOL), TEST_PR, str(body)], cwd=repo, env=env,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", "replace"))
+        self.assertEqual(self.capture_body.read_bytes(), body.read_bytes())
+
+    def test_non_utf8_repository_root_fails_closed(self):
+        """AC-07: невалидный UTF-8 в выводе git — отказ publisher, не публикация."""
+        tool = self.load_tool()
+        self.body_path.write_text("нейтральный отчёт\n", encoding="utf-8")
+        failure = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with self.gh_environment(), mock.patch.object(tool.subprocess, "run", side_effect=failure):
+            with self.assertRaises(tool.PublishError):
+                tool.publish_comment(TEST_PR, str(self.body_path))
+        self.assertFalse(self.capture_body.exists())
 
     def test_invalid_pr_number_is_rejected_before_gh(self):
         """Ломается, если PR argument может превратиться в опцию gh."""

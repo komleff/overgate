@@ -35,6 +35,9 @@ EXIT_BLOCK = 2
 def run(cmd: Optional[str], with_token: bool = False) -> int:
     """Запустить hook с payload и вернуть exit code."""
     env = {k: v for k, v in os.environ.items() if k != "FINALIZE_PR_TOKEN"}
+    # D-3/AC-04: вывод хука читается строгим UTF-8 — stdio хука UTF-8, как в сессии
+    # Claude (`.claude/settings.json` env), а не ANSI code page Windows.
+    env["PYTHONIOENCODING"] = "utf-8"
     if with_token:
         env["FINALIZE_PR_TOKEN"] = "1"
     if cmd is None:
@@ -1097,6 +1100,10 @@ TESTS = [
 
 
 def main() -> int:
+    # D-3: отчёт печатает ✓/✗ и русский текст; на Windows stdout по ANSI code page
+    # (cp1251/cp1252) их не кодирует. Собственный вывод теста — явно UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     failures = []
     for cmd, expected, description in TESTS:
         # Исторические записи использовали 1 как абстрактный признак block.

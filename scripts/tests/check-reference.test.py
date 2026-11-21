@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Негативные fixtures structural contract AC-04; без runtime/LLM утверждений."""
+import os
 import shutil
 import subprocess
 import sys
@@ -20,7 +21,11 @@ class StructureTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
 
     def check(self, expected, diagnostic=''):
-        run = subprocess.run([sys.executable, str(CHECKER), '--root', str(self.root), '--structure-only'], capture_output=True, text=True)
+        # D-3: диагностика содержит русский текст; stdio дочернего процесса — UTF-8, как в
+        # сессии Claude (`.claude/settings.json` env PYTHONIOENCODING), а не ANSI code page.
+        env = dict(os.environ, PYTHONIOENCODING='utf-8')
+        run = subprocess.run([sys.executable, str(CHECKER), '--root', str(self.root), '--structure-only'],
+                             capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
         self.assertEqual(run.returncode, expected, run.stdout + run.stderr)
         self.assertIn(diagnostic, run.stdout + run.stderr)
 

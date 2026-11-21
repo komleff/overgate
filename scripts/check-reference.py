@@ -19,7 +19,8 @@ ADAPTERS = {'developer': 'DEV', 'planner': 'PL', 'reviewer': 'RV', 'tester': 'QA
 RUNTIME = {
     '.claude/hooks/' + name for name in (
         'pre-bash.sh', 'check-repository-mutation.py', 'check-tests-before-commit.sh', 'check-merge-ready.py',
-        'commit_command_classifier.py', 'shell_grammar.py', 'shell_comment_parser.py', 'readiness_policy.py')
+        'commit_command_classifier.py', 'shell_grammar.py', 'shell_comment_parser.py', 'readiness_policy.py',
+        'git_bash_route.py')
 } | {'.claude/tools/' + name for name in ('run-python.sh', 'with-timeout.sh', 'publish-pr-comment.py')} | {
     '.claude/settings.json', '.codex/hooks.json', 'scripts/bd-read.sh', 'scripts/bd-wt.sh',
     'scripts/lib/bd-env.sh', 'scripts/lib/bd-read-engine.mjs', '.agents/project/verify.sh',

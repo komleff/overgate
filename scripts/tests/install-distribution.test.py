@@ -828,7 +828,7 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.assertNotIn(b'docker-compose.prod.yml',source)
         self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
         state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
-        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0-rc.5'))
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'4.0.0'))
         self.assertNotIn('source',state);self.assertNotIn('backup',state)
         def no_absolute(value):
             if isinstance(value,dict):

@@ -49,6 +49,30 @@ run_and_capture() {
   return $?
 }
 
+# CP-2 (план v0.7): секции с POSIX-семантикой harness — группы процессов (setpgid),
+# SIGINT/SIGHUP/TERM к дереву процессов, Popen `.sh` из нативного Python — на Windows не
+# воспроизводимы и дают там явный SKIP с причиной. Набор зафиксирован константой: на
+# Windows фактически пропущенный набор обязан совпасть с ней (новый кейс не уходит в SKIP
+# молча); на Linux/macOS пропуск запрещён. Код 124 при истечении предела на Windows
+# проверяется без SKIP (выше и в with-timeout-transparency).
+POSIX_ONLY_SECTIONS="fallback-signal-exit-code fallback-cancellation fallback-signal-harness native-timeout-double native-gtimeout"
+# Сообщения помощника по-русски: stdio Python — UTF-8, как в сессии Claude
+# (`.claude/settings.json` env PYTHONIOENCODING), а не ANSI code page Windows.
+export PYTHONIOENCODING=utf-8
+case "${OSTYPE-}" in
+  msys*|cygwin*) NATIVE_WINDOWS=1 ;;
+  *) NATIVE_WINDOWS=0 ;;
+esac
+SKIPPED_SECTIONS=""
+posix_section() { # posix_section <id>: 0 — исполнять секцию, 1 — явный SKIP на Windows
+  if [ "$NATIVE_WINDOWS" = 1 ]; then
+    SKIPPED_SECTIONS="${SKIPPED_SECTIONS:+$SKIPPED_SECTIONS }$1"
+    echo "  SKIP: $1 — POSIX-семантика (группы процессов, сигналы, Popen .sh) на Windows не воспроизводима (CP-2)"
+    return 1
+  fi
+  return 0
+}
+
 if [ -x "$HELPER" ]; then
   pass "with-timeout.sh существует и исполним"
 else
@@ -215,8 +239,19 @@ assert_ne "$ERROR_RC" "124" "обычная ошибка отличается о
 # даже если на машине разработчика установлены timeout или gtimeout.
 FALLBACK_BIN="$TMP_DIR/fallback-bin"
 mkdir -p "$FALLBACK_BIN"
-PYTHON_BIN="$(command -v python3)"
-ln -s "$PYTHON_BIN" "$FALLBACK_BIN/python3"
+# D-2: обёртка-скрипт вместо symlink — на Windows без привилегии `ln -s` отказывает,
+# а сам symlink по смыслу теста не нужен (нужен только python3 в урезанном PATH).
+PYTHON_BIN=''
+for python_candidate in python3 python; do
+  python_path="$(command -v "$python_candidate" 2>/dev/null)" || continue
+  if "$python_path" -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    PYTHON_BIN="$python_path"
+    break
+  fi
+done
+[ -n "$PYTHON_BIN" ] || fail "fallback-тест нашёл исправный Python 3"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$PYTHON_BIN" > "$FALLBACK_BIN/python3"
+chmod +x "$FALLBACK_BIN/python3"
 
 if PATH="$FALLBACK_BIN" command -v timeout >/dev/null 2>&1 || \
     PATH="$FALLBACK_BIN" command -v gtimeout >/dev/null 2>&1; then
@@ -233,11 +268,15 @@ assert_eq "$ARGS_RC" "0" "fallback успешно передаёт аргуме�
 assert_eq "$(cat "$ARGS_OUTPUT")" $'<argument with spaces>\n<>\n<--flag>' \
   "fallback сохраняет пробелы, пустой аргумент и ведущий дефис"
 
+# Смерть команды от сигнала видна нативному Python fallback только на POSIX: на Windows
+# процесс MSYS, убитый TERM, отдаёт нативному родителю код без сигнала (CP-2).
+if posix_section fallback-signal-exit-code; then
 SIGNAL_OUTPUT="$TMP_DIR/signal.out"
 PATH="$FALLBACK_BIN" run_and_capture "$SIGNAL_OUTPUT" "$HELPER" 2 /bin/sh -c \
   'kill -TERM "$$"'
 SIGNAL_RC=$?
 assert_eq "$SIGNAL_RC" "143" "fallback переводит SIGTERM команды в shell-код 143"
+fi
 
 FALLBACK_RESERVED_OUTPUT="$TMP_DIR/fallback-reserved.out"
 PATH="$FALLBACK_BIN" run_and_capture "$FALLBACK_RESERVED_OUTPUT" "$HELPER" 2 \
@@ -503,6 +542,7 @@ PY_DOUBLE_HARNESS
 
 # Отмена обёртки до deadline обязана очищать отдельную сессию fallback, а не
 # оставлять корень или TERM-устойчивого потомка жить после завершения агента.
+if posix_section fallback-cancellation; then
 FALLBACK_CANCEL_ROOT_PID_FILE="$TMP_DIR/fallback-cancel-root.pid"
 FALLBACK_CANCEL_CHILD_PID_FILE="$TMP_DIR/fallback-cancel-child.pid"
 PATH="$FALLBACK_BIN" "$HELPER" 30 "$PROCESS_SCRIPT" \
@@ -531,14 +571,18 @@ for external_signal_case in INT:130 HUP:129; do
   assert_external_signal_cleanup fallback "$FALLBACK_BIN" \
     "${external_signal_case%%:*}" "${external_signal_case##*:}"
 done
+fi
 
 # Временная копия реального helper получает только тестовые точки наблюдения.
 # Все пять anchor обязаны быть единственными: иначе тест останавливается, а не
 # инструментирует неоднозначный фрагмент. Production-файл при этом не меняется.
+if posix_section fallback-signal-harness; then
 SIGNAL_HARNESS_TOOLS="$TMP_DIR/signal-harness-tools"
 SIGNAL_HARNESS="$SIGNAL_HARNESS_TOOLS/with-timeout.sh"
 mkdir -p "$SIGNAL_HARNESS_TOOLS"
-ln -s "$PYTHON_RUNNER" "$SIGNAL_HARNESS_TOOLS/run-python.sh"
+# D-2: обёртка вместо symlink (без привилегии Windows `ln -s` отказывает).
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$PYTHON_RUNNER" > "$SIGNAL_HARNESS_TOOLS/run-python.sh"
+chmod +x "$SIGNAL_HARNESS_TOOLS/run-python.sh"
 "$PYTHON_RUNNER" - "$HELPER" "$SIGNAL_HARNESS" <<'PY_BUILD_SIGNAL_HARNESS'
 from pathlib import Path
 import sys
@@ -753,14 +797,23 @@ PY_STARTUP_FIRST_SIGNAL
 )"
 assert_eq "$STARTUP_ORDER_RC" "143" \
   "fallback: TERM затем INT в окне запуска дают код первого сигнала (143)"
+fi
+
+# D-2: обёртки вместо symlink; стенду нужны только имена в урезанном PATH.
+stand_wrapper() { # stand_wrapper <каталог> <имя> <абсолютный путь>
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$3" > "$1/$2"
+  chmod +x "$1/$2"
+}
 
 # Совместимый двойник GNU timeout воспроизводит две важные семантики native-пути:
 # ранний выход 124 после TERM корня и 137 после принудительного KILL всей группы.
+# Двойник — POSIX-программа (setpgid, группа процессов), см. CP-2.
 NATIVE_TIMEOUT_BIN="$TMP_DIR/native-timeout-bin"
+if posix_section native-timeout-double; then
 mkdir -p "$NATIVE_TIMEOUT_BIN"
-ln -s "$PYTHON_BIN" "$NATIVE_TIMEOUT_BIN/python3"
+stand_wrapper "$NATIVE_TIMEOUT_BIN" python3 "$PYTHON_BIN"
 for native_tool in mktemp sed rm; do
-  ln -s "$(command -v "$native_tool")" "$NATIVE_TIMEOUT_BIN/$native_tool"
+  stand_wrapper "$NATIVE_TIMEOUT_BIN" "$native_tool" "$(command -v "$native_tool")"
 done
 cat >"$NATIVE_TIMEOUT_BIN/timeout" <<'NATIVE_TIMEOUT_BODY'
 #!/usr/bin/env python3
@@ -1061,16 +1114,20 @@ if [ -n "$DASH_BIN" ]; then
   assert_process_gone "$DASH_CHILD_PID" \
     "dash native timeout добивает TERM-устойчивого потомка"
 else
-  echo "  SKIP: dash недоступен; поведенческий native-path тест пропущен"
+  echo "  SKIP: dash недоступен (command -v dash пуст); поведенческий native-path тест пропущен"
+fi
 fi
 
+if posix_section native-gtimeout; then
 GTIMEOUT_BIN="$TMP_DIR/gtimeout-bin"
 mkdir -p "$GTIMEOUT_BIN"
-ln -s "$PYTHON_BIN" "$GTIMEOUT_BIN/python3"
+stand_wrapper "$GTIMEOUT_BIN" python3 "$PYTHON_BIN"
 for native_tool in mktemp sed rm; do
-  ln -s "$(command -v "$native_tool")" "$GTIMEOUT_BIN/$native_tool"
+  stand_wrapper "$GTIMEOUT_BIN" "$native_tool" "$(command -v "$native_tool")"
 done
-ln -s "$NATIVE_TIMEOUT_BIN/timeout" "$GTIMEOUT_BIN/gtimeout"
+# Копия, а не обёртка: двойник пишет маркер по собственному имени (argv[0] = gtimeout).
+cp "$NATIVE_TIMEOUT_BIN/timeout" "$GTIMEOUT_BIN/gtimeout"
+chmod +x "$GTIMEOUT_BIN/gtimeout"
 GTIMEOUT_INVOKED_FILE="$TMP_DIR/gtimeout-invoked"
 GTIMEOUT_OUTPUT="$TMP_DIR/gtimeout.out"
 PATH="$GTIMEOUT_BIN" NATIVE_INVOKED="$GTIMEOUT_INVOKED_FILE" FAKE_TIMEOUT_MODE=kill \
@@ -1086,6 +1143,7 @@ PATH="$GTIMEOUT_BIN" NATIVE_INVOKED="$GTIMEOUT_INVOKED_FILE" FAKE_TIMEOUT_MODE=e
 GTIMEOUT_RESERVED_RC=$?
 assert_eq "$GTIMEOUT_RESERVED_RC" "125" \
   "native gtimeout оставляет код 124 только для реального истечения времени"
+fi
 
 extract_marked_shell() {
   local source_file="$1"
@@ -1222,6 +1280,13 @@ for skill in finalize-pr; do
     "$SKILL_SANDBOX/.claude/tools/run-python.sh"
   chmod +x "$SKILL_SANDBOX/.claude/tools/run-python.sh"
   chmod -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
+  if [ -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh" ]; then
+    # Git Bash на NTFS (noacl) выводит бит исполнения из shebang, и chmod -x не действует:
+    # неисполнимость моделируется файлом без shebang — так её видит и сам preflight.
+    tail -n +2 "$SKILL_SANDBOX/.claude/tools/with-timeout.sh" > "$TMP_DIR/nonexec-helper"
+    mv "$TMP_DIR/nonexec-helper" "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
+  fi
+  [ ! -x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh" ] || fail "стенд не смог сделать помощник неисполнимым"
   NONEXEC_OUTPUT="$TMP_DIR/$skill-nonexec.out"
   (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash "$PREFLIGHT") >"$NONEXEC_OUTPUT" 2>&1
   NONEXEC_RC=$?
@@ -1229,6 +1294,8 @@ for skill in finalize-pr; do
   assert_ne "$NONEXEC_RC" "0" "$skill останавливается с неисполнимым помощником"
   assert_contains "$NONEXEC_TEXT" "не исполним" "$skill называет причину неисполнимости"
 
+  # Восстановить исходный помощник: на NTFS выше у него снят shebang, и chmod +x его не вернёт.
+  cp "$HELPER" "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
   chmod +x "$SKILL_SANDBOX/.claude/tools/with-timeout.sh"
   COMMAND_ERROR_OUTPUT="$TMP_DIR/$skill-command-error.out"
   (cd "$SKILL_SANDBOX" && GATE_TREE="$SKILL_SANDBOX" bash -c \
@@ -1314,5 +1381,16 @@ PATH="$NATIVE_FAKE_BIN:$PATH" "$HELPER" 5 /bin/sh -c 'exit 0' >/dev/null 2>&1
 assert_eq "$?" "0" "совместимый native timeout: успех команды сохраняется"
 PATH="$NATIVE_FAKE_BIN:$PATH" "$HELPER" 5 /bin/sh -c 'exit 7' >/dev/null 2>&1
 assert_eq "$?" "7" "совместимый native timeout: код падения команды сохраняется"
+
+# CP-2: сверка фактического набора пропусков с константой и печать их числа.
+set -- $SKIPPED_SECTIONS
+SKIPPED_COUNT=$#
+if [ "$NATIVE_WINDOWS" = 1 ]; then
+  assert_eq "$SKIPPED_SECTIONS" "$POSIX_ONLY_SECTIONS" \
+    "Windows: пропущены ровно POSIX-секции из константы"
+else
+  assert_eq "$SKIPPED_SECTIONS" "" "Linux/macOS: ни одна POSIX-секция не пропущена"
+fi
+echo "  SKIP итого: $SKIPPED_COUNT POSIX-секций (константа: $POSIX_ONLY_SECTIONS)"
 
 finish

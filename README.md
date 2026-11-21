@@ -7,11 +7,11 @@ Delivery First связывает принятую спецификацию, р�
 
 Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
 
-**Текущий candidate: v4.0.0-rc.5.1 (шпаргалка оператора и роль GD) поверх опубликованного
-prerelease v4.0.0-rc.5 (managed Beads, установка и восстановление пути).**
-Опубликованный `v4.0.0-rc.4.1` остаётся отдельным prerelease; Stable Dreadnought
-сохраняет прежний snapshot `466ad20` и статус Latest. Здесь живёт generic reference из
-[U2](https://github.com/komleff/u2), без его product/game data.
+**OverGate 4.0.0 Delivery First.** Включает установку и откат, managed Beads и исправленный
+Windows Git Bash route для гейта коммита. Версии для установки указаны в
+[GitHub Releases](https://github.com/komleff/overgate/releases).
+
+Здесь живёт generic reference из [U2](https://github.com/komleff/u2).
 
 ```text
 Accepted WHAT → plan + Verification Contract → PLAN_READY
@@ -37,8 +37,8 @@ External review доступен по named risk или прямому запр�
 
 Поручите агенту: «Установи OverGate в этот проект по `.agents/INSTALL.md`, сохрани
 мою product authority, команды тестов и custom hooks; подготовь target Draft PR».
-Source нужен как чистый **Git checkout**, полученный через `git clone` с выбранным RC tag
-и exact commit SHA; распакованный release ZIP без `.git` installer не принимает.
+Source нужен как чистый **Git checkout**, полученный через `git clone`. Выберите опубликованный
+тег нужного выпуска или точный commit SHA кандидата. Installer использует Git metadata из `.git`.
 Нужны Git, Bash (на Windows — Git Bash), Python 3; `gh` или коннектор для PR, Node.js для Beads reader,
 jq для finalize. Квалифицированный `bd` 1.2.2 нужен для Beads activation; облачный
 агент читает опубликованный снимок и передаёт typed заявки через Git/PR, в том

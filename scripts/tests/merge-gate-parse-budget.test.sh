@@ -22,6 +22,11 @@
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$ROOT/scripts/tests/lib/assert.sh"
 
+# D-3: hook и генераторы входа печатают русский текст. В сессии Claude stdio Python —
+# UTF-8 (`.claude/settings.json` env PYTHONIOENCODING); тест воспроизводит это окружение,
+# а не ANSI code page Windows (иначе причина блокировки терялась при выводе).
+export PYTHONIOENCODING=utf-8
+
 PYTHON_RUNNER="$ROOT/.claude/tools/run-python.sh"
 HOOK="$ROOT/.claude/hooks/check-merge-ready.py"
 SETTINGS="$ROOT/.claude/settings.json"

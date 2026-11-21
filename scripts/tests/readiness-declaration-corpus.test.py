@@ -133,6 +133,9 @@ def test_mutation_f1_regression_reopens_hole(policy) -> None:
 
 
 def main() -> int:
+    # D-3: отчёт теста по-русски; на Windows stdout по ANSI code page его не кодирует.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     policy = load(POLICY_PATH)
     failures = []
     for test in (

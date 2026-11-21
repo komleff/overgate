@@ -3,17 +3,23 @@
 Все значимые изменения OverGate документируются в этом файле.
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/); версия = версия спецификации пайплайна с SemVer-суффиксом.
 
-## [Unreleased] — v4.0.0-rc.5.2 candidate: og-4py (обычный вход в Git для Beads)
+## [v4.0.0]
 
-Hotfix PR #20. Выпуск — PM после merge оператором (вместе с PR #19 или отдельно).
+OverGate 4.0.0 Delivery First объединяет роли и проверки Delivery First,
+управляемую поставку с сохранением файлов проекта и откатом, managed Beads с
+опциональной установкой без Beads и квалификацию Windows Git Bash route.
 
-### Fixed
+### Обычный вход в Git для Beads
+
+Изменения PR #20 входят в базу `769ddc42`.
+
+#### Fixed
 - Beads синхронизирует и публикует задачи с обычным входом пользователя в Git: если обычный
   `git push` работает, `bd-sync-export/restore`, `bd-read`, `bd-wt`, managed publisher,
   activation, upgrade и installer проходят без ручной `git config --local credential.helper`
   и repo-local identity (osxkeychain Apple Git, `gh auth setup-git`, Git Credential Manager).
 
-### Changed
+#### Changed
 - Только сетевые вызовы (`ls-remote`/`fetch`/`push`) и `commit-tree` снимка получают перенос
   `credential.*`, `user.name`, `user.email` из пользовательского config (system, global,
   встроенный Apple Git, `include`/`includeIf`) через приватный временный файл; прочие
@@ -21,19 +27,65 @@ Hotfix PR #20. Выпуск — PM после merge оператором (вме
 - Preflight publisher/activation проверяет effective identity и helper для каждого HTTPS push
   URL по правилам git; без входа — прежний отказ `HTTPS authentication unavailable`.
 
-### Added
+#### Added
 - Диагностика без значений: `bash scripts/lib/bd-env.sh --diagnose [ls-remote|push-dry-run]`
   (также mjs и `install-overgate.py network-diagnose`).
 
-### Known limitations (residual)
+#### Known limitations (residual)
 - Не переносятся `http.*` (proxy, CA, `sslBackend=schannel`), global `url.<ssh>.insteadOf`,
   `core.sshCommand`, `author.*`/`committer.*`, обязательный `commit.gpgSign`; если обычный
   push зависит от них, маршрут падает с подсказкой, называющей ключи (без значений).
 
-## [Unreleased] — v4.0.0-rc.5.1 candidate (og-bo6)
+### Защита репозитория и гейт коммита на Windows
 
-Hotfix точки входа оператора. Выпуск — после приёмки и merge оператором; Stable/Latest
-остаётся v3.9.0. `manifest.version` остаётся `4.0.0-rc.5`, версию различает `source_sha`.
+Проверяемый источник изменений — PR #19, `b307e7f051f29466b887ba4c75286115625cc50c`.
+
+#### Security
+- Guard репозитория блокирует git-alias при явном `--git-dir`/`GIT_DIR`/`GIT_COMMON_DIR`,
+  который git не открывает: раньше lookup отвечал «нет alias» и команда проходила (`og-5l6`).
+- На Windows guard ищет alias через Git Bash той же установки Git for Windows, что исполняет
+  команды агента (`.claude/hooks/git_bash_route.py`): MSYS-пути (`/d/...`) в `-C`, `--git-dir`,
+  `GIT_CONFIG_GLOBAL`, `HOME`, `XDG_CONFIG_HOME`, `include.path`, `GIT_CONFIG_KEY_n` видны так же,
+  как при реальном запуске. **Поддерживается только Git Bash из Git for Windows**: WSL, Cygwin,
+  отдельный MSYS2 или bash другой установки дают блок (ADR §3.38).
+- Окружение команды не управляет процессом Git Bash на этом маршруте: bash получает только
+  allowlist системных переменных, а окружение команды доходит до git отдельно (`env -i`);
+  `BASH_ENV`, `SHELLOPTS`/`PS4`, `BASH_FUNC_*`, `OSTYPE` больше не могут скрыть alias.
+- Guard видит опасный git-alias за `env` с неидентификаторным присваиванием (`env 'A%B=1' git
+  ship`, `env 'BASH_FUNC_x%%=…'`, после `--`, с `-i`/`-u`/`-S`) и за `GIT_CONFIG=<файл> git ship`:
+  раньше `env` принимал такое слово за команду, а `GIT_CONFIG` прятал alias от lookup, хотя
+  `git ship` его находит. Пустое или динамическое имя присваивания `env` — блок (`og-5sm`,
+  ADR §3.38 п.6). Существовало до rc.5.2, на любой ОС.
+
+#### Changed
+- Commit tier гейта коммита — ядро из 12 шагов; publisher, with-timeout, gate/merge-gate,
+  finalize, bd и complexity-наборы идут в полном `bash scripts/verify-reference.sh` и CI.
+  Каждый шаг печатает своё время, commit tier — сумму (ADR §3.38, `og-1lg` п.1).
+
+#### Added
+- CI-джоба `windows-commit-tier`: Git Bash, Python 3.14 без UTF-8 override, временный каталог
+  на `D:` с кириллицей и пробелом; commit tier и все вынесенные из него шаги.
+
+#### Fixed
+- Тесты на Windows: Git Bash вместо WSL-заглушки, UTF-8 вывод, обёртки вместо symlink,
+  заглушка `gh.exe` для нативного Python, PATH фикстур с git/jq, пути с апострофом (`og-0pu`).
+- `publish-pr-comment.py` и guard читают вывод git строгим UTF-8: на Windows репозиторий с
+  кириллицей и пробелом в пути больше не ломает publisher и не даёт ложного блока guard;
+  невалидный UTF-8 — отказ/блок, как прежде.
+
+#### Known limitations
+- Windows: поддерживается только Git Bash из Git for Windows (WSL, Cygwin, отдельный MSYS2 —
+  блок guard). Shim-установки git (Scoop, Chocolatey), стоящие в PATH раньше Git for Windows,
+  тоже дают блок (fail-closed): решающий признак — `git.exe` и bash из одной установки.
+- Windows: апостроф в пути проекта или TEMP (`C:\Users\O'Brien\…`) — MSYS не преобразует такой
+  argv-путь для нативных программ, часть скриптов получит `/d/...` (`og-gcf`). Guard не ослаблен.
+- Windows: сигналы и группы процессов `with-timeout.sh` автоматическим тестом не покрыты
+  (POSIX-секции теста там явно пропускаются).
+
+## [v4.0.0-rc.5.1] — 2026-11-09 (og-bo6)
+
+Hotfix точки входа оператора (PR #18, merge `b04b21c`), опубликованный как prerelease.
+`manifest.version` оставался `4.0.0-rc.5`, версию различал `source_sha`.
 
 ### Fixed
 - `.agents/HOW_TO_USE.md` снова начинается со шпаргалки оператора: копируемые промпты всех

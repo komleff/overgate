@@ -7,25 +7,32 @@ trap 'rm -rf "$TEMP"' EXIT
 PROJECT="$TEMP/Проект's (QA) space/primary"
 REMOTE="$TEMP/remote.git"
 mkdir -p "$PROJECT/scripts/lib" "$TEMP/bin"
+# D-6: путь проекта с апострофом MSYS не преобразует в argv нативного git.exe
+# (`git -C '/d/…/Проект's …'` — «cannot change to»). Подготовка фикстуры поэтому идёт
+# из самого каталога: рабочий каталог bash передаёт git.exe в нативной форме.
+project_git() { ( cd "$PROJECT" && git "$@" ); }
 git init -q --bare "$REMOTE"
-git -C "$PROJECT" init -q -b main
-git -C "$PROJECT" config user.name fixture
-git -C "$PROJECT" config user.email fixture@example.invalid
-git -C "$PROJECT" remote add origin "$REMOTE"
+project_git init -q -b main
+# Фикстура проверяет пути модулей Node, а не концы строк: глобальный core.autocrlf=true
+# runner Windows делал проверку «tooling не изменён» зависимой от гонки stat (exit 6).
+project_git config core.autocrlf false
+project_git config user.name fixture
+project_git config user.email fixture@example.invalid
+project_git remote add origin "$REMOTE"
 cp "$ROOT/scripts/bd-apply-intents.sh" "$ROOT/scripts/bd-read.sh" "$PROJECT/scripts/"
 cp "$ROOT/scripts/lib/bd-env.sh" "$ROOT/scripts/lib/bd-git-environment.mjs" \
   "$ROOT/scripts/lib/bd-snapshot.mjs" "$ROOT"/scripts/lib/bd-managed-*.mjs "$PROJECT/scripts/lib/"
-git -C "$PROJECT" add scripts
-git -C "$PROJECT" commit -qm 'trusted route fixture'
-git -C "$PROJECT" push -q origin main
+project_git add scripts
+project_git commit -qm 'trusted route fixture'
+project_git push -q origin main
 git -C "$REMOTE" symbolic-ref HEAD refs/heads/main
-git -C "$PROJECT" switch -q -c beads-backup
+project_git switch -q -c beads-backup
 mkdir -p "$PROJECT/.beads"
 : > "$PROJECT/.beads/issues.jsonl"
-git -C "$PROJECT" add .beads/issues.jsonl
-git -C "$PROJECT" commit -qm 'empty task snapshot'
-git -C "$PROJECT" push -q origin beads-backup
-git -C "$PROJECT" switch -q main
+project_git add .beads/issues.jsonl
+project_git commit -qm 'empty task snapshot'
+project_git push -q origin beads-backup
+project_git switch -q main
 
 cat > "$TEMP/bin/cygpath" <<'SH'
 #!/usr/bin/env bash

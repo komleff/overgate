@@ -74,7 +74,10 @@ def run(command_text: str, payload_command: str, cwd: Path | str, project_dir: s
         env["CLAUDE_PROJECT_DIR"] = project_dir
     if extra_env:
         env.update(extra_env)
-    payload = json.dumps({"tool_input": {"command": payload_command}, "cwd": str(cwd)})
+    # Claude Code передаёт payload без \u-экранирования (JSON.stringify): диспетчер сверяет
+    # команду восстановления с корнем буквально, и с кириллицей в пути экранирование
+    # фикстуры давало бы ложное расхождение.
+    payload = json.dumps({"tool_input": {"command": payload_command}, "cwd": str(cwd)}, ensure_ascii=False)
     proc = subprocess.run([BASH, "-c", command_text], input=payload, cwd=str(cwd), env=env,
                           capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=timeout)
@@ -412,7 +415,9 @@ class GateBudget(unittest.TestCase):
 
     def test_gate_hanging_on_limit_query_is_blocked(self):
         """Зависший запрос предела режется пределом быстрой проверки, а не 600 с записи."""
-        tree = gate_tree("#!/usr/bin/env bash\nsleep 30\nexit 0\n", ("QUICK_LIMIT=10", "QUICK_LIMIT=2"))
+        # Окно 2 с относится к запросу предела. Предшествующие guards используют штатный предел.
+        query = 'GATE_BASE="$(sh "$TIMEOUT_HELPER"'
+        tree = gate_tree("#!/usr/bin/env bash\nsleep 30\nexit 0\n", (query, f"QUICK_LIMIT=2\n{query}"))
         started = time.monotonic()
         code, err = run(ENTRY, "git commit -m x", tree, str(tree), timeout=25)
         elapsed = time.monotonic() - started
