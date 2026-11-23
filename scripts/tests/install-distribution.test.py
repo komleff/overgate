@@ -52,6 +52,10 @@ def snapshot(root):
     return {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*')
             if p.is_file() and '.git' not in p.parts and '.overgate-backups' not in p.parts}
 
+def snapshot_artifacts(base):
+    return None if not base.exists() else {p.relative_to(base).as_posix():p.read_bytes()
+                                           for p in base.rglob('*') if p.is_file()}
+
 def load_installer():
     spec=importlib.util.spec_from_file_location('installer_under_test',INSTALLER)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -59,6 +63,89 @@ def load_installer():
 
 def crlf(data):
     return data.replace(b'\n',b'\r\n')
+
+class ManagedUpgradeGuards(unittest.TestCase):
+    def test_checkout_identity_requires_same_named_branch_and_head(self):
+        installer=load_installer()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name).resolve()/'target';init(root)
+            git(root,'commit','--allow-empty','-qm','baseline')
+            binding=installer.upgrade_checkout(root)
+            self.assertEqual(binding,{'target':str(root.resolve()),'ref':'refs/heads/fixture','head':git(root,'rev-parse','HEAD')})
+            git(root,'switch','-qc','other')
+            self.assertNotEqual(installer.upgrade_checkout(root),binding)
+            git(root,'switch','-q','fixture');git(root,'commit','--allow-empty','-qm','movement')
+            self.assertNotEqual(installer.upgrade_checkout(root),binding)
+            git(root,'switch','-qc','main')
+            with self.assertRaises(installer.InstallError):installer.upgrade_checkout(root)
+            git(root,'switch','-q','--detach','HEAD')
+            with self.assertRaises(installer.InstallError):installer.upgrade_checkout(root)
+
+    def test_concurrent_install_operations_are_exclusive(self):
+        installer=load_installer()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name)/'target';init(root)
+            with installer.install_lock(root):
+                with self.assertRaisesRegex(installer.InstallError,'busy'):
+                    with installer.install_lock(root):self.fail('overlapping installer admitted')
+            with installer.install_lock(root):pass
+
+    def test_rollback_preserves_edited_file_that_upgrade_created(self):
+        installer=load_installer()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name);path=root/'new-file';path.write_bytes(b'installed')
+            after=installer.current(root,path.name)
+            entry={'target':path.name,'before':None,'data':None}
+            path.write_bytes(b'editor revision')
+            with self.assertRaisesRegex(installer.InstallError,'drift'):
+                installer.restore(root,[entry],{path.name:after})
+            self.assertEqual(path.read_bytes(),b'editor revision')
+
+    def test_interrupted_managed_journal_restores_only_recognized_bytes(self):
+        installer=load_installer()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name).resolve()/'target';init(root)
+            git(root,'commit','--allow-empty','-qm','before upgrade')
+            data=b'old byte stream';changed=b'updated'
+            path=root/'managed-file';path.write_bytes(data)
+            before=installer.current(root,path.name);path.write_bytes(changed)
+            after=installer.current(root,path.name)
+            journal={'format':2,'target':str(root),'transaction':'f'*32,'after':{path.name:after},
+                     'entries':[{'target':path.name,'before':before,'data':base64.b64encode(data).decode()}]}
+            journal['managed_upgrade']={'checkout':installer.upgrade_checkout(root)}
+            raw=installer.json_bytes(journal);installer.record_journal(root,journal,raw)
+            backup=root/'.overgate-backups'/('managed-'+installer.digest(raw))/'rollback.json'
+            backup.parent.mkdir(parents=True);backup.write_bytes(raw)
+            installer.set_phase(backup,'applying')
+            path.write_bytes(b'project edit')
+            with self.assertRaisesRegex(installer.InstallError,'drift'):
+                installer.restore_upgrade(root,journal,backup)
+            self.assertEqual(path.read_bytes(),b'project edit')
+            self.assertEqual(installer.journal_phase(backup),'applying')
+            path.write_bytes(changed)
+            set_phase=installer.set_phase
+            def editor_save(backup,phase):
+                set_phase(backup,phase)
+                if phase=='restoring':path.write_bytes(b'editor saved during rollback')
+            with mock.patch.object(installer,'set_phase',editor_save):
+                with self.assertRaisesRegex(installer.InstallError,'drift'):
+                    installer.restore_upgrade(root,journal,backup)
+            self.assertEqual(path.read_bytes(),b'editor saved during rollback')
+            path.write_bytes(changed)
+            write=installer.write_atomic
+            def interrupted(root,name,data,mode,*guard):
+                if name==path.name:raise OSError('interrupted restore')
+                write(root,name,data,mode,*guard)
+            with mock.patch.object(installer,'write_atomic',interrupted):
+                with self.assertRaisesRegex(OSError,'interrupted restore'):
+                    installer.restore_upgrade(root,journal,backup)
+            self.assertEqual(installer.journal_phase(backup),'restoring')
+            installer.restore_upgrade(root,installer.verified_journal(root,backup),backup)
+            self.assertEqual(installer.current(root,path.name),before)
+            self.assertEqual(installer.journal_phase(backup),'restored')
+            backup.write_bytes(raw+b' ')
+            with self.assertRaisesRegex(installer.InstallError,'integrity'):
+                installer.verified_journal(root,backup)
 
 class ActivationEncodingTests(unittest.TestCase):
     def test_native_env_binds_project_beads_dir_and_missing_state_stops(self):
@@ -203,7 +290,7 @@ class InstallTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
-        self.root=Path(self.tmp.name);self.target=self.root/'target';init(self.target)
+        self.root=Path(self.tmp.name).resolve();self.target=self.root/'target';init(self.target)
         self.contract=self.root/'contract.md';self.contract.write_text('AC: preserve project bytes; closure; rollback\n')
         self.plan=self.root/'plan.json';self.approval=self.root/'approval.json'
 
@@ -638,6 +725,151 @@ fs.rmSync(root,{recursive:true,force:true});'''
         first_task=json.loads(first_read.stdout)
         self.assertEqual(first_task,first_issues[0])
         work=work.resolve()
+        # Обновляем настоящую активированную установку до отдельного source-коммита.
+        git(self.target,'switch','-qc','upgrade/managed')
+        changed='.agents/PM_ROLE.md'
+        (self.source/changed).write_bytes((self.source/changed).read_bytes()+b'\nRC2 fixture\n')
+        git(self.source,'add','--',changed);git(self.source,'commit','-qm','next source')
+        self.sha=git(self.source,'rev-parse','HEAD')
+        def tracker_evidence():
+            evidence={}
+            for root in (self.target,publisher):
+                for base in (root/'.bd-intents',root/'.git/bd-receipts',root/'.git/overgate-bd-managed',
+                             root/'.git/overgate-bd-publisher-control'):
+                    evidence[str(base)]=snapshot_artifacts(base)
+                evidence[str(root/'config')]=(root/'.git/config').read_bytes()
+                evidence[str(root/'refs')]=git(root,'for-each-ref','--format=%(refname) %(objectname)','refs/overgate-bd-managed')
+            return evidence
+        def preserved(action):
+            prior=tracker_evidence();remote_before=git(remote,'rev-parse','refs/heads/beads-backup')
+            value=action()
+            self.assertEqual(tracker_evidence(),prior)
+            self.assertEqual(git(remote,'rev-parse','refs/heads/beads-backup'),remote_before)
+            return value
+        def rollback(backup,ok=True):
+            return preserved(lambda:self.call('rollback','--target',self.target,'--backup',backup,ok=ok))
+        def journals():
+            return set((self.target/'.overgate-backups').glob('managed-*/rollback.json'))
+        def new_journal(previous):
+            created=journals()-previous
+            self.assertEqual(len(created),1,'operation must create exactly one managed journal')
+            return created.pop()
+        def upgrade():
+            previous=journals()
+            preserved(self.make_plan);self.approve();preserved(self.apply)
+            return new_journal(previous)
+        raw=work/'unpublished.jsonl';prepared=work/'unpublished.v2.jsonl'
+        raw.write_text(json.dumps({'intent_id':'upgrade-retained','op':'create','handle':'tmp:retained',
+                                   'title':'Retained through upgrade','type':'task','priority':2})+'\n')
+        def publish(*args):
+            run=subprocess.run([BASH,'scripts/bd-apply-intents.sh',*map(str,args)],cwd=publisher,
+                               env={**os.environ,'BD_BIN':str(binary)},capture_output=True,text=True,timeout=180)
+            self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+            return json.loads(run.stdout)
+        publish('--prepare','--base',result['published_sha'],'--actor',actor,'--output',prepared,raw)
+        for root in (self.target,publisher):
+            queue=root/'.bd-intents';queue.mkdir(exist_ok=True)
+            (queue/'retained.v2.jsonl').write_bytes(prepared.read_bytes())
+            receipts=root/'.git/bd-receipts';receipts.mkdir(exist_ok=True)
+            (receipts/'completed.json').write_text(json.dumps({'published_sha':result['published_sha']}))
+        original=snapshot(self.target)
+        preserved(self.make_plan);self.approve()
+        installer=load_installer()
+        publisher_queue=publisher/'.bd-intents/retained.v2.jsonl'
+        initial_queue=publisher_queue.read_bytes()
+        publisher_queue.write_bytes(initial_queue+b'\n')
+        self.assertIn('drift',preserved(lambda:self.apply(ok=False)).stderr)
+        self.assertEqual(snapshot(self.target),original)
+        publisher_queue.write_bytes(initial_queue)
+
+        record=installer.record_journal
+        state_path=self.target/installer.STATE
+        edited=state_path.read_bytes()+b' '
+        def editor_save(*args):
+            record(*args)
+            state_path.write_bytes(edited)
+        previous=journals()
+        with mock.patch.object(installer,'record_journal',side_effect=editor_save) as injected:
+            with self.assertRaisesRegex(installer.InstallError,'drift'):
+                preserved(lambda:installer.apply(self.plan,self.approval))
+        self.assertEqual(snapshot(self.target),{**original,installer.STATE:edited})
+        injected.assert_called_once()
+        self.assertEqual(installer.journal_phase(new_journal(previous)),'aborted')
+        state_path.write_bytes(original[installer.STATE])
+        write=installer.write_atomic
+        def edit_next_file(root,path,data,mode,*guard):
+            write(root,path,data,mode,*guard)
+            if root==self.target and path==changed:state_path.write_bytes(edited)
+        previous=journals()
+        with mock.patch.object(installer,'write_atomic',edit_next_file):
+            with self.assertRaisesRegex(installer.InstallError,'recovery journal'):
+                installer.apply(self.plan,self.approval)
+        self.assertEqual(state_path.read_bytes(),edited)
+        self.assertNotEqual((self.target/changed).read_bytes(),original[changed])
+        partial=new_journal(previous)
+        self.assertEqual(installer.journal_phase(partial),'applying')
+        state_path.write_bytes(original[installer.STATE])
+        rollback(partial);self.assertEqual(snapshot(self.target),original)
+        crash_script = '''
+import importlib.util,os,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("crash_fixture",sys.argv[1])
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+write=module.write_atomic
+def crash(root,path,data,mode,*guard):
+    if path==module.STATE:os._exit(73)
+    write(root,path,data,mode,*guard)
+module.write_atomic=crash
+module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
+'''
+        previous=journals()
+        crashed=preserved(lambda:subprocess.run([sys.executable,'-I','-c',crash_script,str(INSTALLER),
+                                                  str(self.plan),str(self.approval)],capture_output=True))
+        self.assertEqual(crashed.returncode,73,crashed.stderr)
+        interrupted=new_journal(previous)
+        self.assertEqual((interrupted.parent/'phase').read_bytes(),b'applying\n')
+        self.assertNotEqual((self.target/changed).read_bytes(),original[changed])
+        rollback(interrupted);self.assertEqual(snapshot(self.target),original)
+        first_backup=upgrade()
+        preserved(self.make_plan);self.assert_noop()
+        rollback(first_backup)
+        self.assertEqual(snapshot(self.target),original)
+        backup=upgrade()
+        git(self.target,'switch','-qc','other')
+        self.assertIn('checkout',rollback(backup,False).stderr)
+        git(self.target,'switch','-q','--detach','HEAD')
+        self.assertNotEqual(rollback(backup,False).returncode,0)
+        git(self.target,'switch','-q','upgrade/managed')
+        # Изменённая поставка, ветка, HEAD или незаконченное состояние publisher блокируют откат до записи.
+        managed_path=self.target/changed;new_bytes=managed_path.read_bytes()
+        managed_path.write_bytes(new_bytes+b'project edit')
+        self.assertIn('drift',rollback(backup,False).stderr)
+        self.assertEqual(managed_path.read_bytes(),new_bytes+b'project edit')
+        managed_path.write_bytes(new_bytes)
+        git(self.target,'switch','-q','main')
+        self.assertNotEqual(rollback(backup,False).returncode,0)
+        git(self.target,'switch','-q','upgrade/managed')
+        previous_head=git(self.target,'rev-parse','HEAD')
+        git(self.target,'commit','--allow-empty','-qm','fixture code HEAD movement')
+        moved_head=git(self.target,'rev-parse','HEAD')
+        self.assertIn('checkout',rollback(backup,False).stderr)
+        git(self.target,'update-ref','refs/heads/upgrade/managed',previous_head,moved_head)
+        journal_path=publisher/'.git/overgate-bd-managed/active.json';completed=journal_path.read_bytes()
+        record=json.loads(completed);record['phase']='conflict';record['conflict_base']=result['published_sha']
+        journal_path.write_text(json.dumps(record),encoding='utf8')
+        self.assertIn('transaction',rollback(backup,False).stderr)
+        journal_path.write_bytes(completed)
+        git(self.target,'config','--local','overgate.beadsPrefix','other')
+        self.assertIn('registration',rollback(backup,False).stderr)
+        git(self.target,'config','--local','overgate.beadsPrefix','big-heroes')
+        prior_url=git(self.target,'remote','get-url','origin')
+        git(self.target,'remote','set-url','origin',str(self.root/'unreachable.git'))
+        self.assertIn('reachable',rollback(backup,False).stderr)
+        git(self.target,'remote','set-url','origin',prior_url)
+        git(remote,'update-ref','refs/heads/beads-backup',head,result['published_sha'])
+        self.assertNotEqual(rollback(backup,False).returncode,0)
+        git(remote,'update-ref','refs/heads/beads-backup',result['published_sha'],head)
+        preserved(self.make_plan);self.approve()
         lifecycle_raw=work/'lifecycle-raw.jsonl';lifecycle_prepared=work/'lifecycle.v2.jsonl'
         lifecycle_raw.write_text(''.join(json.dumps(item)+'\n' for item in (
             {'intent_id':'activation-update','op':'update','ref':result['id'],'description':'Verified project update'},
@@ -671,6 +903,39 @@ fs.rmSync(root,{recursive:true,force:true});'''
             'final_peer_sha':git(peer,'rev-parse','refs/remotes/origin/beads-backup'),
             'final_full_object_sha256':object_digest(task),'final_full_object_equal':task==final_issues[0]
         },sort_keys=True))
+
+        advance=publish(publisher/'.bd-intents/retained.v2.jsonl')
+        active_sha=advance['published_sha']
+        self.assertNotEqual(active_sha,closed['published_sha'])
+        self.assertIn('drift',preserved(lambda:self.apply(ok=False)).stderr)
+        rollback(backup)
+        self.assertEqual(snapshot(self.target),original)
+        retained=advance
+        replay=publish(publisher/'.bd-intents/retained.v2.jsonl')
+        self.assertEqual(replay['published_sha'],retained['published_sha']);self.assertEqual(replay['mutations'],0)
+        retained_id=retained['outcomes'][0]['result']['ref']
+        peer_read=subprocess.run([BASH,'scripts/bd-read.sh','show',retained_id,'--json'],cwd=peer,capture_output=True,text=True)
+        self.assertEqual(peer_read.returncode,0,peer_read.stderr)
+        self.assertEqual(json.loads(peer_read.stdout)['title'],'Retained through upgrade')
+        post=work/'post.jsonl';postq=work/'post.v2.jsonl'
+        post.write_text(json.dumps({'intent_id':'upgrade-post','op':'note','ref':retained_id,'text':'After rollback'})+'\n')
+        publish('--prepare','--base',active_sha,'--actor',actor,'--output',postq,post)
+        applied=publish(postq)
+        self.assertNotEqual(applied['published_sha'],active_sha)
+        final=subprocess.check_output([BASH,'scripts/bd-read.sh','show',retained_id,'--json'],cwd=peer,text=True)
+        self.assertIn('After rollback',json.loads(final)['notes'])
+        accepted_backup=upgrade()
+        git(self.target,'switch','-q','main')
+        git(self.target,'add','--',changed,'.overgate/install-state.json')
+        git(self.target,'commit','-qm','accepted installation on fixture main')
+        accepted=snapshot(self.target)
+        self.assertNotEqual(rollback(accepted_backup,False).returncode,0)
+        self.assertEqual(snapshot(self.target),accepted)
+        print('MANAGED_UPGRADE_RECEIPT '+json.dumps({
+            'target_head':previous_head,'source':self.sha,'R_before':result['published_sha'],
+            'R_after_upgrade_publication':active_sha,'R_after_rollback_publication':applied['published_sha'],
+            'retained_id':retained_id,'peer_R':git(peer,'rev-parse','refs/remotes/origin/beads-backup'),
+            'replay_mutations':replay['mutations'],'interrupted_apply_recovered':True},sort_keys=True))
 
     def test_wib_activation_ignores_inherited_git_origin_spoof(self):
         binary=Path('/opt/homebrew/bin/bd').resolve()
@@ -821,6 +1086,38 @@ fs.rmSync(root,{recursive:true,force:true});'''
     def backup(self):
         return max((self.target/'.overgate-backups').glob('*/rollback.json'),key=lambda p:p.stat().st_mtime_ns)
 
+    def test_install_state_matches_git_modes_for_tracked_and_new_files(self):
+        clone=self.root/'mode-source'
+        subprocess.check_call(['git','clone','-q','-c','core.autocrlf=false',str(self.source),str(clone)])
+        self.source=clone
+        git(clone,'config','user.email','fixture@example.invalid');git(clone,'config','user.name','Fixture')
+        existing='scripts/bd-read.sh';created='scripts/bd-wt.sh'
+        for path in (existing,created):
+            (clone/path).chmod(0o755)
+        git(clone,'add','--chmod=+x','--',existing,created)
+        git(clone,'commit','--allow-empty','-qm','portable executable modes')
+        self.sha=git(clone,'rev-parse','HEAD')
+        original=self.target/existing;original.parent.mkdir();original.write_bytes(self.source_blob(existing));original.chmod(0o755)
+        git(self.target,'add','--chmod=+x','--',existing);git(self.target,'commit','-qm','existing executable')
+        index=(self.target/'.git/index').read_bytes()
+        plan_output=self.make_plan().stdout
+        if os.name=='nt':
+            self.assertIn('git add --chmod=+x -- '+created,plan_output)
+            self.assertNotIn('git add --chmod=+x -- '+existing,plan_output)
+        self.approve();self.apply()
+        self.assertEqual((self.target/'.git/index').read_bytes(),index)
+        state=json.loads((self.target/'.overgate/install-state.json').read_bytes())['installed']
+        normal='.agents/PM_ROLE.md'
+        for path,expected in ((existing,0o755),(created,0o755),(normal,0o644)):
+            self.assertEqual(state[path]['mode'],expected,path)
+        git(self.target,'add','--',existing,created,normal)
+        if os.name=='nt':
+            self.assertEqual(git(self.target,'ls-files','--stage','--',created).split()[0],'100644')
+            git(self.target,'add','--chmod=+x','--',created)
+        for path in (existing,created,normal):
+            actual=git(self.target,'ls-files','--stage','--',path).split()[0]
+            self.assertEqual(int(actual,8)&0o777,state[path]['mode'],path)
+
     def test_wi1_fresh_modes_and_state(self):
         self.make_plan();self.approve();self.apply()
         source=self.source_blob('.claude/settings.json')
@@ -828,7 +1125,7 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.assertNotIn(b'docker-compose.prod.yml',source)
         self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
         state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
-        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'5.0.0-rc.1'))
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'5.0.0-rc.2'))
         self.assertNotIn('source',state);self.assertNotIn('backup',state)
         def no_absolute(value):
             if isinstance(value,dict):
@@ -1466,10 +1763,10 @@ fs.rmSync(root,{recursive:true,force:true});'''
         def recording_unlink(path,*args,**kwargs):
             if path.is_relative_to(self.target.resolve()):removed.append(path.relative_to(self.target.resolve()).as_posix())
             return unlink(path,*args,**kwargs)
-        def interrupted(root,path,data,mode):
+        def interrupted(root,path,data,mode,*guard):
             calls.append(path)
             if path==installer.STATE:raise OSError('injected write failure')
-            return write(root,path,data,mode)
+            return write(root,path,data,mode,*guard)
         with mock.patch.object(installer,'write_atomic',interrupted), mock.patch.object(Path,'unlink',recording_unlink):
             with self.assertRaises(OSError):installer.apply(self.plan,self.approval)
         self.assertEqual(snapshot(self.target),before)

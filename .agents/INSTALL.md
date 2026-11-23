@@ -1,8 +1,8 @@
 ---
 title: "Install, upgrade and rollback — OverGate Slipstream"
 status: active
-version: "5.0.0-rc.1"
-date: 2026-11-20
+version: "5.0.0-rc.2"
+date: 2026-11-23
 tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
@@ -11,7 +11,7 @@ tags: [installation, upgrade, rollback, delivery-first]
 OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
 не является trusted source этого установщика. Получите source через `git clone`, затем
 выберите тег нужного выпуска в [GitHub Releases](https://github.com/komleff/overgate/releases).
-Для проверки кандидата Slipstream `v5.0.0-rc.1` используйте полный commit SHA из PR.
+Для Slipstream `v5.0.0-rc.2` до публикации используйте точный SHA из PR, после публикации — тег со страницы Releases.
 Installer работает с локальным Git checkout.
 
 Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
@@ -35,6 +35,29 @@ Beads activation; `--no-beads` — для разовых проектов. Дл�
 текущий `bd --help`. macOS/Linux deterministic fixtures — граница reference evidence;
 На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
 не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
+
+### Обновление работающего managed-проекта
+
+В рабочей ветке выполните обычные `plan`, Plan Review с `PLAN_READY` и `apply`.
+Для установленного `managed-v1` план проверяет регистрацию прежнего publisher,
+его trusted `origin/main`, общий origin, префикс и опубликованную историю задач.
+В плане отдельно указаны HEAD кода и R ветки `beads-backup`. При смене входных
+данных, регистрации или R получите и согласуйте новый план. При незавершённой
+публикации сначала продолжите исходную очередь через зарегистрированный publisher.
+Изменение подготовленной очереди отдельного publisher также требует нового плана.
+Установщик сохраняет очереди, локальные квитанции и проектные настройки.
+
+До коммита обновления выполните `rollback --target <project> --backup <rollback.json>`
+из той же рабочей копии при исходной ветке и HEAD. Журнал связывает резервные
+данные с этой установкой. После аварийного прерывания используйте тот же журнал
+из `.overgate-backups/managed-*/rollback.json`. Если внешний редактор изменил
+файл после начала записи, сохраните свою правку отдельно, верните этот файл
+к ожидаемому состоянию из журнала и продолжите откат с тем же журналом.
+Если установщик остановился до первой записи, подготовьте новый план.
+Для отката восстановите исходную
+ветку и разберите изменения управляемых файлов. Задачи, опубликованные за время
+обновления, останутся в общей истории. После коммита верните поставку средствами Git
+в рабочей ветке с сохранением правок проекта. После merge оформите обратный PR.
 
 ### Beads и облачный агент
 
@@ -324,7 +347,11 @@ Protection helper запускается после появления main на
 code5 не изменяет ruleset. R7/og-9ic.10 прямого снятия защиты API остаётся вне WI-1.
 
 Tracked state format2 содержит source_sha, manifest_version, mode, beads и installed relative
-paths/hashes; legacy state rc.1–rc.3 читается. Абсолютный backup path только в ignored journal,
+paths/hashes. Для каждого файла `installed` хранит переносимый режим из Git source,
+0644 или 0755. При `core.filemode=false` план выводит команды `git add --chmod`
+для путей, которым при подготовке target-коммита нужно выставить режим. Выполните
+их при staging и сверьте результат через `git ls-files --stage`. На Windows журнал
+отката отдельно сохраняет наблюдаемые права локальных файлов. Legacy state rc.1–rc.3 читается. Абсолютный backup path только в ignored journal,
 apply печатает его, rollback принимает --backup явно. Approval привязывается к plan modes тоже:
 apply пересобирает exact plan и останавливает drift.
 Агент заполняет verify.sh реальными project tests, при их отсутствии создаёт минимальные.
