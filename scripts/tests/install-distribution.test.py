@@ -90,6 +90,17 @@ class ManagedUpgradeGuards(unittest.TestCase):
                     with installer.install_lock(root):self.fail('overlapping installer admitted')
             with installer.install_lock(root):pass
 
+    def test_rollback_preserves_edited_file_that_upgrade_created(self):
+        installer=load_installer()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name);path=root/'new-file';path.write_bytes(b'installed')
+            after=installer.current(root,path.name)
+            entry={'target':path.name,'before':None,'data':None}
+            path.write_bytes(b'editor revision')
+            with self.assertRaisesRegex(installer.InstallError,'drift'):
+                installer.restore(root,[entry],{path.name:after})
+            self.assertEqual(path.read_bytes(),b'editor revision')
+
     def test_interrupted_managed_journal_restores_only_recognized_bytes(self):
         installer=load_installer()
         with tempfile.TemporaryDirectory() as name:
@@ -112,10 +123,19 @@ class ManagedUpgradeGuards(unittest.TestCase):
             self.assertEqual(path.read_bytes(),b'project edit')
             self.assertEqual(installer.journal_phase(backup),'applying')
             path.write_bytes(changed)
+            set_phase=installer.set_phase
+            def editor_save(backup,phase):
+                set_phase(backup,phase)
+                if phase=='restoring':path.write_bytes(b'editor saved during rollback')
+            with mock.patch.object(installer,'set_phase',editor_save):
+                with self.assertRaisesRegex(installer.InstallError,'drift'):
+                    installer.restore_upgrade(root,journal,backup)
+            self.assertEqual(path.read_bytes(),b'editor saved during rollback')
+            path.write_bytes(changed)
             write=installer.write_atomic
-            def interrupted(root,name,data,mode):
+            def interrupted(root,name,data,mode,*guard):
                 if name==path.name:raise OSError('interrupted restore')
-                write(root,name,data,mode)
+                write(root,name,data,mode,*guard)
             with mock.patch.object(installer,'write_atomic',interrupted):
                 with self.assertRaisesRegex(OSError,'interrupted restore'):
                     installer.restore_upgrade(root,journal,backup)
@@ -747,15 +767,48 @@ fs.rmSync(root,{recursive:true,force:true});'''
             (receipts/'completed.json').write_text(json.dumps({'published_sha':result['published_sha']}))
         original=snapshot(self.target)
         preserved(self.make_plan);self.approve()
+        installer=load_installer()
+        publisher_queue=publisher/'.bd-intents/retained.v2.jsonl'
+        initial_queue=publisher_queue.read_bytes()
+        publisher_queue.write_bytes(initial_queue+b'\n')
+        self.assertIn('drift',preserved(lambda:self.apply(ok=False)).stderr)
+        self.assertEqual(snapshot(self.target),original)
+        publisher_queue.write_bytes(initial_queue)
+
+        record=installer.record_journal
+        state_path=self.target/installer.STATE
+        edited=state_path.read_bytes()+b' '
+        def editor_save(*args):
+            record(*args)
+            state_path.write_bytes(edited)
+        with mock.patch.object(installer,'record_journal',editor_save):
+            with self.assertRaisesRegex(installer.InstallError,'drift'):
+                preserved(lambda:installer.apply(self.plan,self.approval))
+        self.assertEqual(snapshot(self.target),{**original,installer.STATE:edited})
+        self.assertEqual(installer.journal_phase(self.backup()),'aborted')
+        state_path.write_bytes(original[installer.STATE])
+        write=installer.write_atomic
+        def edit_next_file(root,path,data,mode,*guard):
+            write(root,path,data,mode,*guard)
+            if root==self.target and path==changed:state_path.write_bytes(edited)
+        with mock.patch.object(installer,'write_atomic',edit_next_file):
+            with self.assertRaisesRegex(installer.InstallError,'recovery journal'):
+                installer.apply(self.plan,self.approval)
+        self.assertEqual(state_path.read_bytes(),edited)
+        self.assertNotEqual((self.target/changed).read_bytes(),original[changed])
+        partial=self.backup()
+        self.assertEqual(installer.journal_phase(partial),'applying')
+        state_path.write_bytes(original[installer.STATE])
+        rollback(partial);self.assertEqual(snapshot(self.target),original)
         crash_script = '''
 import importlib.util,os,sys
 from pathlib import Path
 spec=importlib.util.spec_from_file_location("crash_fixture",sys.argv[1])
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 write=module.write_atomic
-def crash(root,path,data,mode):
+def crash(root,path,data,mode,*guard):
     if path==module.STATE:os._exit(73)
-    write(root,path,data,mode)
+    write(root,path,data,mode,*guard)
 module.write_atomic=crash
 module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
 '''
@@ -1667,10 +1720,10 @@ module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
         def recording_unlink(path,*args,**kwargs):
             if path.is_relative_to(self.target.resolve()):removed.append(path.relative_to(self.target.resolve()).as_posix())
             return unlink(path,*args,**kwargs)
-        def interrupted(root,path,data,mode):
+        def interrupted(root,path,data,mode,*guard):
             calls.append(path)
             if path==installer.STATE:raise OSError('injected write failure')
-            return write(root,path,data,mode)
+            return write(root,path,data,mode,*guard)
         with mock.patch.object(installer,'write_atomic',interrupted), mock.patch.object(Path,'unlink',recording_unlink):
             with self.assertRaises(OSError):installer.apply(self.plan,self.approval)
         self.assertEqual(snapshot(self.target),before)

@@ -471,6 +471,28 @@ def current(root,path):
     if not p.exists(): return None
     return {'sha256':digest(p.read_bytes()),'mode':p.stat().st_mode & 0o777}
 
+def inventory_entries(name,base,reasons):
+    items=[]
+    for item in [base,*sorted(base.rglob('*'))] if base.is_dir() and not base.is_symlink() else [base]:
+        relative='.' if item==base else item.relative_to(base).as_posix()
+        if item.is_symlink():items.append({'path':relative,'kind':'symlink'});reasons.append(name+': symlink');continue
+        if item.is_file():
+            with item.open('rb') as stream:
+                hasher=hashlib.sha256()
+                for chunk in iter(lambda:stream.read(1024*1024),b''):hasher.update(chunk)
+            items.append({'path':relative,'kind':'file','sha256':hasher.hexdigest(),'size':item.stat().st_size})
+        elif item.is_dir():items.append({'path':relative,'kind':'directory'})
+        else:items.append({'path':relative,'kind':'unknown'});reasons.append(name+': unknown entry')
+    return items
+
+def publisher_queue_inventory(publisher):
+    base=publisher/'.bd-intents'
+    if not os.path.lexists(base):return None
+    reasons=[]
+    entries=inventory_entries('.bd-intents',base,reasons)
+    if not base.is_dir() or reasons:raise InstallError('unknown registered publisher queue state')
+    return entries
+
 def beads_inventory(root):
     # Инвентаризация не обновляет refs целевого checkout и не открывает Dolt.
     common=Path(git(root,'rev-parse','--path-format=absolute','--git-common-dir').decode().strip())
@@ -480,17 +502,7 @@ def beads_inventory(root):
                       ('git/overgate-bd-managed',common/'overgate-bd-managed'),
                       ('git/overgate-bd-publisher-control',common/'overgate-bd-publisher-control')):
         if not base.exists() and not base.is_symlink():continue
-        items=[]
-        for item in [base,*sorted(base.rglob('*'))] if base.is_dir() and not base.is_symlink() else [base]:
-            relative='.' if item==base else item.relative_to(base).as_posix()
-            if item.is_symlink():items.append({'path':relative,'kind':'symlink'});reasons.append(name+': symlink');continue
-            if item.is_file():
-                with item.open('rb') as stream:
-                    hasher=hashlib.sha256()
-                    for chunk in iter(lambda:stream.read(1024*1024),b''):hasher.update(chunk)
-                items.append({'path':relative,'kind':'file','sha256':hasher.hexdigest(),'size':item.stat().st_size})
-            elif item.is_dir():items.append({'path':relative,'kind':'directory'})
-            else:items.append({'path':relative,'kind':'unknown'});reasons.append(name+': unknown entry')
+        items=inventory_entries(name,base,reasons)
         observed[name]=items;reasons.append(name+': retained state')
     config=subprocess.run(['git','-C',str(root),'config','--local','--null','--get-regexp',r'^(overgate\.beads|beads-sync\.|beads\.|core\.hooksPath)'],capture_output=True,env=git_environment())
     if config.returncode not in (0,1):reasons.append('local Git writer config unreadable')
@@ -860,7 +872,8 @@ def managed_upgrade_evidence(root,inventory,anchor=None):
         if run.returncode:raise InstallError('managed publisher/history check failed: '+run.stderr.decode('utf-8','replace')[:500])
         verified=json.loads(run.stdout)
     return {'checkout':checkout,'registration':reg,'origin_sha256':origin_sha256(root),'controls':controls,
-            'publisher_head':main,'R':R,'seen':seen,'marker':marker,**verified}
+            'publisher_head':main,'R':R,'seen':seen,'marker':marker,
+            'publisher_queue':publisher_queue_inventory(publisher),**verified}
 
 @contextmanager
 def install_lock(root):
@@ -956,25 +969,34 @@ def sync_directory(path):
         try:os.fsync(descriptor)
         finally:os.close(descriptor)
 
-def write_atomic(root,path,data,mode):
+def require_current(root,path,expected):
+    if expected is not ... and current(root,path)!=expected:
+        raise InstallError('managed file drift: '+path)
+
+def write_atomic(root,path,data,mode,expected=...):
     p=safe(root,path);p.parent.mkdir(parents=True,exist_ok=True)
     fd,name=tempfile.mkstemp(prefix='.overgate-write-',dir=p.parent)
     try:
         with os.fdopen(fd,'wb') as stream:stream.write(data);stream.flush();os.fsync(stream.fileno())
-        os.chmod(name,mode);os.replace(name,p);sync_directory(p.parent)
+        os.chmod(name,mode)
+        require_current(root,path,expected)
+        os.replace(name,p);sync_directory(p.parent)
     finally:
         if os.path.exists(name):os.unlink(name)
 
-def restore(root,entries):
+def restore(root,entries,expected=None):
     for item in reversed(entries):
-        p=safe(root,item['target'])
+        path=item['target']
+        p=safe(root,path)
+        guard=expected[path] if expected is not None else ...
         if item['before'] is None:
+            require_current(root,path,guard)
             if p.exists():p.unlink();sync_directory(p.parent)
-        else:write_atomic(root,item['target'],base64.b64decode(item['data']),item['before']['mode'])
+        else:write_atomic(root,path,base64.b64decode(item['data']),item['before']['mode'],guard)
 
 def journal_phase(backup):
     phase=control_bytes(backup.parent/'phase').decode().strip()
-    if phase not in ('applying','applied','restoring','restored'):raise InstallError('invalid managed rollback phase')
+    if phase not in ('applying','applied','restoring','restored','aborted'):raise InstallError('invalid managed rollback phase')
     return phase
 
 def set_phase(backup,value):
@@ -1020,6 +1042,7 @@ def require_prior_install(root,checkout,state):
 
 def restore_upgrade(root,journal,backup):
     phase=journal_phase(backup)
+    if phase=='aborted':raise InstallError('apply stopped before target writes; generate a fresh plan')
     changes=[]
     for entry in journal['entries']:
         path=entry['target'];before=entry['before'];after=journal['after'][path]
@@ -1032,7 +1055,7 @@ def restore_upgrade(root,journal,backup):
     if phase=='restored' and changes:raise InstallError('rollback already restored')
     if upgrade_checkout(root)!=journal['managed_upgrade']['checkout']:raise InstallError('managed rollback checkout changed')
     set_phase(backup,'restoring')
-    restore(root,changes)
+    restore(root,changes,journal['after'])
     set_phase(backup,'restored')
 
 def rollback_upgrade(root,backup):
@@ -1109,20 +1132,32 @@ def apply_locked(raw,plan):
         backup=backup_root/uuid.uuid4().hex;backup.mkdir(parents=True)
         write_atomic(backup,'rollback.json',json_bytes(journal),0o600)
     backup_file=backup/'rollback.json'
-    if plan['managed_upgrade'] and upgrade_checkout(root)!=plan['managed_upgrade']['checkout']:
-        raise InstallError('managed checkout changed before first write; retain '+str(backup_file))
+    managed=plan['managed_upgrade']
+    if managed:
+        try:
+            if upgrade_checkout(root)!=managed['checkout']:raise InstallError('managed checkout drift')
+            if publisher_queue_inventory(Path(managed['registration']['Publisher']))!=managed['publisher_queue']:
+                raise InstallError('publisher queue drift')
+            for entry in entries:require_current(root,entry['target'],entry['before'])
+        except (InstallError,OSError):
+            set_phase(backup_file,'aborted')
+            raise
     try:
         for op in plan['operations']:
             data=base64.b64decode(op['data']) if op['data'] is not None else payload[op['source']][0]
             if digest(data)!=op['after']['sha256']:raise InstallError('payload fingerprint mismatch')
-            if op['after']!=op['before']:write_atomic(root,op['target'],data,op['after']['mode'])
-        write_atomic(root,STATE,state_bytes,0o644)
+            if op['after']!=op['before']:
+                write_atomic(root,op['target'],data,op['after']['mode'],op['before'] if managed else ...)
+        write_atomic(root,STATE,state_bytes,0o644,plan['state_before'] if managed else ...)
         if plan['managed_upgrade']:set_phase(backup_file,'applied')
         else:
             journal['after']={x['target']:current(root,x['target']) for x in entries};journal['complete']=True
             write_atomic(backup,'rollback.json',json_bytes(journal),0o600)
     except BaseException:
-        if plan['managed_upgrade']:restore_upgrade(root,journal,backup_file)
+        if managed:
+            try:restore_upgrade(root,journal,backup_file)
+            except (InstallError,OSError) as error:
+                raise InstallError(f'{error}; recovery journal: {backup_file}') from error
         else:restore(root,entries)
         raise
     print('Applied frozen source '+plan['source_sha']+'; backup: '+str(backup_file))
