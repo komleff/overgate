@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,7 +26,16 @@ try {
 const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'overgate-bd-context-')));
 const actor = 'agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2';
 const snapshot = '{"_type":"issue","id":"big-heroes-a","title":"готово"}\n';
-const importError = new Error('invalid import');
+const marker = 'fixture-child-stderr';
+const failImport = (options, timeout) => {
+  try {
+    execFileSync(process.execPath, ['-e', `process.stderr.write('${marker}'); process.exitCode = 1`], options);
+  } catch (error) {
+    // Код таймаута моделируем после настоящего вывода дочернего процесса.
+    if (timeout) error.code = 'ETIMEDOUT';
+    throw error;
+  }
+};
 try {
   const foreign = path.join(parent, 'other-store');
   fs.mkdirSync(path.join(foreign, '.beads'), { recursive: true });
@@ -70,9 +80,9 @@ try {
       }
       if (args.includes('config')) return JSON.stringify({ issue_prefix: mode === 'wrong-prefix' ? 'other' : 'big-heroes' });
       if (args.includes('import')) {
-        if (mode === 'import-error') throw importError;
+        if (mode === 'import-error') failImport(options, false);
         const workMs = mode === 'import-timeout' ? 180001 : 31000;
-        if (workMs > options.timeout) throw Object.assign(new Error('spawnSync ETIMEDOUT'), { code: 'ETIMEDOUT' });
+        if (workMs > options.timeout) failImport(options, true);
         return '{}';
       }
       if (args.includes('export')) { fs.writeFileSync(args[args.indexOf('--output') + 1], snapshot); return ''; }
@@ -81,15 +91,25 @@ try {
     const project = () => materializeFresh({ directory, binary: process.execPath, actor, snapshot, run,
       qualify: () => 'fixture-qualified' });
     if (mode === 'alias') assert.equal(project().rows[0].id, 'big-heroes-a');
-    else if (mode === 'import-error') assert.throws(project, error => error === importError);
-    else if (mode === 'import-timeout') assert.throws(project, error => {
-      assert.equal(error.code, 'ETIMEDOUT');
-      assert.match(error.message, /bd import/);
-      assert.ok(error.message.includes(`snapshot=${Buffer.byteLength(snapshot)} bytes`));
-      assert.match(error.message, /elapsed=\d+ ms, limit=180000 ms/);
-      return true;
-    });
-    else assert.throws(project, mode === 'foreign' ? /context paths/ : mode === 'redirect' ? /redirect/ :
+    else if (mode === 'import-error') {
+      const stderr = mock.method(process.stderr, 'write', () => true);
+      assert.throws(project, error => error.status === 1 && error.stderr.toString() === marker);
+      assert.deepEqual(stderr.mock.calls.map(call => String(call.arguments[0])), [marker]);
+      stderr.mock.restore();
+    } else if (mode === 'import-timeout') {
+      const stderr = mock.method(process.stderr, 'write', () => true);
+      assert.throws(project, error => {
+        assert.equal(error.code, 'ETIMEDOUT');
+        assert.equal(error.stderr, undefined);
+        assert.equal(error.output, undefined);
+        assert.match(error.message, /bd import/);
+        assert.ok(error.message.includes(`snapshot=${Buffer.byteLength(snapshot)} bytes`));
+        assert.match(error.message, /elapsed=\d+ ms, limit=180000 ms/);
+        return true;
+      });
+      assert.equal(stderr.mock.callCount(), 0);
+      stderr.mock.restore();
+    } else assert.throws(project, mode === 'foreign' ? /context paths/ : mode === 'redirect' ? /redirect/ :
       mode === 'traversal' ? /data_dir outside/ : mode === 'missing' ? /local state/ : /local prefix/);
   }
 } finally {

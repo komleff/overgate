@@ -51,7 +51,7 @@ export function materializeFresh({ directory, binary, actor, snapshot, run = def
   for (const dir of [temporary, cwd, evidence, path.join(cwd, '.beads'), path.join(cwd, 'dolt-global'), path.join(root, 'empty-hooks'), path.join(root, 'empty-template')]) fs.mkdirSync(dir, { mode: 0o700 });
   fs.writeFileSync(path.join(cwd, '.beads/config.yaml'), `issue-prefix: ${getProjectPrefix()}\n`, { flag: 'wx', mode: 0o600 });
   const env = childEnvironment(cwd, temporary);
-  const invoke = (args, timeout = 30000) => run(executable, ['--db', path.join(cwd, '.beads/dolt'), '--actor', actor, ...args], { cwd, env, timeout });
+  const invoke = (args, timeout = 30000, stdio) => run(executable, ['--db', path.join(cwd, '.beads/dolt'), '--actor', actor, ...args], { cwd, env, timeout, stdio });
   const version = run(executable, ['--version'], { cwd, env, timeout: 30000 });
   requireThat(/\b1\.2\.2(?:\s|\(|$)/.test(version), 'BD_BIN is not a qualified fresh-store CLI (qualified capability:1.2.2); preserve queue and use qualified publisher');
   const binarySha256 = qualify(executable);
@@ -114,12 +114,15 @@ export function materializeFresh({ directory, binary, actor, snapshot, run = def
   const importTimeoutMs = 180000;
   const importStarted = performance.now();
   try {
-    invoke(['import', frozenFile, '--json'], importTimeoutMs);
+    // Явный pipe удерживает stderr до проверки причины сбоя.
+    invoke(['import', frozenFile, '--json'], importTimeoutMs, 'pipe');
   } catch (error) {
     if (error.code === 'ETIMEDOUT') {
       const elapsedMs = Math.round(performance.now() - importStarted);
-      error.message = `bd import ETIMEDOUT (snapshot=${Buffer.byteLength(snapshot)} bytes, elapsed=${elapsedMs} ms, limit=${importTimeoutMs} ms)`;
+      const message = `bd import ETIMEDOUT (snapshot=${Buffer.byteLength(snapshot)} bytes, elapsed=${elapsedMs} ms, limit=${importTimeoutMs} ms)`;
+      throw Object.assign(new Error(message), { code: error.code });
     }
+    if (error.stderr?.length) process.stderr.write(error.stderr);
     throw error;
   }
   let exportIndex = 0;
