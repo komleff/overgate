@@ -111,7 +111,17 @@ export function materializeFresh({ directory, binary, actor, snapshot, run = def
   const config = JSON.parse(invoke(['--readonly', 'config', 'list', '--json']));
   requireThat(config.issue_prefix === getProjectPrefix(), 'fresh local prefix differs after native init');
   const frozenFile = path.join(evidence, 'frozen.jsonl'); fs.writeFileSync(frozenFile, snapshot, { flag: 'wx', mode: 0o600 });
-  invoke(['import', frozenFile, '--json']);
+  const importTimeoutMs = 180000;
+  const importStarted = performance.now();
+  try {
+    invoke(['import', frozenFile, '--json'], importTimeoutMs);
+  } catch (error) {
+    if (error.code === 'ETIMEDOUT') {
+      const elapsedMs = Math.round(performance.now() - importStarted);
+      error.message = `bd import ETIMEDOUT (snapshot=${Buffer.byteLength(snapshot)} bytes, elapsed=${elapsedMs} ms, limit=${importTimeoutMs} ms)`;
+    }
+    throw error;
+  }
   let exportIndex = 0;
   const exportSnapshot = () => {
     const file = path.join(evidence, `export-${++exportIndex}.jsonl`);

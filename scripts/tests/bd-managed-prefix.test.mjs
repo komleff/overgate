@@ -24,14 +24,18 @@ try {
 // foreign path, or init that returned success without creating local state.
 const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'overgate-bd-context-')));
 const actor = 'agent-2ad0342a-81a5-4cb8-bd17-3f38b279f2f2';
+const snapshot = '{"_type":"issue","id":"big-heroes-a","title":"готово"}\n';
+const importError = new Error('invalid import');
 try {
   const foreign = path.join(parent, 'other-store');
   fs.mkdirSync(path.join(foreign, '.beads'), { recursive: true });
-  for (const mode of ['alias', 'foreign', 'redirect', 'traversal', 'missing', 'wrong-prefix']) {
+  for (const mode of ['alias', 'foreign', 'redirect', 'traversal', 'missing', 'wrong-prefix', 'import-timeout', 'import-error']) {
     const directory = path.join(parent, mode);
     fs.mkdirSync(directory);
     let cwd, alias;
     const run = (program, args, options) => {
+      const longRunning = program !== 'git' && !args.includes('--help') && (args.includes('init') || args.includes('import'));
+      assert.equal(options.timeout, longRunning ? 180000 : 30000);
       if (program === 'git') {
         const output = execFileSync(program, args, { ...options, encoding: 'utf8' });
         cwd = path.join(directory, 'tmp', 'store');
@@ -65,13 +69,26 @@ try {
         return '';
       }
       if (args.includes('config')) return JSON.stringify({ issue_prefix: mode === 'wrong-prefix' ? 'other' : 'big-heroes' });
-      if (args.includes('import')) return '{}';
-      if (args.includes('export')) { fs.writeFileSync(args[args.indexOf('--output') + 1], ''); return ''; }
+      if (args.includes('import')) {
+        if (mode === 'import-error') throw importError;
+        const workMs = mode === 'import-timeout' ? 180001 : 31000;
+        if (workMs > options.timeout) throw Object.assign(new Error('spawnSync ETIMEDOUT'), { code: 'ETIMEDOUT' });
+        return '{}';
+      }
+      if (args.includes('export')) { fs.writeFileSync(args[args.indexOf('--output') + 1], snapshot); return ''; }
       throw new Error('unexpected fresh CLI call');
     };
-    const project = () => materializeFresh({ directory, binary: process.execPath, actor, snapshot: '', run,
+    const project = () => materializeFresh({ directory, binary: process.execPath, actor, snapshot, run,
       qualify: () => 'fixture-qualified' });
-    if (mode === 'alias') assert.equal(project().rows.length, 0);
+    if (mode === 'alias') assert.equal(project().rows[0].id, 'big-heroes-a');
+    else if (mode === 'import-error') assert.throws(project, error => error === importError);
+    else if (mode === 'import-timeout') assert.throws(project, error => {
+      assert.equal(error.code, 'ETIMEDOUT');
+      assert.match(error.message, /bd import/);
+      assert.ok(error.message.includes(`snapshot=${Buffer.byteLength(snapshot)} bytes`));
+      assert.match(error.message, /elapsed=\d+ ms, limit=180000 ms/);
+      return true;
+    });
     else assert.throws(project, mode === 'foreign' ? /context paths/ : mode === 'redirect' ? /redirect/ :
       mode === 'traversal' ? /data_dir outside/ : mode === 'missing' ? /local state/ : /local prefix/);
   }
