@@ -76,6 +76,10 @@ try {
     const journal = readJournal(directory);
     if (!journal || journal.phase !== 'published' || !commits.includes(journal.published))
       throw new Error('unfinished or unconfirmed publisher transaction; preserve the existing queue and candidate');
+    const outcomes = new Map(parseLedger(optional(journal.published, '.beads/overgate-outcomes-v1.json')).outcomes
+      .map(item => [item.intent.intent_id, item.payload_hash]));
+    if (journal.queue.some(intent => outcomes.get(intent.intent_id) !== intent.payload_hash))
+      throw new Error('publisher journal lacks published outcomes');
     const ackPath = path.join(directory, 'bootstrap.json');
     if (fs.realpathSync(ackPath) !== ackPath) throw new Error('noncanonical publisher acknowledgement');
     const raw = fs.readFileSync(ackPath), ack = JSON.parse(raw);
@@ -85,7 +89,9 @@ try {
     const evidence = verifyPreservation(path.join(directory, 'preservation'), canonical(ack.manifest),
       { ...ack.context, base, snapshot: frozen });
     if (ack.version !== 1 || canonical(evidence) !== canonical(ack.evidence)) throw new Error('publisher bootstrap mismatch');
-    process.stdout.write(JSON.stringify({ cli_sha256: qualifyBinary(cli), bootstrap_sha256: sha(raw), journal_sha256: sha(canonical(journal)) }));
+    const active = fs.readFileSync(path.join(directory, 'active.json'));
+    if (canonical(JSON.parse(active)) !== canonical(journal)) throw new Error('publisher journal changed during proof');
+    process.stdout.write(JSON.stringify({ cli_sha256: qualifyBinary(cli), bootstrap_sha256: sha(raw), journal_sha256: sha(active) }));
   }
   if (previous.snapshot !== snapshot) throw new Error('published snapshot changed during retained history proof');
 } catch (error) {

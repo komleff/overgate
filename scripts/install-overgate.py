@@ -799,7 +799,12 @@ def verify_control(common,key,registration):
     hook=Path(git(owner,'rev-parse','--path-format=absolute','--git-path','hooks/pre-push').decode().strip())
     hook_bytes=control_bytes(hook)
     if digest(guard_raw).encode() not in hook_bytes:raise InstallError('registered pre-push guard differs')
-    return {'plan_id':receipt['planId'],'guard':digest(guard_raw),'hook':digest(hook_bytes)}
+    return {'plan_id':receipt['planId'],'guard':digest(guard_raw),'hook_path':str(hook),'hook':digest(hook_bytes)}
+
+def require_idle_publisher(*directories):
+    for directory in set(directories):
+        for name in ('bd-apply.lock.d','overgate-bd-managed/transaction.lock','overgate-bd-managed/transaction.lock.reclaim'):
+            if os.path.lexists(directory/name):raise InstallError('active publisher transaction; retain and finish the existing queue')
 
 def managed_upgrade_evidence(root,inventory,anchor=None):
     checkout=upgrade_checkout(root)
@@ -833,9 +838,7 @@ def managed_upgrade_evidence(root,inventory,anchor=None):
              'scripts/lib/bd-managed-*.mjs','scripts/lib/bd-snapshot.mjs']
     git(publisher,'diff','--quiet','HEAD','--',*closure)
     git(publisher,'diff','--cached','--quiet','HEAD','--',*closure)
-    for directory in {common,publisher_git}:
-        for name in ('bd-apply.lock.d','overgate-bd-managed/transaction.lock','overgate-bd-managed/transaction.lock.reclaim'):
-            if os.path.lexists(directory/name):raise InstallError('active publisher transaction; retain and finish the existing queue')
+    require_idle_publisher(common,publisher_git)
     seen=git(publisher,'for-each-ref','--format=%(objectname)','refs/overgate-bd-managed/last-seen').decode().strip()
     # История читается в отдельном bare: refs и индекс обоих рабочих деревьев остаются у владельцев.
     with tempfile.TemporaryDirectory(prefix='overgate-managed-proof-') as name:
@@ -946,12 +949,19 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,pres
             'managed_upgrade':upgrade,'legacy_fences':fences,'no_beads':no_beads,'notes':notes,'manifest_version':m['version'],
             'operations':operations,'conflicts':conflicts,'state_before':current(target,STATE)}
 
+def sync_directory(path):
+    # На Windows Git и установщик используют атомарный rename с fsync файла.
+    if os.name!='nt':
+        descriptor=os.open(path,os.O_RDONLY)
+        try:os.fsync(descriptor)
+        finally:os.close(descriptor)
+
 def write_atomic(root,path,data,mode):
     p=safe(root,path);p.parent.mkdir(parents=True,exist_ok=True)
     fd,name=tempfile.mkstemp(prefix='.overgate-write-',dir=p.parent)
     try:
         with os.fdopen(fd,'wb') as stream:stream.write(data);stream.flush();os.fsync(stream.fileno())
-        os.chmod(name,mode);os.replace(name,p)
+        os.chmod(name,mode);os.replace(name,p);sync_directory(p.parent)
     finally:
         if os.path.exists(name):os.unlink(name)
 
@@ -959,7 +969,7 @@ def restore(root,entries):
     for item in reversed(entries):
         p=safe(root,item['target'])
         if item['before'] is None:
-            if p.exists():p.unlink()
+            if p.exists():p.unlink();sync_directory(p.parent)
         else:write_atomic(root,item['target'],base64.b64decode(item['data']),item['before']['mode'])
 
 def journal_phase(backup):
@@ -970,6 +980,13 @@ def journal_phase(backup):
 def set_phase(backup,value):
     write_atomic(backup.parent,'phase',(value+'\n').encode(),0o600)
 
+def record_journal(root,journal,raw):
+    # Независимый отпечаток остаётся в git-dir именно того checkout, где разрешён apply.
+    directory=git_directory(root,'--git-dir')/'overgate-install-journals'
+    if directory.is_symlink():raise InstallError('noncanonical installer receipts')
+    write_atomic(directory,journal['transaction'],digest(raw).encode(),0o600)
+    sync_directory(directory.parent)
+
 def verified_journal(root,backup):
     if (backup!=backup.resolve() or backup.parent.parent!=root/'.overgate-backups' or backup.name!='rollback.json'
             or not re.fullmatch(r'managed-[0-9a-f]{64}',backup.parent.name)):
@@ -977,7 +994,11 @@ def verified_journal(root,backup):
     raw=control_bytes(backup)
     if backup.parent.name!='managed-'+digest(raw):raise InstallError('managed rollback journal integrity failure')
     journal=json.loads(raw)
-    if journal.get('format')!=2 or journal.get('target')!=str(root):raise InstallError('invalid managed rollback journal')
+    transaction=journal.get('transaction','')
+    if (journal.get('format')!=2 or journal.get('target')!=str(root) or not re.fullmatch('[0-9a-f]{32}',transaction)):
+        raise InstallError('invalid managed rollback journal')
+    seal=git_directory(root,'--git-dir')/'overgate-install-journals'/transaction
+    if control_bytes(seal)!=digest(raw).encode():raise InstallError('rollback journal differs from approved apply')
     return journal
 
 def validate_managed_state(state):
@@ -1009,6 +1030,7 @@ def restore_upgrade(root,journal,backup):
         if actual!=after and (phase=='applied' or actual!=before):raise InstallError('rollback drift: '+path)
         if actual!=before:changes.append(entry)
     if phase=='restored' and changes:raise InstallError('rollback already restored')
+    if upgrade_checkout(root)!=journal['managed_upgrade']['checkout']:raise InstallError('managed rollback checkout changed')
     set_phase(backup,'restoring')
     restore(root,changes)
     set_phase(backup,'restored')
@@ -1027,13 +1049,13 @@ def rollback_upgrade(root,backup):
 
 def apply(plan_path,approval_path):
     raw=plan_path.read_bytes();plan=json.loads(raw)
-    with install_lock(Path(plan['target'])):apply_locked(raw,plan,approval_path)
-
-def apply_locked(raw,plan,approval_path):
     approval=json.loads(approval_path.read_bytes())
     if approval.get('verdict')!='PLAN_READY' or approval.get('plan_sha256')!=digest(raw) or not approval.get('evidence','').startswith(plan['target_pr']+'#'):
         raise InstallError('PLAN_READY must bind exact plan bytes and evidence in same target PR')
     if digest(Path(plan['contract']).read_bytes())!=plan['contract_sha256']:raise InstallError('contract drift after Plan Review')
+    with install_lock(Path(plan['target'])):apply_locked(raw,plan)
+
+def apply_locked(raw,plan):
     payload={}
     now=make_plan(Path(plan['source']),plan['source_sha'],Path(plan['target']),Path(plan['contract']),plan['target_pr'],
                   plan.get('requested_mode'),plan.get('no_beads',False),
@@ -1067,21 +1089,28 @@ def apply_locked(raw,plan,approval_path):
         if (upgrade_checkout(root)!=proof['checkout'] or managed_registration(root)!=proof['registration']
                 or managed_registration(Path(proof['registration']['Publisher']))!=proof['registration']):
             raise InstallError('managed checkout or registration drift before first write')
+        publisher_git=Path(proof['registration']['Publisher'])/'.git'
+        require_idle_publisher(git_directory(root,'--git-common-dir'),publisher_git)
+        if digest(control_bytes(publisher_git/'overgate-bd-managed/active.json'))!=proof['journal_sha256']:
+            raise InstallError('publisher transaction drift before first write')
         assert_legacy_origin_heads(root,proof['publisher_head'],proof['R'])
         journal.update(format=2,managed_upgrade=plan['managed_upgrade'],transaction=uuid.uuid4().hex,
                        after={**installed,STATE:{'sha256':digest(state_bytes),'mode':observable_mode(0o644)}})
         journal.pop('complete')
         raw_journal=json_bytes(journal)
-        backup_root.mkdir(exist_ok=True)
+        backup_root.mkdir(exist_ok=True);sync_directory(root)
         with tempfile.TemporaryDirectory(dir=backup_root) as staging:
             stage=Path(staging);write_atomic(stage,'rollback.json',raw_journal,0o600)
             set_phase(stage/'rollback.json','applying')
             backup=backup_root/('managed-'+digest(raw_journal))
-            stage.rename(backup)
+            record_journal(root,journal,raw_journal)
+            stage.rename(backup);sync_directory(backup_root)
     else:
         backup=backup_root/uuid.uuid4().hex;backup.mkdir(parents=True)
         write_atomic(backup,'rollback.json',json_bytes(journal),0o600)
     backup_file=backup/'rollback.json'
+    if plan['managed_upgrade'] and upgrade_checkout(root)!=plan['managed_upgrade']['checkout']:
+        raise InstallError('managed checkout changed before first write; retain '+str(backup_file))
     try:
         for op in plan['operations']:
             data=base64.b64decode(op['data']) if op['data'] is not None else payload[op['source']][0]
@@ -1108,6 +1137,7 @@ def rollback(target,backup):
 
 def rollback_legacy(root,backup):
     journal=json.loads(backup.read_bytes())
+    if journal.get('format')!=1:raise InstallError('unrecognized rollback manifest or path')
     if journal.get('target')!=str(root) or not journal.get('complete'):raise InstallError('invalid/incomplete rollback manifest')
     state_path=safe(root,STATE)
     if state_path.is_file():

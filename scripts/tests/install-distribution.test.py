@@ -90,6 +90,43 @@ class ManagedUpgradeGuards(unittest.TestCase):
                     with installer.install_lock(root):self.fail('overlapping installer admitted')
             with installer.install_lock(root):pass
 
+    def test_interrupted_managed_journal_restores_only_recognized_bytes(self):
+        installer=load_installer()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name).resolve()/'target';init(root)
+            git(root,'commit','--allow-empty','-qm','before upgrade')
+            data=b'old byte stream';changed=b'updated'
+            path=root/'managed-file';path.write_bytes(data)
+            before=installer.current(root,path.name);path.write_bytes(changed)
+            after=installer.current(root,path.name)
+            journal={'format':2,'target':str(root),'transaction':'f'*32,'after':{path.name:after},
+                     'entries':[{'target':path.name,'before':before,'data':base64.b64encode(data).decode()}]}
+            journal['managed_upgrade']={'checkout':installer.upgrade_checkout(root)}
+            raw=installer.json_bytes(journal);installer.record_journal(root,journal,raw)
+            backup=root/'.overgate-backups'/('managed-'+installer.digest(raw))/'rollback.json'
+            backup.parent.mkdir(parents=True);backup.write_bytes(raw)
+            installer.set_phase(backup,'applying')
+            path.write_bytes(b'project edit')
+            with self.assertRaisesRegex(installer.InstallError,'drift'):
+                installer.restore_upgrade(root,journal,backup)
+            self.assertEqual(path.read_bytes(),b'project edit')
+            self.assertEqual(installer.journal_phase(backup),'applying')
+            path.write_bytes(changed)
+            write=installer.write_atomic
+            def interrupted(root,name,data,mode):
+                if name==path.name:raise OSError('interrupted restore')
+                write(root,name,data,mode)
+            with mock.patch.object(installer,'write_atomic',interrupted):
+                with self.assertRaisesRegex(OSError,'interrupted restore'):
+                    installer.restore_upgrade(root,journal,backup)
+            self.assertEqual(installer.journal_phase(backup),'restoring')
+            installer.restore_upgrade(root,installer.verified_journal(root,backup),backup)
+            self.assertEqual(installer.current(root,path.name),before)
+            self.assertEqual(installer.journal_phase(backup),'restored')
+            backup.write_bytes(raw+b' ')
+            with self.assertRaisesRegex(installer.InstallError,'integrity'):
+                installer.verified_journal(root,backup)
+
 class ActivationEncodingTests(unittest.TestCase):
     def test_native_env_binds_project_beads_dir_and_missing_state_stops(self):
         spec=importlib.util.spec_from_file_location('activation_under_test',ROOT/'scripts/bd-activate.py')
@@ -709,6 +746,26 @@ fs.rmSync(root,{recursive:true,force:true});'''
             receipts=root/'.git/bd-receipts';receipts.mkdir(exist_ok=True)
             (receipts/'completed.json').write_text(json.dumps({'published_sha':result['published_sha']}))
         original=snapshot(self.target)
+        preserved(self.make_plan);self.approve()
+        crash_script = '''
+import importlib.util,os,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("crash_fixture",sys.argv[1])
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+write=module.write_atomic
+def crash(root,path,data,mode):
+    if path==module.STATE:os._exit(73)
+    write(root,path,data,mode)
+module.write_atomic=crash
+module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
+'''
+        crashed=preserved(lambda:subprocess.run([sys.executable,'-I','-c',crash_script,str(INSTALLER),
+                                                  str(self.plan),str(self.approval)],capture_output=True))
+        self.assertEqual(crashed.returncode,73,crashed.stderr)
+        interrupted=self.backup()
+        self.assertEqual((interrupted.parent/'phase').read_bytes(),b'applying\n')
+        self.assertNotEqual((self.target/changed).read_bytes(),original[changed])
+        rollback(interrupted);self.assertEqual(snapshot(self.target),original)
         first_backup=upgrade()
         preserved(self.make_plan);self.assert_noop()
         rollback(first_backup)
@@ -716,7 +773,39 @@ fs.rmSync(root,{recursive:true,force:true});'''
         backup=upgrade()
         git(self.target,'switch','-qc','other')
         self.assertIn('checkout',rollback(backup,False).stderr)
+        git(self.target,'switch','-q','--detach','HEAD')
+        self.assertNotEqual(rollback(backup,False).returncode,0)
         git(self.target,'switch','-q','upgrade/managed')
+        # Изменённая поставка, ветка, HEAD или незаконченное состояние publisher блокируют откат до записи.
+        managed_path=self.target/changed;new_bytes=managed_path.read_bytes()
+        managed_path.write_bytes(new_bytes+b'project edit')
+        self.assertIn('drift',rollback(backup,False).stderr)
+        self.assertEqual(managed_path.read_bytes(),new_bytes+b'project edit')
+        managed_path.write_bytes(new_bytes)
+        git(self.target,'switch','-q','main')
+        self.assertNotEqual(rollback(backup,False).returncode,0)
+        git(self.target,'switch','-q','upgrade/managed')
+        previous_head=git(self.target,'rev-parse','HEAD')
+        git(self.target,'commit','--allow-empty','-qm','fixture code HEAD movement')
+        moved_head=git(self.target,'rev-parse','HEAD')
+        self.assertIn('checkout',rollback(backup,False).stderr)
+        git(self.target,'update-ref','refs/heads/upgrade/managed',previous_head,moved_head)
+        journal_path=publisher/'.git/overgate-bd-managed/active.json';completed=journal_path.read_bytes()
+        record=json.loads(completed);record['phase']='conflict';record['conflict_base']=result['published_sha']
+        journal_path.write_text(json.dumps(record),encoding='utf8')
+        self.assertIn('transaction',rollback(backup,False).stderr)
+        journal_path.write_bytes(completed)
+        git(self.target,'config','--local','overgate.beadsPrefix','other')
+        self.assertIn('registration',rollback(backup,False).stderr)
+        git(self.target,'config','--local','overgate.beadsPrefix','big-heroes')
+        prior_url=git(self.target,'remote','get-url','origin')
+        git(self.target,'remote','set-url','origin',str(self.root/'unreachable.git'))
+        self.assertIn('reachable',rollback(backup,False).stderr)
+        git(self.target,'remote','set-url','origin',prior_url)
+        git(remote,'update-ref','refs/heads/beads-backup',head,result['published_sha'])
+        self.assertNotEqual(rollback(backup,False).returncode,0)
+        git(remote,'update-ref','refs/heads/beads-backup',result['published_sha'],head)
+        preserved(self.make_plan);self.approve()
         lifecycle_raw=work/'lifecycle-raw.jsonl';lifecycle_prepared=work/'lifecycle.v2.jsonl'
         lifecycle_raw.write_text(''.join(json.dumps(item)+'\n' for item in (
             {'intent_id':'activation-update','op':'update','ref':result['id'],'description':'Verified project update'},
@@ -754,6 +843,7 @@ fs.rmSync(root,{recursive:true,force:true});'''
         advance=publish(publisher/'.bd-intents/retained.v2.jsonl')
         active_sha=advance['published_sha']
         self.assertNotEqual(active_sha,closed['published_sha'])
+        self.assertIn('drift',preserved(lambda:self.apply(ok=False)).stderr)
         rollback(backup)
         self.assertEqual(snapshot(self.target),original)
         retained=advance
@@ -770,6 +860,18 @@ fs.rmSync(root,{recursive:true,force:true});'''
         self.assertNotEqual(applied['published_sha'],active_sha)
         final=subprocess.check_output([BASH,'scripts/bd-read.sh','show',retained_id,'--json'],cwd=peer,text=True)
         self.assertIn('After rollback',json.loads(final)['notes'])
+        accepted_backup=upgrade()
+        git(self.target,'switch','-q','main')
+        git(self.target,'add','--',changed,'.overgate/install-state.json')
+        git(self.target,'commit','-qm','accepted installation on fixture main')
+        accepted=snapshot(self.target)
+        self.assertNotEqual(rollback(accepted_backup,False).returncode,0)
+        self.assertEqual(snapshot(self.target),accepted)
+        print('MANAGED_UPGRADE_RECEIPT '+json.dumps({
+            'target_head':previous_head,'source':self.sha,'R_before':result['published_sha'],
+            'R_after_upgrade_publication':active_sha,'R_after_rollback_publication':applied['published_sha'],
+            'retained_id':retained_id,'peer_R':git(peer,'rev-parse','refs/remotes/origin/beads-backup'),
+            'replay_mutations':replay['mutations'],'interrupted_apply_recovered':True},sort_keys=True))
 
     def test_wib_activation_ignores_inherited_git_origin_spoof(self):
         binary=Path('/opt/homebrew/bin/bd').resolve()
