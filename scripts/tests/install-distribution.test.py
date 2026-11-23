@@ -290,7 +290,7 @@ class InstallTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
-        self.root=Path(self.tmp.name);self.target=self.root/'target';init(self.target)
+        self.root=Path(self.tmp.name).resolve();self.target=self.root/'target';init(self.target)
         self.contract=self.root/'contract.md';self.contract.write_text('AC: preserve project bytes; closure; rollback\n')
         self.plan=self.root/'plan.json';self.approval=self.root/'approval.json'
 
@@ -748,9 +748,16 @@ fs.rmSync(root,{recursive:true,force:true});'''
             return value
         def rollback(backup,ok=True):
             return preserved(lambda:self.call('rollback','--target',self.target,'--backup',backup,ok=ok))
+        def journals():
+            return set((self.target/'.overgate-backups').glob('managed-*/rollback.json'))
+        def new_journal(previous):
+            created=journals()-previous
+            self.assertEqual(len(created),1,'operation must create exactly one managed journal')
+            return created.pop()
         def upgrade():
+            previous=journals()
             preserved(self.make_plan);self.approve();preserved(self.apply)
-            return self.backup()
+            return new_journal(previous)
         raw=work/'unpublished.jsonl';prepared=work/'unpublished.v2.jsonl'
         raw.write_text(json.dumps({'intent_id':'upgrade-retained','op':'create','handle':'tmp:retained',
                                    'title':'Retained through upgrade','type':'task','priority':2})+'\n')
@@ -781,22 +788,25 @@ fs.rmSync(root,{recursive:true,force:true});'''
         def editor_save(*args):
             record(*args)
             state_path.write_bytes(edited)
-        with mock.patch.object(installer,'record_journal',editor_save):
+        previous=journals()
+        with mock.patch.object(installer,'record_journal',side_effect=editor_save) as injected:
             with self.assertRaisesRegex(installer.InstallError,'drift'):
                 preserved(lambda:installer.apply(self.plan,self.approval))
         self.assertEqual(snapshot(self.target),{**original,installer.STATE:edited})
-        self.assertEqual(installer.journal_phase(self.backup()),'aborted')
+        injected.assert_called_once()
+        self.assertEqual(installer.journal_phase(new_journal(previous)),'aborted')
         state_path.write_bytes(original[installer.STATE])
         write=installer.write_atomic
         def edit_next_file(root,path,data,mode,*guard):
             write(root,path,data,mode,*guard)
             if root==self.target and path==changed:state_path.write_bytes(edited)
+        previous=journals()
         with mock.patch.object(installer,'write_atomic',edit_next_file):
             with self.assertRaisesRegex(installer.InstallError,'recovery journal'):
                 installer.apply(self.plan,self.approval)
         self.assertEqual(state_path.read_bytes(),edited)
         self.assertNotEqual((self.target/changed).read_bytes(),original[changed])
-        partial=self.backup()
+        partial=new_journal(previous)
         self.assertEqual(installer.journal_phase(partial),'applying')
         state_path.write_bytes(original[installer.STATE])
         rollback(partial);self.assertEqual(snapshot(self.target),original)
@@ -812,10 +822,11 @@ def crash(root,path,data,mode,*guard):
 module.write_atomic=crash
 module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
 '''
+        previous=journals()
         crashed=preserved(lambda:subprocess.run([sys.executable,'-I','-c',crash_script,str(INSTALLER),
                                                   str(self.plan),str(self.approval)],capture_output=True))
         self.assertEqual(crashed.returncode,73,crashed.stderr)
-        interrupted=self.backup()
+        interrupted=new_journal(previous)
         self.assertEqual((interrupted.parent/'phase').read_bytes(),b'applying\n')
         self.assertNotEqual((self.target/changed).read_bytes(),original[changed])
         rollback(interrupted);self.assertEqual(snapshot(self.target),original)
@@ -1074,6 +1085,38 @@ module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
 
     def backup(self):
         return max((self.target/'.overgate-backups').glob('*/rollback.json'),key=lambda p:p.stat().st_mtime_ns)
+
+    def test_install_state_matches_git_modes_for_tracked_and_new_files(self):
+        clone=self.root/'mode-source'
+        subprocess.check_call(['git','clone','-q','-c','core.autocrlf=false',str(self.source),str(clone)])
+        self.source=clone
+        git(clone,'config','user.email','fixture@example.invalid');git(clone,'config','user.name','Fixture')
+        existing='scripts/bd-read.sh';created='scripts/bd-wt.sh'
+        for path in (existing,created):
+            (clone/path).chmod(0o755)
+        git(clone,'add','--chmod=+x','--',existing,created)
+        git(clone,'commit','--allow-empty','-qm','portable executable modes')
+        self.sha=git(clone,'rev-parse','HEAD')
+        original=self.target/existing;original.parent.mkdir();original.write_bytes(self.source_blob(existing));original.chmod(0o755)
+        git(self.target,'add','--chmod=+x','--',existing);git(self.target,'commit','-qm','existing executable')
+        index=(self.target/'.git/index').read_bytes()
+        plan_output=self.make_plan().stdout
+        if os.name=='nt':
+            self.assertIn('git add --chmod=+x -- '+created,plan_output)
+            self.assertNotIn('git add --chmod=+x -- '+existing,plan_output)
+        self.approve();self.apply()
+        self.assertEqual((self.target/'.git/index').read_bytes(),index)
+        state=json.loads((self.target/'.overgate/install-state.json').read_bytes())['installed']
+        normal='.agents/PM_ROLE.md'
+        for path,expected in ((existing,0o755),(created,0o755),(normal,0o644)):
+            self.assertEqual(state[path]['mode'],expected,path)
+        git(self.target,'add','--',existing,created,normal)
+        if os.name=='nt':
+            self.assertEqual(git(self.target,'ls-files','--stage','--',created).split()[0],'100644')
+            git(self.target,'add','--chmod=+x','--',created)
+        for path in (existing,created,normal):
+            actual=git(self.target,'ls-files','--stage','--',path).split()[0]
+            self.assertEqual(int(actual,8)&0o777,state[path]['mode'],path)
 
     def test_wi1_fresh_modes_and_state(self):
         self.make_plan();self.approve();self.apply()

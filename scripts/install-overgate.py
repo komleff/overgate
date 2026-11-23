@@ -11,6 +11,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -891,6 +892,24 @@ def install_lock(root):
         except OSError as error:raise InstallError('target installer busy') from error
         yield
 
+def staging_mode_notes(target,operations,payload):
+    if git(target,'config','--type=bool','--default','true','--get','core.filemode').strip()!=b'false':
+        return []
+    # При core.filemode=false обычный git add сохраняет mode индекса, а для нового пути выбирает 0644.
+    indexed={}
+    paths=[op['target'] for op in operations]
+    for row in git(target,'ls-files','--stage','-z','--',*paths).split(b'\0'):
+        if row:
+            meta,name=row.split(b'\t',1)
+            indexed[name.decode('utf-8')]=int(meta.split()[0],8)&0o777
+    notes=[]
+    for op in operations:
+        path=op['target'];mode=payload[op['source']][1]
+        if indexed.get(path,0o644)!=mode:
+            flag='+x' if mode==0o755 else '-x'
+            notes.append('При подготовке target-коммита: git add --chmod='+flag+' -- '+shlex.quote(path))
+    return notes
+
 def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,preservation=None,switch_managed=False,*,payload_out=None):
     requested_mode=mode
     source=source.resolve();target=target.resolve();contract=contract.resolve()
@@ -955,6 +974,7 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,pres
                 conflicts.append(path+': conflict with project override; no force overwrite');continue
         operations.append({'source':entry['source'],'target':path,'before':old,'after':{'sha256':digest(data),'mode':observable_mode(mode)},
                            'data':base64.b64encode(data).decode() if policy in {'settings','ignore'} or (entry['source']=='.agents/templates/AGENTS.template.md' and not beads) else None})
+    notes.extend(staging_mode_notes(target,operations,payload))
     return {'format':1,'source':str(source),'source_sha':sha,'target':str(target),'branch':branch,
             'target_pr':target_pr,'contract':str(contract),'contract_sha256':digest(contract.read_bytes()),
             'mode':agent_mode,'requested_mode':requested_mode,'beads':beads,'beads_protocol':protocol,
@@ -1100,7 +1120,10 @@ def apply_locked(raw,plan):
     journal={'format':1,'target':str(root),'source_sha':plan['source_sha'],'plan_sha256':digest(raw),'entries':entries,
              'switch_managed':plan.get('switch_managed',False),'legacy_R':plan.get('preservation',{}).get('R') if plan.get('preservation') else None,
              'after':{},'complete':False}
-    installed={op['target']:op['after'] for op in plan['operations']}
+    # Трекер поставки переносится через Git; rollback сверяет только наблюдаемые режимы этой ОС.
+    installed={op['target']:{'sha256':op['after']['sha256'],'mode':payload[op['source']][1]}
+               for op in plan['operations']}
+    worktree_after={op['target']:op['after'] for op in plan['operations']}
     state={'format':2,'source_sha':plan['source_sha'],'manifest_version':plan['manifest_version'],
            'mode':plan['mode'],'beads':plan['beads'],'beads_protocol':plan['beads_protocol'],'installed':installed}
     state_bytes=json_bytes(state)
@@ -1118,7 +1141,7 @@ def apply_locked(raw,plan):
             raise InstallError('publisher transaction drift before first write')
         assert_legacy_origin_heads(root,proof['publisher_head'],proof['R'])
         journal.update(format=2,managed_upgrade=plan['managed_upgrade'],transaction=uuid.uuid4().hex,
-                       after={**installed,STATE:{'sha256':digest(state_bytes),'mode':observable_mode(0o644)}})
+                       after={**worktree_after,STATE:{'sha256':digest(state_bytes),'mode':observable_mode(0o644)}})
         journal.pop('complete')
         raw_journal=json_bytes(journal)
         backup_root.mkdir(exist_ok=True);sync_directory(root)

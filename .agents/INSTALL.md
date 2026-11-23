@@ -11,7 +11,7 @@ tags: [installation, upgrade, rollback, delivery-first]
 OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
 не является trusted source этого установщика. Получите source через `git clone`, затем
 выберите тег нужного выпуска в [GitHub Releases](https://github.com/komleff/overgate/releases).
-Для проверки кандидата Slipstream `v5.0.0-rc.2` используйте полный commit SHA из PR.
+Для Slipstream `v5.0.0-rc.2` до публикации используйте точный SHA из PR, после публикации — тег со страницы Releases.
 Installer работает с локальным Git checkout.
 
 Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
@@ -347,7 +347,11 @@ Protection helper запускается после появления main на
 code5 не изменяет ruleset. R7/og-9ic.10 прямого снятия защиты API остаётся вне WI-1.
 
 Tracked state format2 содержит source_sha, manifest_version, mode, beads и installed relative
-paths/hashes; legacy state rc.1–rc.3 читается. Абсолютный backup path только в ignored journal,
+paths/hashes. Для каждого файла `installed` хранит переносимый режим из Git source,
+0644 или 0755. При `core.filemode=false` план выводит команды `git add --chmod`
+для путей, которым при подготовке target-коммита нужно выставить режим. Выполните
+их при staging и сверьте результат через `git ls-files --stage`. На Windows журнал
+отката отдельно сохраняет наблюдаемые права локальных файлов. Legacy state rc.1–rc.3 читается. Абсолютный backup path только в ignored journal,
 apply печатает его, rollback принимает --backup явно. Approval привязывается к plan modes тоже:
 apply пересобирает exact plan и останавливает drift.
 Агент заполняет verify.sh реальными project tests, при их отсутствии создаёт минимальные.

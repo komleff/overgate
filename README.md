@@ -7,7 +7,7 @@ Delivery First связывает принятую спецификацию, р�
 
 Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
 
-**Готовится v5.0.0-rc.2 Slipstream.** Установщик обновляет проект с действующим managed Beads.
+**Кандидат v5.0.0-rc.2 Slipstream.** Установщик обновляет проект с действующим managed Beads.
 Локальный откат до коммита сохраняет задачи, опубликованные за время обновления.
 Версии для установки указаны в [GitHub Releases](https://github.com/komleff/overgate/releases).
 Здесь живёт generic reference из [U2](https://github.com/komleff/u2).

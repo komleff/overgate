@@ -18,9 +18,8 @@ Helper и установщик сами bd не скачивают. Для PR н
 или авторизованный коннектор; `gh auth status` проверяют при использовании shell `gh`.
 Для Beads после merge нужен отдельный авторизованный `git push` из publisher checkout.
 
-Source OverGate — чистый Git checkout с `.git`. Для проверки кандидата Slipstream
-`v5.0.0-rc.2` используйте точный SHA из PR. Для установки опубликованной версии
-выберите тег из [GitHub Releases](https://github.com/komleff/overgate/releases).
+Source OverGate — чистый Git checkout с `.git`. Для Slipstream `v5.0.0-rc.2` до публикации
+используйте точный SHA из PR. После публикации выберите тег со страницы [GitHub Releases](https://github.com/komleff/overgate/releases).
 
 На Windows для fresh install source OverGate и проектный target создавайте сразу как LF checkout:
 `git clone -c core.autocrlf=false '<repo-url>' '<checkout-path>'` (замените оба
