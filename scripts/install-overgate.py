@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Frozen-source plan/apply/rollback. Никакой сети, credentials или force overwrite."""
 from __future__ import annotations
+from contextlib import contextmanager
 import argparse
 import atexit
 import base64
@@ -759,7 +760,122 @@ def merge_gitignore(existing,fragment):
     if not kept.endswith('\n'):kept+=eol
     return (kept+eol+''.join(body+eol for body in block)).encode('utf-8')
 
-def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,preservation=None,switch_managed=False):
+def upgrade_checkout(root):
+    ref=git(root,'symbolic-ref','--quiet','HEAD').decode().strip()
+    if (Path(git(root,'rev-parse','--show-toplevel').decode().strip()).resolve()!=root
+            or not ref.startswith('refs/heads/') or ref in ('refs/heads/main','refs/heads/master')):
+        raise InstallError('managed upgrade requires the original named working checkout')
+    return {'target':str(root),'ref':ref,'head':git(root,'rev-parse','--verify','HEAD^{commit}').decode().strip()}
+
+def git_directory(root,option):
+    return Path(git(root,'rev-parse','--path-format=absolute',option).decode().strip()).resolve()
+
+def managed_registration(root):
+    result={}
+    for key in ('Publisher','Prefix','Cli'):
+        raw=git(root,'config','--local','--null','--get-all','overgate.beads'+key)
+        values=raw.decode('utf-8').split('\0')
+        if len(values)!=2 or not values[0] or values[1]:raise InstallError('invalid managed registration: '+key)
+        result[key]=values[0]
+    return result
+
+def control_bytes(path):
+    if not path.is_file() or path.resolve()!=path.absolute() or path.is_symlink():
+        raise InstallError('missing or noncanonical publisher control: '+path.name)
+    return path.read_bytes()
+
+def verify_control(common,key,registration):
+    directory=common/'overgate-bd-publisher-control'
+    receipt=json.loads(control_bytes(directory/'installed.json'))
+    if (receipt!=json.loads(control_bytes(directory/'control-plan.json')) or receipt.get('version')!=1
+            or receipt.get('target')!=key or not re.fullmatch(r'[0-9a-f]{64}',receipt.get('planId',''))):
+        raise InstallError('managed registration receipt mismatch')
+    guard_raw=control_bytes(directory/'guard-config.json');guard=json.loads(guard_raw)
+    owner=common.parent
+    if (guard.get('version')!=1 or guard.get('mode')!=('managed' if key=='publisher' else 'retired')
+            or Path(guard['repositoryRoot'])!=owner or Path(guard['publisherRoot'])!=Path(registration['Publisher'])
+            or guard.get('projectPrefix')!=registration['Prefix']):
+        raise InstallError('managed publisher guard registration mismatch')
+    hook=Path(git(owner,'rev-parse','--path-format=absolute','--git-path','hooks/pre-push').decode().strip())
+    hook_bytes=control_bytes(hook)
+    if digest(guard_raw).encode() not in hook_bytes:raise InstallError('registered pre-push guard differs')
+    return {'plan_id':receipt['planId'],'guard':digest(guard_raw),'hook':digest(hook_bytes)}
+
+def managed_upgrade_evidence(root,inventory,anchor=None):
+    checkout=upgrade_checkout(root)
+    remote=inventory['remote']
+    if remote['status']!='present':raise InstallError('managed upgrade requires a reachable published task branch')
+    if any('symlink' in r or 'unknown entry' in r or 'unreadable' in r for r in inventory['reasons']):
+        raise InstallError('unknown local Beads state; preserve existing files')
+    common=git_directory(root,'--git-common-dir')
+    reg=managed_registration(root)
+    publisher=Path(reg['Publisher'])
+    if not publisher.is_absolute() or publisher.resolve()!=publisher or publisher==root or common==publisher/'.git':
+        raise InstallError('distinct registered standalone publisher required')
+    publisher_git=git_directory(publisher,'--git-common-dir')
+    if (publisher_git!=publisher/'.git' or git_directory(publisher,'--git-dir')!=publisher_git
+            or managed_registration(publisher)!=reg or origin_identity(root)!=origin_identity(publisher)):
+        raise InstallError('publisher registration or origin mismatch')
+    controls={'publisher':verify_control(publisher_git,'publisher',reg)}
+    if (common/'overgate-bd-publisher-control').exists():
+        controls['primary']=verify_control(common,'primary',reg)
+        if controls['primary']['plan_id']!=controls['publisher']['plan_id']:raise InstallError('publisher setup receipt mismatch')
+    if git(publisher,'symbolic-ref','--quiet','HEAD').strip()!=b'refs/heads/main':
+        raise InstallError('publisher must be on trusted main')
+    main=git(publisher,'rev-parse','HEAD').decode().strip()
+    R=remote['R']
+    assert_legacy_origin_heads(root,main,R)
+    publisher_state=json.loads(control_bytes(publisher/STATE))
+    if (publisher_state.get('beads_protocol')!='managed-v1' or publisher_state.get('beads') is not True
+            or git(publisher,'show','HEAD:'+STATE)!=(publisher/STATE).read_bytes()):
+        raise InstallError('trusted publisher managed installation required')
+    closure=['scripts/bd-apply-intents.sh','scripts/lib/bd-env.sh','scripts/lib/bd-git-environment.mjs',
+             'scripts/lib/bd-managed-*.mjs','scripts/lib/bd-snapshot.mjs']
+    git(publisher,'diff','--quiet','HEAD','--',*closure)
+    git(publisher,'diff','--cached','--quiet','HEAD','--',*closure)
+    for directory in {common,publisher_git}:
+        for name in ('bd-apply.lock.d','overgate-bd-managed/transaction.lock','overgate-bd-managed/transaction.lock.reclaim'):
+            if os.path.lexists(directory/name):raise InstallError('active publisher transaction; retain and finish the existing queue')
+    seen=git(publisher,'for-each-ref','--format=%(objectname)','refs/overgate-bd-managed/last-seen').decode().strip()
+    # История читается в отдельном bare: refs и индекс обоих рабочих деревьев остаются у владельцев.
+    with tempfile.TemporaryDirectory(prefix='overgate-managed-proof-') as name:
+        bare=Path(name)/'remote.git'
+        git(Path(name),'init','--quiet','--bare',str(bare))
+        fetch=origin_identity(root)[0]
+        git(bare,'remote','add','origin',fetch)
+        net_git(root,'fetch','--quiet','--no-tags','origin','refs/heads/beads-backup',cwd=bare)
+        if git(bare,'rev-parse','FETCH_HEAD').decode().strip()!=R:raise InstallError('published R advanced during managed proof')
+        for oid in (anchor,seen):
+            if oid:git(bare,'merge-base','--is-ancestor',oid,R)
+        marker=json.loads(git(bare,'show',R+':.beads/overgate-managed-v1.json'))
+        if marker.get('prefix')!=reg['Prefix']:raise InstallError('published managed prefix mismatch')
+        snapshot=Path(name)/'snapshot'
+        snapshot.write_bytes(git(bare,'show',R+':.beads/issues.jsonl'))
+        checker=Path(__file__).resolve().parent/'lib/bd-managed-read-check.mjs'
+        run=subprocess.run(['node',str(checker),R,str(snapshot),str(publisher),reg['Cli']],cwd=bare,
+                           capture_output=True,env=git_environment())
+        if run.returncode:raise InstallError('managed publisher/history check failed: '+run.stderr.decode('utf-8','replace')[:500])
+        verified=json.loads(run.stdout)
+    return {'checkout':checkout,'registration':reg,'origin_sha256':origin_sha256(root),'controls':controls,
+            'publisher_head':main,'R':R,'seen':seen,'marker':marker,**verified}
+
+@contextmanager
+def install_lock(root):
+    # Блокировку снимает ОС и при аварии процесса. Постоянный inode исключает гонку unlink/reopen.
+    lock=git_directory(root,'--git-dir')/'overgate-install.lock'
+    if lock.is_symlink():raise InstallError('noncanonical installer lock')
+    with lock.open('a+b') as stream:
+        try:
+            if os.name=='nt':
+                import msvcrt
+                stream.seek(0);msvcrt.locking(stream.fileno(),msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError as error:raise InstallError('target installer busy') from error
+        yield
+
+def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,preservation=None,switch_managed=False,*,payload_out=None):
     requested_mode=mode
     source=source.resolve();target=target.resolve();contract=contract.resolve()
     if source==target:raise InstallError('source and target must be separate checkouts')
@@ -790,7 +906,12 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,pres
             raise InstallError('explicit managed switch requires clean reviewed legacy preservation')
         fences=verified_legacy_fences(packet['path'])
         protocol='managed-v1'
+    upgrade=None
+    if prior_protocol=='managed-v1' and inventory['blocked']:
+        upgrade=managed_upgrade_evidence(target,inventory)
+        require_prior_install(target,upgrade['checkout'],state)
     m,payload=load_manifest(source,sha,beads)
+    if payload_out is not None:payload_out.update(payload)
     previous=state.get('installed',{})
     operations=[];conflicts=[];notes=[];agent_mode='auto'
     for entry in projected_entries(m,beads):
@@ -822,7 +943,7 @@ def make_plan(source,sha,target,contract,target_pr,mode=None,no_beads=False,pres
             'target_pr':target_pr,'contract':str(contract),'contract_sha256':digest(contract.read_bytes()),
             'mode':agent_mode,'requested_mode':requested_mode,'beads':beads,'beads_protocol':protocol,
             'beads_inventory':inventory,'preservation':packet,'switch_managed':switch_managed,
-            'legacy_fences':fences,'no_beads':no_beads,'notes':notes,'manifest_version':m['version'],
+            'managed_upgrade':upgrade,'legacy_fences':fences,'no_beads':no_beads,'notes':notes,'manifest_version':m['version'],
             'operations':operations,'conflicts':conflicts,'state_before':current(target,STATE)}
 
 def write_atomic(root,path,data,mode):
@@ -841,22 +962,92 @@ def restore(root,entries):
             if p.exists():p.unlink()
         else:write_atomic(root,item['target'],base64.b64decode(item['data']),item['before']['mode'])
 
+def journal_phase(backup):
+    phase=control_bytes(backup.parent/'phase').decode().strip()
+    if phase not in ('applying','applied','restoring','restored'):raise InstallError('invalid managed rollback phase')
+    return phase
+
+def set_phase(backup,value):
+    write_atomic(backup.parent,'phase',(value+'\n').encode(),0o600)
+
+def verified_journal(root,backup):
+    if (backup!=backup.resolve() or backup.parent.parent!=root/'.overgate-backups' or backup.name!='rollback.json'
+            or not re.fullmatch(r'managed-[0-9a-f]{64}',backup.parent.name)):
+        raise InstallError('invalid managed rollback path')
+    raw=control_bytes(backup)
+    if backup.parent.name!='managed-'+digest(raw):raise InstallError('managed rollback journal integrity failure')
+    journal=json.loads(raw)
+    if journal.get('format')!=2 or journal.get('target')!=str(root):raise InstallError('invalid managed rollback journal')
+    return journal
+
+def validate_managed_state(state):
+    if (state.get('format')!=2 or state.get('beads') is not True or state.get('beads_protocol')!='managed-v1'
+            or not re.fullmatch(r'[0-9a-f]{40}',state.get('source_sha','')) or not isinstance(state.get('installed'),dict)):
+        raise InstallError('prior managed-v1 installation is unproven')
+
+def require_prior_install(root,checkout,state):
+    committed=git(root,'show',checkout['head']+':'+STATE)
+    validate_managed_state(json.loads(committed));validate_managed_state(state)
+    if (root/STATE).read_bytes()==committed:return
+    # Повторный plan до коммита опирается на journal локального apply.
+    for file in (root/'.overgate-backups').glob('managed-*/rollback.json'):
+        journal=verified_journal(root,file)
+        if (journal_phase(file)=='applied' and journal['managed_upgrade']['checkout']==checkout
+                and journal['after'][STATE]==current(root,STATE)):
+            return
+    raise InstallError('managed install-state differs from committed installation')
+
+def restore_upgrade(root,journal,backup):
+    phase=journal_phase(backup)
+    changes=[]
+    for entry in journal['entries']:
+        path=entry['target'];before=entry['before'];after=journal['after'][path]
+        data=entry['data']
+        if (before is None)!=(data is None) or before and digest(base64.b64decode(data,validate=True))!=before['sha256']:
+            raise InstallError('corrupt rollback bytes: '+path)
+        actual=current(root,path)
+        if actual!=after and (phase=='applied' or actual!=before):raise InstallError('rollback drift: '+path)
+        if actual!=before:changes.append(entry)
+    if phase=='restored' and changes:raise InstallError('rollback already restored')
+    set_phase(backup,'restoring')
+    restore(root,changes)
+    set_phase(backup,'restored')
+
+def rollback_upgrade(root,backup):
+    journal=verified_journal(root,backup)
+    proof=journal['managed_upgrade']
+    if upgrade_checkout(root)!=proof['checkout']:raise InstallError('managed rollback checkout, branch or HEAD changed')
+    before=next(x for x in journal['entries'] if x['target']==STATE)
+    validate_managed_state(json.loads(base64.b64decode(before['data'])))
+    validate_managed_state(json.loads(safe(root,STATE).read_bytes()))
+    evidence=managed_upgrade_evidence(root,beads_inventory(root),proof['R'])
+    stable=('checkout','registration','origin_sha256','controls','publisher_head','cli_sha256','bootstrap_sha256')
+    if any(evidence[key]!=proof[key] for key in stable):raise InstallError('managed publisher registration drift before rollback')
+    restore_upgrade(root,journal,backup)
+
 def apply(plan_path,approval_path):
-    raw=plan_path.read_bytes();plan=json.loads(raw);approval=json.loads(approval_path.read_bytes())
+    raw=plan_path.read_bytes();plan=json.loads(raw)
+    with install_lock(Path(plan['target'])):apply_locked(raw,plan,approval_path)
+
+def apply_locked(raw,plan,approval_path):
+    approval=json.loads(approval_path.read_bytes())
     if approval.get('verdict')!='PLAN_READY' or approval.get('plan_sha256')!=digest(raw) or not approval.get('evidence','').startswith(plan['target_pr']+'#'):
         raise InstallError('PLAN_READY must bind exact plan bytes and evidence in same target PR')
     if digest(Path(plan['contract']).read_bytes())!=plan['contract_sha256']:raise InstallError('contract drift after Plan Review')
+    payload={}
     now=make_plan(Path(plan['source']),plan['source_sha'],Path(plan['target']),Path(plan['contract']),plan['target_pr'],
                   plan.get('requested_mode'),plan.get('no_beads',False),
-                  plan.get('preservation',{}).get('path') if plan.get('preservation') else None,plan.get('switch_managed',False))
+                  plan.get('preservation',{}).get('path') if plan.get('preservation') else None,plan.get('switch_managed',False),payload_out=payload)
     if now!=plan:raise InstallError('target/source plan drift after Plan Review; regenerate plan in same PR')
     if plan['conflicts']:raise InstallError('conflicts require explicit project resolution: '+'; '.join(plan['conflicts']))
-    if plan['beads_inventory']['blocked'] and not plan['preservation']:
+    if plan['beads_inventory']['blocked'] and not plan['preservation'] and not plan['managed_upgrade']:
         raise InstallError('Beads preservation required before install: '+'; '.join(plan['beads_inventory']['reasons']))
-    root=Path(plan['target']);_,payload=load_manifest(Path(plan['source']),plan['source_sha'],plan['beads'])
+    root=Path(plan['target'])
     if (root/'.overgate-backups').is_symlink():raise InstallError('symlink backup directory')
-    backup=root/'.overgate-backups'/uuid.uuid4().hex
-    backup.mkdir(parents=True)
+    backup_root=root/'.overgate-backups'
+    for previous in backup_root.glob('managed-*'):
+        if journal_phase(previous/'rollback.json') in ('applying','restoring'):
+            raise InstallError('interrupted managed operation; rollback using '+str(previous/'rollback.json'))
     entries=[]
     for operation in plan['operations']+[{'target':STATE,'before':plan['state_before']}]:
         path=operation['target'];p=safe(root,path)
@@ -864,27 +1055,59 @@ def apply(plan_path,approval_path):
     journal={'format':1,'target':str(root),'source_sha':plan['source_sha'],'plan_sha256':digest(raw),'entries':entries,
              'switch_managed':plan.get('switch_managed',False),'legacy_R':plan.get('preservation',{}).get('R') if plan.get('preservation') else None,
              'after':{},'complete':False}
-    backup_file=backup/'rollback.json';backup_file.write_bytes(json_bytes(journal))
-    # Все before bytes сохранены ДО первой target mutation; повторная проверка закрывает preflight race.
-    if any(current(root,x['target'])!=x['before'] for x in entries):raise InstallError('target drift before first write')
+    installed={op['target']:op['after'] for op in plan['operations']}
+    state={'format':2,'source_sha':plan['source_sha'],'manifest_version':plan['manifest_version'],
+           'mode':plan['mode'],'beads':plan['beads'],'beads_protocol':plan['beads_protocol'],'installed':installed}
+    state_bytes=json_bytes(state)
+    if any(current(root,x['target'])!=x['before'] or
+           x['before'] and digest(base64.b64decode(x['data']))!=x['before']['sha256'] for x in entries):
+        raise InstallError('target drift before first write')
+    if plan['managed_upgrade']:
+        proof=plan['managed_upgrade']
+        if (upgrade_checkout(root)!=proof['checkout'] or managed_registration(root)!=proof['registration']
+                or managed_registration(Path(proof['registration']['Publisher']))!=proof['registration']):
+            raise InstallError('managed checkout or registration drift before first write')
+        assert_legacy_origin_heads(root,proof['publisher_head'],proof['R'])
+        journal.update(format=2,managed_upgrade=plan['managed_upgrade'],transaction=uuid.uuid4().hex,
+                       after={**installed,STATE:{'sha256':digest(state_bytes),'mode':observable_mode(0o644)}})
+        journal.pop('complete')
+        raw_journal=json_bytes(journal)
+        backup_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=backup_root) as staging:
+            stage=Path(staging);write_atomic(stage,'rollback.json',raw_journal,0o600)
+            set_phase(stage/'rollback.json','applying')
+            backup=backup_root/('managed-'+digest(raw_journal))
+            stage.rename(backup)
+    else:
+        backup=backup_root/uuid.uuid4().hex;backup.mkdir(parents=True)
+        write_atomic(backup,'rollback.json',json_bytes(journal),0o600)
+    backup_file=backup/'rollback.json'
     try:
         for op in plan['operations']:
             data=base64.b64decode(op['data']) if op['data'] is not None else payload[op['source']][0]
             if digest(data)!=op['after']['sha256']:raise InstallError('payload fingerprint mismatch')
-            write_atomic(root,op['target'],data,op['after']['mode'])
-        installed={op['target']:op['after'] for op in plan['operations']}
-        state={'format':2,'source_sha':plan['source_sha'],'manifest_version':plan['manifest_version'],
-               'mode':plan['mode'],'beads':plan['beads'],'beads_protocol':plan['beads_protocol'],'installed':installed}
-        write_atomic(root,STATE,json_bytes(state),0o644)
-        journal['after']={x['target']:current(root,x['target']) for x in entries};journal['complete']=True
-        backup_file.write_bytes(json_bytes(journal))
+            if op['after']!=op['before']:write_atomic(root,op['target'],data,op['after']['mode'])
+        write_atomic(root,STATE,state_bytes,0o644)
+        if plan['managed_upgrade']:set_phase(backup_file,'applied')
+        else:
+            journal['after']={x['target']:current(root,x['target']) for x in entries};journal['complete']=True
+            write_atomic(backup,'rollback.json',json_bytes(journal),0o600)
     except BaseException:
-        restore(root,entries)
+        if plan['managed_upgrade']:restore_upgrade(root,journal,backup_file)
+        else:restore(root,entries)
         raise
     print('Applied frozen source '+plan['source_sha']+'; backup: '+str(backup_file))
 
 def rollback(target,backup):
-    root=target.resolve();journal=json.loads(backup.read_bytes())
+    root=target.resolve()
+    with install_lock(root):
+        if backup.parent.name.startswith('managed-'):
+            rollback_upgrade(root,backup.absolute())
+            print('Rollback restored managed upgrade; published tasks retained')
+        else:rollback_legacy(root,backup)
+
+def rollback_legacy(root,backup):
+    journal=json.loads(backup.read_bytes())
     if journal.get('target')!=str(root) or not journal.get('complete'):raise InstallError('invalid/incomplete rollback manifest')
     state_path=safe(root,STATE)
     if state_path.is_file():

@@ -1,7 +1,7 @@
 ---
 title: "Install, upgrade and rollback — OverGate Slipstream"
 status: active
-version: "5.0.0-rc.1"
+version: "5.0.0-rc.2"
 date: 2026-11-20
 tags: [installation, upgrade, rollback, delivery-first]
 ---
@@ -11,7 +11,7 @@ tags: [installation, upgrade, rollback, delivery-first]
 OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
 не является trusted source этого установщика. Получите source через `git clone`, затем
 выберите тег нужного выпуска в [GitHub Releases](https://github.com/komleff/overgate/releases).
-Для проверки кандидата Slipstream `v5.0.0-rc.1` используйте полный commit SHA из PR.
+Для проверки кандидата Slipstream `v5.0.0-rc.2` используйте полный commit SHA из PR.
 Installer работает с локальным Git checkout.
 
 Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
@@ -35,6 +35,24 @@ Beads activation; `--no-beads` — для разовых проектов. Дл�
 текущий `bd --help`. macOS/Linux deterministic fixtures — граница reference evidence;
 На Windows нужен настоящий Git Bash; Python запускается нативно (`py -3` либо `python`),
 не через WSL. Windows и live Claude/Codex activation требуют отдельного smoke и не объявляются PASS автоматически.
+
+### Обновление работающего managed-проекта
+
+В рабочей ветке выполните обычные `plan`, Plan Review с `PLAN_READY` и `apply`.
+Для установленного `managed-v1` план проверяет регистрацию прежнего publisher,
+его trusted `origin/main`, общий origin, префикс и опубликованную историю задач.
+В плане отдельно указаны HEAD кода и R ветки `beads-backup`. При смене входных
+данных, регистрации или R получите и согласуйте новый план. При незавершённой
+публикации сначала продолжите исходную очередь через зарегистрированный publisher.
+Подготовленные очереди, локальные квитанции и проектные настройки сохраняются.
+
+До коммита обновления выполните `rollback --target <project> --backup <rollback.json>`
+из той же рабочей копии при исходной ветке и HEAD. Журнал связывает резервные
+данные с этой установкой. После аварийного прерывания используйте тот же журнал
+из `.overgate-backups/managed-*/rollback.json`. Для отката восстановите исходную
+ветку и разберите изменения управляемых файлов. Задачи, опубликованные за время
+обновления, останутся в общей истории. После коммита верните поставку средствами Git
+в рабочей ветке с сохранением правок проекта. После merge оформите обратный PR.
 
 ### Beads и облачный агент
 

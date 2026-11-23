@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // Reader проверяет опубликованный managed marker и hashes до показа task state.
 import fs from 'node:fs';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { canonical, configureProjectPrefix, parseLedger } from './bd-managed-contract.mjs';
 import { normalizeSnapshot } from './bd-snapshot.mjs';
-import { assertAuthorizedSnapshotTransition } from './bd-managed-cli.mjs';
+import { readJournal, verifyPreservation } from './bd-managed-journal.mjs';
+import { assertAuthorizedSnapshotTransition, qualifyBinary } from './bd-managed-cli.mjs';
 import { cleanGitEnvironment } from './bd-git-environment.mjs';
 
-const [ref, snapshotFile] = process.argv.slice(2);
+const [ref, snapshotFile, publisher, cli] = process.argv.slice(2);
 const git = args => execFileSync('git', args, { encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024,
   env: { ...cleanGitEnvironment(), GIT_NO_REPLACE_OBJECTS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
 const optional = (oid, name) => git(['ls-tree', '-r', '--name-only', oid, '--', name]).trim() === name
@@ -68,6 +70,22 @@ try {
       throw new Error('managed protocol hash/prefix mismatch in retained history');
     assertAuthorizedSnapshotTransition(previous.snapshot, row, previous.ledger, parsed);
     previous = { snapshot: row, ledger: parsed };
+  }
+  if (publisher) {
+    const directory = path.join(publisher, '.git', 'overgate-bd-managed');
+    const journal = readJournal(directory);
+    if (!journal || journal.phase !== 'published' || !commits.includes(journal.published))
+      throw new Error('unfinished or unconfirmed publisher transaction; preserve the existing queue and candidate');
+    const ackPath = path.join(directory, 'bootstrap.json');
+    if (fs.realpathSync(ackPath) !== ackPath) throw new Error('noncanonical publisher acknowledgement');
+    const raw = fs.readFileSync(ackPath), ack = JSON.parse(raw);
+    const base = ack.evidence.base;
+    if (base !== '0'.repeat(40) && !allCommits.includes(base)) throw new Error('publisher bootstrap base missing');
+    const frozen = base === '0'.repeat(40) ? '' : optional(base, '.beads/issues.jsonl');
+    const evidence = verifyPreservation(path.join(directory, 'preservation'), canonical(ack.manifest),
+      { ...ack.context, base, snapshot: frozen });
+    if (ack.version !== 1 || canonical(evidence) !== canonical(ack.evidence)) throw new Error('publisher bootstrap mismatch');
+    process.stdout.write(JSON.stringify({ cli_sha256: qualifyBinary(cli), bootstrap_sha256: sha(raw), journal_sha256: sha(canonical(journal)) }));
   }
   if (previous.snapshot !== snapshot) throw new Error('published snapshot changed during retained history proof');
 } catch (error) {
