@@ -68,7 +68,7 @@ class ManagedUpgradeGuards(unittest.TestCase):
     def test_checkout_identity_requires_same_named_branch_and_head(self):
         installer=load_installer()
         with tempfile.TemporaryDirectory() as name:
-            root=Path(name)/'target';init(root)
+            root=Path(name).resolve()/'target';init(root)
             git(root,'commit','--allow-empty','-qm','baseline')
             binding=installer.upgrade_checkout(root)
             self.assertEqual(binding,{'target':str(root.resolve()),'ref':'refs/heads/fixture','head':git(root,'rev-parse','HEAD')})
