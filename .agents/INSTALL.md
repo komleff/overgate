@@ -7,6 +7,8 @@ tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
 
+Хотите добавить OverGate в свой проект? [Скопируйте сообщение для вашего ИИ-агента](HOW_TO_INSTALL.md).
+
 Единый путь — `scripts/install-overgate.py plan → apply → rollback` из чистого trusted
 OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
 не является trusted source этого установщика. Получите source через `git clone`, затем
