@@ -22,6 +22,8 @@
 
 В отдельной synthetic проверке с конкурентным writer успешный backup содержал промежуточное состояние, отличное от до и после. Проверка `6 → 7 → 6` показала, что равенство before/after не доказывает отсутствие промежуточных записей. Переход требует надёжно подтверждённой quiescence или отдельно доказанного непрерывного контроля writes: простого сравнения снимков недостаточно. Tuple listener PID/start/cwd/port отразил рестарт и подмену на тесте, но секундная точность `lstart`, PID reuse и TOCTOU не позволяют объявить его полноценной гарантией identity.
 
+В synthetic server `SET GLOBAL read_only=ON` успешно возвращал `1`, но SQL UPDATE и `bd create` оставались возможны: этот переключатель не является freeze. Startup `--readonly` отклонял обе записи и допускал backup на тесте, но требует отдельного управления lifecycle и не препятствует другому серверу или файловой записи владельца ОС. Transaction/table lock не проверялся. Не переключать или перезапускать живой server по результатам этой репетиции; owner/quiescence protocol сначала должен быть определён, независимо проверен и согласован с фактическими клиентами.
+
 ## Поверхность реализации
 
 После отдельного PLAN_READY: `scripts/bd-upgrade-preserve.py`, `scripts/install-overgate.py`, `scripts/bd-upgrade-fence.py`, связанные Beads helpers и тесты `scripts/tests/bd-upgrade-preserve.test.py`, `scripts/tests/install-distribution.test.py`; документация `.agents/INSTALL.md` и `.agents/HOW_TO_USE.md`, manifest только при добавлении файлов. Перед реализацией дополнить точные interfaces, формат packet, доверенный источник identity/restore receipt, матрицу этапов восстановления и решение о platform scope. Не начинать реализацию с непроверенными placeholders.
