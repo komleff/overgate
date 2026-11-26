@@ -15,6 +15,7 @@
 | [Pipeline ADR §3.37](../../.agents/PIPELINE_ADR.md) | Commit tier reference-гейта overgate: ограниченный набор для гейта коммита, полный — `/verify` и CI; состав заменён §3.38 | proposed for rc.5.1 |
 | [Pipeline ADR §3.38](../../.agents/PIPELINE_ADR.md) | Ядро commit tier (12 шагов), Windows CI `windows-commit-tier`, fail-closed guard и Git Bash route на Windows; заменяет состав §3.37 | proposed for rc.5.2 |
 | [Pipeline ADR §3.39](../../.agents/PIPELINE_ADR.md) | Обычный вход пользователя в Git для сетевых вызовов Beads: перенос allowlist `credential.*`/`user.*` только в ls-remote/fetch/push/commit-tree; дополняет §3.34 | proposed for rc.5.2 |
+| [Pipeline ADR §3.40](../../.agents/PIPELINE_ADR.md) | Деградированный режим быстрых проверок диспетчера: при истечении предела проходит только статичная команда из белого списка, прочее — блок с честной причиной; частично заменяет §3.32 и named risk §3.38 | proposed for v4.0.1 |
 
 ## Решения проекта
 

@@ -425,6 +425,11 @@ class GateBudget(unittest.TestCase):
         self.assertIn("не сообщил предел", err)
         # Предел 2 с + секунда добивания помощника + быстрые проверки на загруженной машине.
         self.assertLessEqual(elapsed, 12, f"зависший запрос предела отрезан за {elapsed:.1f} с")
+        # Деградированный режим (план v4.0.1, V6): статичная команда проходит с предупреждением,
+        # а не запирает агента; коммит выше по-прежнему блокируется.
+        code, err = run(ENTRY, "ls -la", tree, str(tree), timeout=25)
+        self.assertEqual(code, 0, err)
+        self.assertIn("ПРЕДУПРЕЖДЕНИЕ", err)
 
     def test_gate_hanging_in_run_is_blocked_by_outer_limit(self):
         """Гейт, зависший до своего помощника времени, режется внешним пределом «остаток + N с»."""
@@ -439,6 +444,205 @@ class GateBudget(unittest.TestCase):
         code, _ = run(ENTRY, "git commit -m x", unwrapped, str(unwrapped),
                       {"OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS": "10"}, timeout=40)
         self.assertEqual(code, 0, "гейт без внешнего предела не ловится")
+
+
+TRIAGE_BEGIN = "# >>> static-triage"
+TRIAGE_END = "# <<< static-triage"
+
+# Корпус триажа (план v4.0.1 §3.1, V3). static — цепочки команд из белого списка без $,
+# обратной кавычки и обратной косой черты; guarded — всё, что может исполнить что-либо ещё,
+# включая формы обхода из Plan Review (B1 путь/.exe/оболочки, B2 сборка слова, N1 подмена
+# разрешения команды).
+STATIC_CASES = (
+    "ls -la", "cat README.md", "grep -rn foo docs | wc -l", 'echo "hello world"',
+    "ls 2>&1 | head -5", "cd docs && ls", "(ls)", "ls -lO .claude/hooks", "ls *.md",
+    "stat -f %Sf README.md", "ls>out.txt", "cat a; echo done", "ls # комментарий", "ls\tdocs",
+    "cat README.md\nls docs", "ls &>/dev/null", "pwd", "df -h .",
+)
+GUARDED_CASES = (
+    "git status", "gh pr view 1", "/opt/homebrew/bin/gh pr comment 29 --body-file r.md",
+    "gh.exe pr comment 1 --body-file r.md", "/opt/homebrew/bin/gh api graphql -F query=@q.graphql",
+    "/usr/bin/xargs /opt/homebrew/bin/gh < args.txt", "/bin/sh < s.txt", "cat s.txt | /bin/sh",
+    "cat s | sh", "./scripts/x.sh", ".agents/project/verify.sh", "bash -c ls", "eval ls",
+    "ls; . ./land", "echo $HOME", "echo `id`", "ls ${HOME}",
+    "gi\\\nt p\\\nush origin main", "gi\\\nt co\\\nmmit -m x", "gi{t..t} pu{s..s}h origin main",
+    "gi{t..t} co{m..m}mit -m x", "/usr/bin/g?t push", 'g""it p""ush origin main',
+    "ls\ngh pr merge 1", "ls\ngh pr comment 1 --body ok", "xargs gh < a",
+    "find . -exec git push \\;", 'python3 -c "print(1)"', "env ls", "A=1 ls", ">out git push",
+    "{ ls; }", "cat <(git log)", "ls > /dev/tcp/x/80", "LS", "sudo ls", "command ls", "time ls",
+    "ls || git push", "ls && curl x", "ls \\\n -la", "echo a\\\\b", "ls ;; nohup git push",
+    "ls git push", "printf -v 'BASH_CMDS[ls]' %s /usr/bin/git; ls push origin main",
+    "printf -v 'commands[ls]' %s /usr/bin/git; ls commit -m x", "printf -v PATH %s /tmp; ls",
+    "hash -p /usr/bin/git ls; ls push", "printf hello", "", "   ",
+)
+
+
+def triage_payloads() -> list[tuple[str, str, str]]:
+    rows = []
+    for expected, group in (("static", STATIC_CASES), ("guarded", GUARDED_CASES)):
+        for command in group:
+            rows.append((expected, command, json.dumps({"tool_input": {"command": command}, "cwd": "/x"},
+                                                       ensure_ascii=False)))
+            # Компактная форма — как JSON.stringify у Claude Code.
+            rows.append((expected, command + " [compact]", json.dumps(
+                {"tool_input": {"command": command}}, ensure_ascii=False, separators=(",", ":"))))
+    rows += [
+        ("guarded", "\\u-экранирование", json.dumps({"tool_input": {"command": "ls кириллица"}})),
+        ("guarded", "два ключа command", json.dumps({"tool_input": {"command": "ls"}, "other": {"command": "ls"}})),
+        ("guarded", "нет ключа command", json.dumps({"tool_input": {"cmd": "ls"}})),
+        ("guarded", "command не строка", json.dumps({"tool_input": {"command": None}})),
+        ("guarded", "payload > 4096 байт", json.dumps({"tool_input": {"command": "ls " + "a" * 4200}})),
+        ("static", "экранирования в другом поле", json.dumps(
+            {"tool_input": {"command": "ls", "description": "a\\b \"q\" $x"}})),
+    ]
+    return rows
+
+
+def triage_block() -> str:
+    text = DISPATCHER.read_text(encoding="utf-8")
+    assert TRIAGE_BEGIN in text and TRIAGE_END in text, "в диспетчере нет блока static-triage (план v4.0.1 §3.2)"
+    return text[text.index(TRIAGE_BEGIN):text.index(TRIAGE_END) + len(TRIAGE_END)] + "\n"
+
+
+def bash_major(shell: str) -> int | None:
+    try:
+        out = subprocess.run([shell, "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return int(out) if out.isdigit() else None
+
+
+class SlowEnvironmentTriage(unittest.TestCase):
+    """Вердикт триажа: весь корпус в одном процессе bash (бюджет commit tier), V3–V5."""
+
+    def verdicts(self, shell: str) -> None:
+        rows = triage_payloads()
+        with tempfile.TemporaryDirectory(prefix="overgate-triage-") as directory:
+            # Текст функции передаётся файлом, а не аргументом: на Windows пара `\\` в аргументе
+            # из нативного процесса схлопывается (см. канарейку выше).
+            driver = Path(directory) / "drive.sh"
+            driver.write_text("set -u\n" + triage_block() +
+                              'while IFS= read -r PAYLOAD; do v="$(static_verdict_raw 2>/dev/null)"; '
+                              '[ "$v" = static ] || v=guarded; echo "$v"; done\n',
+                              encoding="utf-8", newline="\n")
+            proc = subprocess.run([shell, driver.as_posix()], input="\n".join(p for _, _, p in rows) + "\n",
+                                  capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "", "триаж пишет в stderr")
+        got = proc.stdout.split("\n")
+        mismatches = [(expected, command, verdict) for (expected, command, _), verdict in zip(rows, got)
+                      if expected != verdict]
+        self.assertEqual(len(got) - 1, len(rows), proc.stdout)
+        self.assertEqual(mismatches, [], f"{shell}: вердикты расходятся с планом")
+
+    def test_corpus_verdicts(self):
+        self.verdicts(BASH)
+
+    @unittest.skipIf(WINDOWS, "/bin/bash 3.2 есть только на macOS")
+    def test_corpus_verdicts_under_system_bash_3(self):
+        """Хуки на Mac оператора исполняет /bin/bash 3.2 (Plan Review, B3)."""
+        if bash_major("/bin/bash") != 3:
+            self.skipTest("/bin/bash не версии 3")
+        self.verdicts("/bin/bash")
+
+    def test_print_static_verdict_mode(self):
+        for command, expected in (("ls -la", "static"), ("git status", "guarded")):
+            with self.subTest(command=command):
+                proc = subprocess.run([BASH, DISPATCHER.as_posix(), "--print-static-verdict"],
+                                      input=json.dumps({"tool_input": {"command": command}}), capture_output=True,
+                                      text=True, encoding="utf-8", timeout=30)
+                self.assertEqual((proc.returncode, proc.stdout.strip()), (0, expected), proc.stderr)
+
+    def test_triage_crash_is_guarded(self):
+        """Срыв bash внутри триажа даёт guarded, а не код 1 (код 1 хук не блокирует), V5."""
+        source = DISPATCHER.read_text(encoding="utf-8")
+        anchor = "static_verdict_raw() {\n"
+        self.assertEqual(source.count(anchor), 1)
+        with tempfile.TemporaryDirectory(prefix="overgate-triage-crash-") as directory:
+            mutated = Path(directory) / "pre-bash.sh"
+            mutated.write_text(source.replace(anchor, anchor + '  : "${OVERGATE_TRIAGE_UNDEFINED}"\n'),
+                               encoding="utf-8", newline="\n")
+            proc = subprocess.run([BASH, mutated.as_posix(), "--print-static-verdict"],
+                                  input=json.dumps({"tool_input": {"command": "ls -la"}}), capture_output=True,
+                                  text=True, encoding="utf-8", timeout=30)
+        self.assertEqual((proc.returncode, proc.stdout.strip()), (0, "guarded"), proc.stderr)
+
+
+SLEEPING_STUB = "import time\ntime.sleep(30)\n"
+
+
+class SlowEnvironmentDispatch(unittest.TestCase):
+    """Быстрая проверка не укладывается в предел: статичная команда проходит, прочие — блок (V1, V2, V8)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tree = make_tree(mutation=("QUICK_LIMIT=10", "QUICK_LIMIT=1"))
+        (cls.tree / ".claude" / "hooks" / "check-repository-mutation.py").write_text(SLEEPING_STUB, encoding="utf-8")
+
+    def test_static_command_passes_with_warning(self):
+        started = time.monotonic()
+        code, err = run(ENTRY, "ls -la", self.tree, str(self.tree), timeout=40)
+        elapsed = time.monotonic() - started
+        self.assertEqual(code, 0, err)
+        self.assertIn("ПРЕДУПРЕЖДЕНИЕ", err)
+        self.assertLessEqual(elapsed, 10, f"деградированный режим занял {elapsed:.1f} с")
+
+    def test_guarded_command_is_blocked_with_honest_reason(self):
+        """Один прогон на бюджет commit tier: честная причина и, вне Windows, подсказка iCloud
+        по заглушкам uname (Darwin) и stat (dataless) в PATH; на Windows заглушек нет — и
+        подсказки нет. Прочие нестатичные формы покрывает корпус вердиктов."""
+        with tempfile.TemporaryDirectory(prefix="overgate-icloud-stub-") as directory:
+            env = None
+            if not WINDOWS:
+                stubs = Path(directory)
+                for name, text in (("uname", "echo Darwin"), ("stat", "echo hidden,compressed,dataless")):
+                    stub = stubs / name
+                    stub.write_text("#!/bin/sh\n" + text + "\n", encoding="utf-8", newline="\n")
+                    stub.chmod(0o755)
+                env = {"PATH": str(stubs) + os.pathsep + os.environ.get("PATH", "")}
+            code, err = run(ENTRY, "git push origin main", self.tree, str(self.tree), env, timeout=40)
+        self.assertEqual(code, 2, err)
+        self.assertIn("не уложилась", err)
+        self.assertIn("медленное окружение", err)
+        self.assertIn("ls cat head", err)
+        self.assertNotIn("checkout -- .claude/hooks", err)
+        if WINDOWS:
+            self.assertNotIn("iCloud", err)
+        else:
+            self.assertIn("iCloud", err)
+
+
+class SlowCommitGateClassifier(unittest.TestCase):
+    """Классификатор гейта коммита не укладывается в предел: вердикт даёт триаж диспетчера (V7)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tree = Path(tempfile.mkdtemp(prefix="overgate-gate-slow-"))
+        for sub in ("hooks", "tools"):
+            shutil.copytree(ROOT / ".claude" / sub, cls.tree / ".claude" / sub,
+                            ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
+        (cls.tree / ".claude" / "hooks" / "commit_command_classifier.py").write_text(SLEEPING_STUB, encoding="utf-8")
+        cls.gate_path = (cls.tree / ".claude" / "hooks" / "check-tests-before-commit.sh").as_posix()
+
+    def gate(self, command: str) -> tuple[int, str]:
+        env = dict(os.environ, OVERGATE_COMMIT_GATE_TEST_MAX_CLASSIFY_SECONDS="1",
+                   PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        env.pop("OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS", None)
+        proc = subprocess.run([BASH, self.gate_path], input=json.dumps({"tool_input": {"command": command}}),
+                              cwd=str(self.tree), env=env, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=40)
+        return proc.returncode, proc.stderr
+
+    def test_static_command_passes(self):
+        code, err = self.gate("ls -la")
+        self.assertEqual(code, 0, err)
+        self.assertIn("ПРЕДУПРЕЖДЕНИЕ", err)
+
+    def test_commit_is_blocked(self):
+        code, err = self.gate("git commit -m x")
+        self.assertEqual(code, 2, err)
+        self.assertIn("не уложился", err)
 
 
 class DispatcherMessages(unittest.TestCase):
