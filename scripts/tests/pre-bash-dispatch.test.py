@@ -425,11 +425,6 @@ class GateBudget(unittest.TestCase):
         self.assertIn("не сообщил предел", err)
         # Предел 2 с + секунда добивания помощника + быстрые проверки на загруженной машине.
         self.assertLessEqual(elapsed, 12, f"зависший запрос предела отрезан за {elapsed:.1f} с")
-        # Деградированный режим (план v4.0.1, V6): статичная команда проходит с предупреждением,
-        # а не запирает агента; коммит выше по-прежнему блокируется.
-        code, err = run(ENTRY, "ls -la", tree, str(tree), timeout=25)
-        self.assertEqual(code, 0, err)
-        self.assertIn("ПРЕДУПРЕЖДЕНИЕ", err)
 
     def test_gate_hanging_in_run_is_blocked_by_outer_limit(self):
         """Гейт, зависший до своего помощника времени, режется внешним пределом «остаток + N с»."""
@@ -567,82 +562,6 @@ class SlowEnvironmentTriage(unittest.TestCase):
                                   input=json.dumps({"tool_input": {"command": "ls -la"}}), capture_output=True,
                                   text=True, encoding="utf-8", timeout=30)
         self.assertEqual((proc.returncode, proc.stdout.strip()), (0, "guarded"), proc.stderr)
-
-
-SLEEPING_STUB = "import time\ntime.sleep(30)\n"
-
-
-class SlowEnvironmentDispatch(unittest.TestCase):
-    """Быстрая проверка не укладывается в предел: статичная команда проходит, прочие — блок (V1, V2, V8)."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tree = make_tree(mutation=("QUICK_LIMIT=10", "QUICK_LIMIT=1"))
-        (cls.tree / ".claude" / "hooks" / "check-repository-mutation.py").write_text(SLEEPING_STUB, encoding="utf-8")
-
-    def test_static_command_passes_with_warning(self):
-        started = time.monotonic()
-        code, err = run(ENTRY, "ls -la", self.tree, str(self.tree), timeout=40)
-        elapsed = time.monotonic() - started
-        self.assertEqual(code, 0, err)
-        self.assertIn("ПРЕДУПРЕЖДЕНИЕ", err)
-        self.assertLessEqual(elapsed, 10, f"деградированный режим занял {elapsed:.1f} с")
-
-    def test_guarded_command_is_blocked_with_honest_reason(self):
-        """Один прогон на бюджет commit tier: честная причина и, вне Windows, подсказка iCloud
-        по заглушкам uname (Darwin) и stat (dataless) в PATH; на Windows заглушек нет — и
-        подсказки нет. Прочие нестатичные формы покрывает корпус вердиктов."""
-        with tempfile.TemporaryDirectory(prefix="overgate-icloud-stub-") as directory:
-            env = None
-            if not WINDOWS:
-                stubs = Path(directory)
-                for name, text in (("uname", "echo Darwin"), ("stat", "echo hidden,compressed,dataless")):
-                    stub = stubs / name
-                    stub.write_text("#!/bin/sh\n" + text + "\n", encoding="utf-8", newline="\n")
-                    stub.chmod(0o755)
-                env = {"PATH": str(stubs) + os.pathsep + os.environ.get("PATH", "")}
-            code, err = run(ENTRY, "git push origin main", self.tree, str(self.tree), env, timeout=40)
-        self.assertEqual(code, 2, err)
-        self.assertIn("не уложилась", err)
-        self.assertIn("медленное окружение", err)
-        self.assertIn("ls cat head", err)
-        self.assertNotIn("checkout -- .claude/hooks", err)
-        if WINDOWS:
-            self.assertNotIn("iCloud", err)
-        else:
-            self.assertIn("iCloud", err)
-
-
-class SlowCommitGateClassifier(unittest.TestCase):
-    """Классификатор гейта коммита не укладывается в предел: вердикт даёт триаж диспетчера (V7)."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tree = Path(tempfile.mkdtemp(prefix="overgate-gate-slow-"))
-        for sub in ("hooks", "tools"):
-            shutil.copytree(ROOT / ".claude" / sub, cls.tree / ".claude" / sub,
-                            ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
-        (cls.tree / ".claude" / "hooks" / "commit_command_classifier.py").write_text(SLEEPING_STUB, encoding="utf-8")
-        cls.gate_path = (cls.tree / ".claude" / "hooks" / "check-tests-before-commit.sh").as_posix()
-
-    def gate(self, command: str) -> tuple[int, str]:
-        env = dict(os.environ, OVERGATE_COMMIT_GATE_TEST_MAX_CLASSIFY_SECONDS="1",
-                   PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
-        env.pop("OVERGATE_COMMIT_GATE_TEST_MAX_SECONDS", None)
-        proc = subprocess.run([BASH, self.gate_path], input=json.dumps({"tool_input": {"command": command}}),
-                              cwd=str(self.tree), env=env, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=40)
-        return proc.returncode, proc.stderr
-
-    def test_static_command_passes(self):
-        code, err = self.gate("ls -la")
-        self.assertEqual(code, 0, err)
-        self.assertIn("ПРЕДУПРЕЖДЕНИЕ", err)
-
-    def test_commit_is_blocked(self):
-        code, err = self.gate("git commit -m x")
-        self.assertEqual(code, 2, err)
-        self.assertIn("не уложился", err)
 
 
 class DispatcherMessages(unittest.TestCase):

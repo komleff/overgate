@@ -59,6 +59,9 @@ if [ "$TIER" = commit ]; then
   exit 0
 fi
 run publisher "$PYTHON" scripts/tests/publish-pr-comment.test.py
+# Живые сценарии деградированного режима диспетчера (ADR §3.40): каждый ждёт истечения предела,
+# поэтому вне бюджета commit tier; правило триажа проверяет корпус в pre-bash-dispatch.
+run pre-bash-degraded "$PYTHON" scripts/tests/pre-bash-degraded.test.py
 for test_name in with-timeout with-timeout-transparency merge-gate-script-run-parity merge-gate-parse-completeness merge-gate-parse-budget gate-arithmetic-expansion gate-heredoc-delimiter gate-line-continuation-parity shell-grammar-single-source module-resolution-closure finalize-triage-parse finalize-gate-script bd-node-path bd-read bd-wt; do
   run "$test_name" bash "scripts/tests/$test_name.test.sh"
 done

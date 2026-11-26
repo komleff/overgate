@@ -259,6 +259,7 @@ jobs:
           # Шаги прежнего commit tier, вынесенные в full (ADR §3.38): на Windows они
           # исполняются здесь; verify-tiers.test.py держит полноту списка.
           step publisher "$PY" scripts/tests/publish-pr-comment.test.py
+          step pre-bash-degraded "$PY" scripts/tests/pre-bash-degraded.test.py
           step with-timeout bash scripts/tests/with-timeout.test.sh
           step with-timeout-transparency bash scripts/tests/with-timeout-transparency.test.sh
           step merge-gate-script-run-parity bash scripts/tests/merge-gate-script-run-parity.test.sh
