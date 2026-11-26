@@ -1125,7 +1125,7 @@ module.apply(Path(sys.argv[2]),Path(sys.argv[3]))
         self.assertNotIn(b'docker-compose.prod.yml',source)
         self.assertEqual((self.target/'.claude/settings.json').read_bytes(),source)
         state=json.loads((self.target/'.overgate/install-state.json').read_bytes())
-        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'5.0.0-rc.2'))
+        self.assertEqual((state['mode'],state['beads'],state['manifest_version']),('auto',True,'5.0.0-rc.3'))
         self.assertNotIn('source',state);self.assertNotIn('backup',state)
         def no_absolute(value):
             if isinstance(value,dict):

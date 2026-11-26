@@ -1,5 +1,13 @@
 # Progress
 
+## v5.0.0-rc.3 — перенос исправления хука Bash из v4.0.1 (2026-11-27)
+
+Ветка `fix/v5-hook-timeout-lockout` от `main` `f275710`. Перенос PR #29 (`fc81cf4..0dd3535`)
+3-way без конфликтов по 11 путям; версия `5.0.0-rc.3`. Plan Review v0.1 — PLAN_READY
+(6 advisory учтены в v0.2). RED на хуках `f275710`: `pre-bash-degraded` 4/5 FAIL,
+`pre-bash-dispatch` 5 FAIL; GREEN на ветке. Pending: CI (P3: Windows ≤ 139 с), QA и Code
+Review переноса, финализация, pre-release `v5.0.0-rc.3`.
+
 ## og-4py rc.5.2 — обычный вход в Git для Beads, реализация (2026-11-10)
 
 PR #20, ветка `fix/og-4py-beads-credentials`, план v0.5 PLAN_READY. Сетевые вызовы Beads

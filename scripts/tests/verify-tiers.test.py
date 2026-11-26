@@ -24,6 +24,9 @@ MOVED = {
     'module-resolution-closure', 'finalize-triage-parse', 'finalize-gate-script', 'bd-node-path', 'bd-read',
     'bd-wt', 'merge-gate-parse-complexity', 'readiness-declaration-corpus', 'readiness-policy-complexity',
     'shell-nonascii-expansion', 'finalizer-validator', 'finalize-no-beads'}
+# Только full с самого начала (v4.0.1, ADR §3.40): живые сценарии ждут истечения предела быстрой
+# фазы и не помещаются в бюджет commit tier; обязаны идти в full и в Windows CI.
+FULL_ONLY = {'pre-bash-degraded'}
 INTEGRATION = {
     'desktop-helper', 'install-fresh-upgrade-rollback', 'install-helpers', 'bd-bootstrap-native', 'bd-upgrade-preserve',
     'bd-legacy-fence', 'bd-sync', 'bd-managed-prefix', 'bd-managed-snapshot', 'bd-managed-two-clone',
@@ -73,7 +76,7 @@ class VerifyTierTests(unittest.TestCase):
     def test_full_tier_keeps_every_moved_step(self):
         after = [name for number, name, _ in steps(self.text) if number > self.cut]
         self.assertEqual(len(after), len(set(after)))
-        self.assertEqual(set(after), MOVED | INTEGRATION)
+        self.assertEqual(set(after), MOVED | FULL_ONLY | INTEGRATION)
         self.assertEqual(len(MOVED) + len(COMMIT_TIER), 34, 'прежний commit tier rc.5.1 — 34 шага')
 
     def test_windows_job_runs_commit_tier_and_every_moved_step(self):
@@ -85,7 +88,7 @@ class VerifyTierTests(unittest.TestCase):
         self.assertNotIn('PYTHONUTF8: ', windows)
         self.assertNotIn('PYTHONIOENCODING: ', windows)
         scripts = {name: script for number, name, script in steps(self.text) if number > self.cut}
-        for name in sorted(MOVED):
+        for name in sorted(MOVED | FULL_ONLY):
             with self.subTest(step=name):
                 self.assertRegex(windows, rf'(?m)^\s+step {re.escape(name)} .*{re.escape(scripts[name])}\s*$')
 
