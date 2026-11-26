@@ -5,8 +5,9 @@
 PR #29 в `release/4.0.x`. Plan Review: v0.4 NEEDS_CHANGES (B1–B3: чёрный список обходится
 путём к бинарнику, сборкой слова; триаж на каждом вызове тормозит bash 3.2) → v0.5 белый
 список и ленивый триаж → N1 (`printf -v`) → v0.6 PLAN_READY. RED на коде `v4.0.0` (ls при
-медленной проверке → 2), GREEN 38/38 в `pre-bash-dispatch`. Pending: полный verify, CI с
-временем шага `windows-commit-tier` (AC-4), QA, Code Review, финализация, тег `v4.0.1`.
+медленной проверке → 2), GREEN: `pre-bash-dispatch` 37 OK (1 skip). Полный verify локально
+PASS; QA PASS, Code Review APPROVED (advisory → заявки Beads). Pending: время шага
+`windows-commit-tier` (AC-4), финализация, тег `v4.0.1`.
 
 ## og-4py rc.5.2 — обычный вход в Git для Beads, реализация (2026-11-10)
 

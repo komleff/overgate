@@ -7,7 +7,7 @@ Delivery First связывает принятую спецификацию, р�
 
 Начните с [QUICKSTART — первого проекта с агентом](QUICKSTART.md).
 
-**OverGate 4.0.0 Delivery First.** Включает установку и откат, managed Beads и исправленный
+**OverGate 4.0.1 Delivery First.** Включает установку и откат, managed Beads и исправленный
 Windows Git Bash route для гейта коммита. Версии для установки указаны в
 [GitHub Releases](https://github.com/komleff/overgate/releases).
 

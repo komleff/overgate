@@ -18,7 +18,7 @@ Helper и установщик сами bd не скачивают. Для PR н
 или авторизованный коннектор; `gh auth status` проверяют при использовании shell `gh`.
 Для Beads после merge нужен отдельный авторизованный `git push` из publisher checkout.
 
-Source OverGate — чистый Git checkout с `.git`. Для установки OverGate 4.0.0 выберите
+Source OverGate — чистый Git checkout с `.git`. Для установки OverGate 4.0.1 выберите
 тег версии в [GitHub Releases](https://github.com/komleff/overgate/releases).
 Для проверки кандидата используйте точный SHA из PR.
 
