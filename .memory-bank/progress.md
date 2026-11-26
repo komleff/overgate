@@ -1,5 +1,16 @@
 # Progress
 
+## v4.0.1 — деградированный режим быстрых проверок, реализация (2026-11-26)
+
+PR #29 в `release/4.0.x`. Plan Review: v0.4 NEEDS_CHANGES (B1–B3: чёрный список обходится
+путём к бинарнику, сборкой слова; триаж на каждом вызове тормозит bash 3.2) → v0.5 белый
+список и ленивый триаж → N1 (`printf -v`) → v0.6 PLAN_READY. RED на коде `v4.0.0` (ls при
+медленной проверке → 2), GREEN. QA PASS, Code Review APPROVED (advisory → заявки Beads).
+AC-4: в CI Windows живые сценарии в commit tier дали `pre-bash-dispatch` 119 → 139 с (+20 при
+бюджете 15) — вынесены в шаг полного набора `pre-bash-degraded` (5 тестов); в commit tier —
+корпус вердиктов (`pre-bash-dispatch` 33 OK, 1 skip). Pending: CI, affected QA/re-review,
+финализация, тег `v4.0.1`.
+
 ## og-4py rc.5.2 — обычный вход в Git для Beads, реализация (2026-11-10)
 
 PR #20, ветка `fix/og-4py-beads-credentials`, план v0.5 PLAN_READY. Сетевые вызовы Beads

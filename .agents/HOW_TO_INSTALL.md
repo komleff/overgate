@@ -1,8 +1,8 @@
 ---
 title: "Установка OverGate — entrypoint"
 status: active
-version: "4.0.0"
-date: 2026-11-21
+version: "4.0.1"
+date: 2026-11-26
 tags: [installation]
 ---
 # Установка
