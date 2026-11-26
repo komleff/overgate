@@ -1,8 +1,8 @@
 ---
 title: "Install, upgrade and rollback — OverGate Slipstream"
 status: active
-version: "5.0.0-rc.2"
-date: 2026-11-23
+version: "5.0.0-rc.3"
+date: 2026-11-27
 tags: [installation, upgrade, rollback, delivery-first]
 ---
 # Установка и обновление
@@ -11,7 +11,7 @@ tags: [installation, upgrade, rollback, delivery-first]
 OverGate **Git checkout с `.git` и exact SHA**. ZIP/tarball release без Git metadata
 не является trusted source этого установщика. Получите source через `git clone`, затем
 выберите тег нужного выпуска в [GitHub Releases](https://github.com/komleff/overgate/releases).
-Для Slipstream `v5.0.0-rc.2` до публикации используйте точный SHA из PR, после публикации — тег со страницы Releases.
+Для Slipstream `v5.0.0-rc.3` до публикации используйте точный SHA из PR, после публикации — тег со страницы Releases.
 Installer работает с локальным Git checkout.
 
 Windows Git for Windows обычно checkout'ит текст с CRLF через system `core.autocrlf=true`,
